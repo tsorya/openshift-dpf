@@ -43,39 +43,35 @@ subjects:
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: sriov-init-script
+  name: sriov-supervisor-script
   namespace: openshift-sriov-network-operator
 data:
-  init.sh: |
+  entrypoint.sh: |
     #!/bin/bash
     set -e
 
-    # --- Configuration ---
     TARGET_VENDOR="15b3"
     TARGET_DEVICE="a2dc"
     NODE_NAME="${NODE_NAME:-$(hostname)}"
-    CONFIG_FILE="/config/${NODE_NAME}"
-    SYS_PREFIX="/host/sys"
+    
+    CONFIG_DIR="/etc/pcidp"
+    CONFIG_FILE="${CONFIG_DIR}/${NODE_NAME}"
+    mkdir -p "$CONFIG_DIR"
 
+    SYS_PREFIX="/host/sys"
     MGMT_VF_INDEX=1
     DATA_VF_START=2
-    # DATA_VF_END is dynamic
 
-    # Timeout configuration
-    MAX_WAIT_SECONDS=300  # 5 minutes
+    # Timeout settings
+    MAX_WAIT_SECONDS=600
     POLL_INTERVAL=5
 
-    # Logging function with timestamp
-    log() {
-      echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*"
-    }
+    log() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*"; }
 
-    log "=== SR-IOV Init Started: $NODE_NAME ==="
-    log "Configuration: Vendor=$TARGET_VENDOR, Device=$TARGET_DEVICE"
-    log "Reading Host Sysfs at: $SYS_PREFIX"
+    log "=== SR-IOV Supervisor Started: $NODE_NAME ==="
+    log "Status: Blocking Device Plugin start until VFs are physically present."
 
     find_pf() {
-      # Look in the mounted host sysfs
       for dev in ${SYS_PREFIX}/class/net/*; do
         [ -f "$dev/device/sriov_numvfs" ] || continue
         v=$(cat "$dev/device/vendor" 2>/dev/null | sed 's/0x//')
@@ -94,18 +90,17 @@ data:
       PF=$(find_pf)
       if [ -z "$PF" ]; then
         if [ "$ELAPSED" -ge "$MAX_WAIT_SECONDS" ]; then
-          log "ERROR: Timeout after ${ELAPSED}s waiting for PF (vendor=$TARGET_VENDOR, device=$TARGET_DEVICE)"
+          log "ERROR: Timeout waiting for PF. Exiting to restart pod."
           exit 1
         fi
-        log "Waiting for PF ($TARGET_DEVICE) in $SYS_PREFIX/class/net... (${ELAPSED}s/${MAX_WAIT_SECONDS}s)"
+        log "Waiting for PF..."
         sleep $POLL_INTERVAL
         ELAPSED=$((ELAPSED + POLL_INTERVAL))
       fi
     done
-    log "✓ Found PF: $PF (PCI: $(readlink -f "$SYS_PREFIX/class/net/$PF/device" 2>/dev/null || echo 'unknown'))"
-
-    # Path to the PF inside the mounted sysfs
+    
     PF_PATH="${SYS_PREFIX}/class/net/$PF"
+    log "Found PF: $PF"
 
     get_vf_pci() {
       local idx=$1
@@ -116,8 +111,10 @@ data:
       return 1
     }
 
-    log "Waiting for VFs on $PF..."
-
+    # Loop indefinitely until hardware appears.
+    # While looping, the main binary is NOT running.
+    # Kubelet sees 0 resources.
+    log "Waiting for VFs..."
     MGMT_PCI=""
     DATA_PCI_LIST=""
     VF_DEVICE_ID=""
@@ -128,63 +125,42 @@ data:
 
       if [ "$TOTAL_VFS" -le "$DATA_VF_START" ]; then
         if [ "$VF_ELAPSED" -ge "$MAX_WAIT_SECONDS" ]; then
-          log "ERROR: Timeout after ${VF_ELAPSED}s waiting for VFs (found $TOTAL_VFS, need > $DATA_VF_START)"
+          log "ERROR: Timeout waiting for VFs. Exiting."
           exit 1
         fi
-        log "Found $TOTAL_VFS VFs, need > $DATA_VF_START. Waiting... (${VF_ELAPSED}s/${MAX_WAIT_SECONDS}s)"
         sleep $POLL_INTERVAL
         VF_ELAPSED=$((VF_ELAPSED + POLL_INTERVAL))
         continue
       fi
 
       LAST_VF_INDEX=$((TOTAL_VFS - 1))
-
       MISSING=0
 
-      # Mgmt VF
+      # Check Mgmt VF
       pci=$(get_vf_pci $MGMT_VF_INDEX)
-      if [ -z "$pci" ]; then
-        MISSING=1
-      else
+      if [ -z "$pci" ]; then MISSING=1; else
         MGMT_PCI="\"$pci\""
-        if [ -z "$VF_DEVICE_ID" ]; then
-           # Note: Reading from mounted sysfs for PCI device info
-           VF_DEVICE_ID=$(cat "${SYS_PREFIX}/bus/pci/devices/$pci/device" 2>/dev/null | sed 's/0x//')
-        fi
+        [ -z "$VF_DEVICE_ID" ] && VF_DEVICE_ID=$(cat "${SYS_PREFIX}/bus/pci/devices/$pci/device" 2>/dev/null | sed 's/0x//')
       fi
 
-      # Data VFs
+      # Check Data VFs
       TEMP_DATA_LIST=""
       for (( i=$DATA_VF_START; i<=$LAST_VF_INDEX; i++ )); do
         pci=$(get_vf_pci $i)
-        if [ -z "$pci" ]; then
-           MISSING=1
-           break
-        fi
+        if [ -z "$pci" ]; then MISSING=1; break; fi
         [ -n "$TEMP_DATA_LIST" ] && TEMP_DATA_LIST="$TEMP_DATA_LIST, "
         TEMP_DATA_LIST="$TEMP_DATA_LIST\"$pci\""
       done
 
       if [ "$MISSING" -eq 0 ] && [ -n "$VF_DEVICE_ID" ]; then
         DATA_PCI_LIST="$TEMP_DATA_LIST"
-        log "✓ All VFs resolved (total: $TOTAL_VFS, data VFs: $((LAST_VF_INDEX - DATA_VF_START + 1)))"
-        log "  VF Device ID: $VF_DEVICE_ID"
-        log "  Management VF: $MGMT_PCI"
-        log "  Data VFs: $DATA_PCI_LIST"
+        log "All VFs resolved."
         break
       fi
-
-      if [ "$VF_ELAPSED" -ge "$MAX_WAIT_SECONDS" ]; then
-        log "ERROR: Timeout after ${VF_ELAPSED}s waiting for VF symlinks"
-        exit 1
-      fi
-      log "Waiting for VF symlinks in $PF_PATH... (${VF_ELAPSED}s/${MAX_WAIT_SECONDS}s)"
       sleep $POLL_INTERVAL
-      VF_ELAPSED=$((VF_ELAPSED + POLL_INTERVAL))
     done
 
-    # Write Config
-    log "Generating configuration to $CONFIG_FILE..."
+    log "Generating configuration..."
     cat > "$CONFIG_FILE" <<EOF
     {
       "resourceList": [
@@ -213,59 +189,45 @@ data:
       ]
     }
     EOF
-    log "✓ Configuration written ($(wc -c < "$CONFIG_FILE") bytes)"
-    log "=== Init Container Completed Successfully ==="
-    exit 0
+    log "Configuration written."
 
+    # 4. LAUNCH PLUGIN
+    log "=== Starting SR-IOV Device Plugin ==="
+    exec /usr/bin/sriovdp -v 10 -logtostderr --resource-prefix=openshift.io --config-file="$CONFIG_FILE"
 ---
 apiVersion: apps/v1
 kind: DaemonSet
 metadata:
   name: sriov-device-plugin
   namespace: openshift-sriov-network-operator
+  labels:
+    app: sriov-device-plugin
 spec:
   selector:
     matchLabels:
       app: sriov-device-plugin
+  updateStrategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 33%
+      maxSurge: 0
   template:
     metadata:
       labels:
         app: sriov-device-plugin
     spec:
       serviceAccountName: sriov-device-plugin
-      nodeSelector:
-        feature.node.kubernetes.io/network-sriov.capable: "true"
       priorityClassName: system-node-critical
       hostNetwork: true
-
-      initContainers:
-      - name: wait-and-configure
-        image: registry.redhat.io/openshift4/ose-sriov-network-device-plugin-rhel9@sha256:1e3d8511559b72315b71065927c8228900636af25026638c3ff0c1b84698f65a
-        command: ["/bin/bash", "/scripts/init.sh"]
-        env:
-        - name: NODE_NAME
-          valueFrom:
-            fieldRef:
-              fieldPath: spec.nodeName
-        securityContext:
-          privileged: true
-        volumeMounts:
-        - name: init-script
-          mountPath: /scripts
-        # MOUNT CHANGE: Mount host sysfs to /host/sys
-        - name: host-sys
-          mountPath: /host/sys
-          readOnly: true
-        - name: config-volume
-          mountPath: /config
-
+      nodeSelector:
+        feature.node.kubernetes.io/network-sriov.capable: "true"
+      tolerations:
+      - operator: Exists
+      
       containers:
       - name: sriov-device-plugin
         image: registry.redhat.io/openshift4/ose-sriov-network-device-plugin-rhel9@sha256:1e3d8511559b72315b71065927c8228900636af25026638c3ff0c1b84698f65a
-        args:
-        - --log-level=10
-        - --resource-prefix=openshift.io
-        - --config-file=/etc/pcidp/$(NODE_NAME)
+        command: ["/bin/bash", "/scripts/entrypoint.sh"]
         env:
         - name: NODE_NAME
           valueFrom:
@@ -273,36 +235,33 @@ spec:
               fieldPath: spec.nodeName
         securityContext:
           privileged: true
+        resources:
+          requests:
+            cpu: "100m"
+            memory: "50Mi"
         volumeMounts:
+        - name: supervisor-script
+          mountPath: /scripts
         - name: devicesock
           mountPath: /var/lib/kubelet/device-plugins
         - name: config-volume
-          mountPath: /etc/pcidp/
-          readOnly: true
-        # Keep this for the main container if it needs it, but init uses /host/sys
+          mountPath: /etc/pcidp
         - name: host-sys
-          mountPath: /sys
+          mountPath: /host/sys
           readOnly: true
-
+      
       volumes:
-      - name: init-script
+      - name: supervisor-script
         configMap:
-          name: sriov-init-script
+          name: sriov-supervisor-script
           defaultMode: 0755
       - name: devicesock
         hostPath:
           path: /var/lib/kubelet/device-plugins
+          type: Directory
       - name: config-volume
         emptyDir: {}
       - name: host-sys
         hostPath:
           path: /sys
-
-      tolerations:
-      - operator: Exists
-
-  updateStrategy:
-    type: RollingUpdate
-    rollingUpdate:
-      maxUnavailable: 33%
-      maxSurge: 0
+          type: Directory
