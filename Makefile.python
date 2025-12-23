@@ -16,7 +16,8 @@ DPF_CLI := $(PYTHON) -m dpf.cli
         deploy-dpf kubeconfig deploy-nfd install-hypershift install-helm deploy-dpu-services \
         prepare-dpu-files create-day2-cluster redeploy-dpu enable-ovn-injector deploy-argocd \
         deploy-maintenance-operator deploy-core-operator-sources setup-nfs-server deploy-metallb \
-        deploy-lso deploy-odf prepare-nfs run-dpf-sanity install setup-venv update-etc-hosts
+        deploy-lso deploy-odf prepare-nfs run-dpf-sanity install setup-venv update-etc-hosts \
+        activate-script provision-workers approve-worker-csrs wait-worker-csrs worker-status
 
 # Virtual environment setup
 VENV_DIR := .venv
@@ -34,8 +35,24 @@ setup-venv:
 	@$(PYTHON) -m venv $(VENV_DIR)
 	@$(VENV_PIP) install --upgrade pip
 	@$(VENV_PIP) install -r requirements.txt
-	@echo "Virtual environment created at $(VENV_DIR)"
-	@echo "Activate with: source $(VENV_DIR)/bin/activate"
+	@$(VENV_PIP) install -e .
+	@echo ""
+	@echo "✅ Virtual environment ready!"
+	@echo ""
+	@echo "To activate, run:"
+	@echo "  source $(VENV_DIR)/bin/activate"
+	@echo ""
+	@echo "Or use the shortcut:"
+	@echo "  source activate.sh"
+
+# Create activation shortcut script
+activate-script:
+	@echo '#!/bin/bash' > activate.sh
+	@echo 'source .venv/bin/activate' >> activate.sh
+	@echo 'echo "✅ Virtual environment activated"' >> activate.sh
+	@echo 'echo "Run: dpf --help"' >> activate.sh
+	@chmod +x activate.sh
+	@echo "Created activate.sh - run: source activate.sh"
 
 # Install the package
 install: setup-venv
@@ -95,6 +112,19 @@ create-vms: download-iso
 
 delete-vms:
 	@$(DPF_CLI) vm delete
+
+# Worker provisioning
+provision-workers:
+	@$(DPF_CLI) worker provision
+
+approve-worker-csrs:
+	@$(DPF_CLI) worker approve-csrs
+
+wait-worker-csrs:
+	@$(DPF_CLI) worker wait-csrs
+
+worker-status:
+	@$(DPF_CLI) worker status
 
 # Manifest management
 prepare-manifests:
@@ -169,8 +199,9 @@ help:
 	@echo "OpenShift DPF - Python-based CLI"
 	@echo ""
 	@echo "Setup:"
-	@echo "  make setup-venv    - Create Python virtual environment"
-	@echo "  make install       - Install the dpf package"
+	@echo "  make -f Makefile.python setup-venv      - Create Python virtual environment"
+	@echo "  make -f Makefile.python activate-script - Create activate.sh shortcut"
+	@echo "  make -f Makefile.python install         - Install the dpf package"
 	@echo ""
 	@echo "Main workflow:"
 	@echo "  make all           - Complete setup: verify, create cluster, VMs, install, deploy"
@@ -185,6 +216,12 @@ help:
 	@echo "VM Management:"
 	@echo "  make create-vms        - Create virtual machines"
 	@echo "  make delete-vms        - Delete virtual machines"
+	@echo ""
+	@echo "Worker Provisioning:"
+	@echo "  make provision-workers   - Provision worker nodes via BMO"
+	@echo "  make approve-worker-csrs - Approve pending CSRs"
+	@echo "  make wait-worker-csrs    - Wait for workers and approve CSRs"
+	@echo "  make worker-status       - Show worker status"
 	@echo ""
 	@echo "DPF Installation:"
 	@echo "  make deploy-dpf            - Deploy DPF operator"
