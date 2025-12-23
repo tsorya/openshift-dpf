@@ -68,6 +68,7 @@ def __getattr__(name: str):
         "tools",
         "utils",
         "vm",
+        "worker",
     }
     
     # Class/function mappings for convenience imports

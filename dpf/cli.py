@@ -48,6 +48,13 @@ from dpf.post_install import (
 )
 from dpf.sanity_checks import run_sanity_checks
 from dpf.tools import install_golang, install_helm, install_hypershift, install_oc
+from dpf.worker import (
+    approve_worker_csrs,
+    display_manual_csr_instructions,
+    display_worker_status,
+    provision_all_workers,
+    wait_and_approve_csrs,
+)
 from dpf.utils import log_error, log_info, verify_files
 from dpf.vm import create_vms, delete_vms
 
@@ -203,6 +210,59 @@ def vm_delete(ctx: click.Context) -> None:
     config = ctx.obj["config"]
     success = delete_vms(config)
     sys.exit(0 if success else 1)
+
+
+# ============================================================================
+# Worker Provisioning Commands
+# ============================================================================
+
+@cli.group()
+def worker() -> None:
+    """Worker node provisioning commands."""
+    pass
+
+
+@worker.command("provision")
+@click.pass_context
+def worker_provision(ctx: click.Context) -> None:
+    """Provision all worker nodes via BMO."""
+    config = ctx.obj["config"]
+    success = provision_all_workers(config)
+    sys.exit(0 if success else 1)
+
+
+@worker.command("approve-csrs")
+@click.pass_context
+def worker_approve_csrs(ctx: click.Context) -> None:
+    """Approve pending CSRs for worker nodes."""
+    config = ctx.obj["config"]
+    approved = approve_worker_csrs(config)
+    click.echo(f"Approved {approved} CSR(s)")
+    sys.exit(0)
+
+
+@worker.command("wait-csrs")
+@click.option("--timeout", default=600, help="Timeout in seconds")
+@click.pass_context
+def worker_wait_csrs(ctx: click.Context, timeout: int) -> None:
+    """Wait for workers to register and approve CSRs."""
+    config = ctx.obj["config"]
+    success = wait_and_approve_csrs(config, timeout=timeout)
+    sys.exit(0 if success else 1)
+
+
+@worker.command("status")
+@click.pass_context
+def worker_status(ctx: click.Context) -> None:
+    """Display worker status."""
+    config = ctx.obj["config"]
+    display_worker_status(config)
+
+
+@worker.command("help-csr")
+def worker_help_csr() -> None:
+    """Display manual CSR approval instructions."""
+    display_manual_csr_instructions()
 
 
 # ============================================================================
