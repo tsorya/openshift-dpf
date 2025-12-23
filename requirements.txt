@@ -16,8 +16,5 @@ aicli
 # HTTP requests
 requests>=2.31.0
 
-# Libvirt bindings for VM management
-libvirt-python>=9.0.0
-
 # Jinja2 for templating
 Jinja2>=3.1.0

@@ -43,6 +43,12 @@ dev = [
     "black>=23.0.0",
     "types-PyYAML",
 ]
+# VM management requires libvirt system libraries
+# Install with: pip install openshift-dpf[vm]
+# Requires: dnf install libvirt-devel (or apt install libvirt-dev)
+vm = [
+    "libvirt-python>=9.0.0",
+]
 
 [project.scripts]
 dpf = "dpf.cli:main"
