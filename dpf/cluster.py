@@ -57,13 +57,13 @@ def validate_vips(config: "Config") -> bool:
     Returns:
         True if VIPs are valid
     """
-    if config.vm_count == 1:
+    if config.vm.vm_count == 1:
         # Single node doesn't need VIPs
         log_debug("Single node cluster, VIPs not required")
         return True
     
-    api_vip = config.api_vip
-    ingress_vip = config.ingress_vip
+    api_vip = config.network.api_vip
+    ingress_vip = config.network.ingress_vip
     
     if not api_vip or not ingress_vip:
         log_error("API_VIP and INGRESS_VIP are required for multi-node clusters")
@@ -96,10 +96,10 @@ def check_cluster_installed(config: "Config") -> bool:
         True if cluster is installed
     """
     ai_client = _get_ai_client(config)
-    cluster = ai_client.get_cluster_by_name(config.cluster_name)
+    cluster = ai_client.get_cluster_by_name(config.cluster.cluster_name)
     
     if cluster and cluster.get("status") == "installed":
-        log_info(f"Cluster {config.cluster_name} is already installed")
+        log_info(f"Cluster {config.cluster.cluster_name} is already installed")
         return True
     
     return False
@@ -121,10 +121,10 @@ def set_cluster_mtu(config: "Config") -> bool:
         return True
     
     ai_client = _get_ai_client(config)
-    cluster = ai_client.get_cluster_by_name(config.cluster_name)
+    cluster = ai_client.get_cluster_by_name(config.cluster.cluster_name)
     
     if not cluster:
-        log_error(f"Cluster {config.cluster_name} not found")
+        log_error(f"Cluster {config.cluster.cluster_name} not found")
         return False
     
     # Get and modify install config
@@ -168,25 +168,25 @@ def check_create_cluster(config: "Config") -> bool:
     ai_client = _get_ai_client(config)
     
     # Check if cluster exists
-    existing = ai_client.get_cluster_by_name(config.cluster_name)
+    existing = ai_client.get_cluster_by_name(config.cluster.cluster_name)
     if existing:
-        log_info(f"Cluster {config.cluster_name} already exists (status: {existing.get('status')})")
+        log_info(f"Cluster {config.cluster.cluster_name} already exists (status: {existing.get('status')})")
         return True
     
     # Determine high availability mode
-    ha_mode = "None" if config.vm_count == 1 else "Full"
+    ha_mode = "None" if config.vm.vm_count == 1 else "Full"
     
     # Create cluster
     cluster = ai_client.create_cluster(
-        name=config.cluster_name,
+        name=config.cluster.cluster_name,
         base_dns_domain=config.base_dns_domain,
         openshift_version=config.ocp_version,
         high_availability_mode=ha_mode,
         network_type="OVNKubernetes",
         machine_network_cidr=config.machine_network_cidr,
-        api_vip=config.api_vip if config.vm_count > 1 else None,
-        ingress_vip=config.ingress_vip if config.vm_count > 1 else None,
-        schedulable_masters=config.vm_count == 1,
+        api_vip=config.network.api_vip if config.vm.vm_count > 1 else None,
+        ingress_vip=config.network.ingress_vip if config.vm.vm_count > 1 else None,
+        schedulable_masters=config.vm.vm_count == 1,
         additional_ntp_source=config.ntp_server,
     )
     
@@ -196,7 +196,7 @@ def check_create_cluster(config: "Config") -> bool:
     
     # Create infra-env
     infra_env = ai_client.create_infra_env(
-        name=f"{config.cluster_name}-infra-env",
+        name=f"{config.cluster.cluster_name}-infra-env",
         cluster_id=cluster["id"],
         openshift_version=config.ocp_version,
     )
@@ -205,7 +205,7 @@ def check_create_cluster(config: "Config") -> bool:
         log_error("Failed to create infra-env")
         return False
     
-    log_info(f"Cluster {config.cluster_name} created successfully")
+    log_info(f"Cluster {config.cluster.cluster_name} created successfully")
     return True
 
 
@@ -224,15 +224,15 @@ def delete_cluster(config: "Config") -> bool:
     ai_client = _get_ai_client(config)
     
     # Delete infra-env first
-    infra_env = ai_client.get_infra_env_by_name(f"{config.cluster_name}-infra-env")
+    infra_env = ai_client.get_infra_env_by_name(f"{config.cluster.cluster_name}-infra-env")
     if infra_env:
         ai_client.delete_infra_env(infra_env["id"])
     
     # Delete cluster
-    success = ai_client.delete_cluster_by_name(config.cluster_name)
+    success = ai_client.delete_cluster_by_name(config.cluster.cluster_name)
     
     if success:
-        log_info(f"Cluster {config.cluster_name} deleted")
+        log_info(f"Cluster {config.cluster.cluster_name} deleted")
     
     return success
 
@@ -252,10 +252,10 @@ def wait_for_cluster_status(status: str, config: "Config", timeout: int = 7200) 
     log_step(f"Waiting for Cluster Status: {status}")
     
     ai_client = _get_ai_client(config)
-    cluster = ai_client.get_cluster_by_name(config.cluster_name)
+    cluster = ai_client.get_cluster_by_name(config.cluster.cluster_name)
     
     if not cluster:
-        log_error(f"Cluster {config.cluster_name} not found")
+        log_error(f"Cluster {config.cluster.cluster_name} not found")
         return False
     
     return ai_client.wait_for_cluster_status(cluster["id"], status, timeout)
@@ -274,10 +274,10 @@ def start_cluster_installation(config: "Config") -> bool:
     log_step("Starting Cluster Installation")
     
     ai_client = _get_ai_client(config)
-    cluster = ai_client.get_cluster_by_name(config.cluster_name)
+    cluster = ai_client.get_cluster_by_name(config.cluster.cluster_name)
     
     if not cluster:
-        log_error(f"Cluster {config.cluster_name} not found")
+        log_error(f"Cluster {config.cluster.cluster_name} not found")
         return False
     
     current_status = cluster.get("status")
@@ -327,10 +327,10 @@ def get_kubeconfig(config: "Config") -> Optional[str]:
         return str(kubeconfig_path)
     
     ai_client = _get_ai_client(config)
-    cluster = ai_client.get_cluster_by_name(config.cluster_name)
+    cluster = ai_client.get_cluster_by_name(config.cluster.cluster_name)
     
     if not cluster:
-        log_error(f"Cluster {config.cluster_name} not found")
+        log_error(f"Cluster {config.cluster.cluster_name} not found")
         return None
     
     if cluster.get("status") != "installed":
@@ -520,9 +520,9 @@ def create_day2_cluster(config: "Config") -> bool:
     ai_client = _get_ai_client(config)
     
     # Get the existing cluster
-    cluster = ai_client.get_cluster_by_name(config.cluster_name)
+    cluster = ai_client.get_cluster_by_name(config.cluster.cluster_name)
     if not cluster:
-        log_error(f"Cluster {config.cluster_name} not found")
+        log_error(f"Cluster {config.cluster.cluster_name} not found")
         return False
     
     if cluster.get("status") != "installed":
@@ -530,7 +530,7 @@ def create_day2_cluster(config: "Config") -> bool:
         return False
     
     # Create a new infra-env for day2 workers
-    day2_name = f"{config.cluster_name}-day2"
+    day2_name = f"{config.cluster.cluster_name}-day2"
     
     infra_env = ai_client.create_infra_env(
         name=day2_name,
@@ -564,9 +564,9 @@ def get_iso(config: "Config", iso_type: str = "day1", action: str = "download") 
     
     # Determine infra-env name
     if iso_type == "day2":
-        infra_env_name = f"{config.cluster_name}-day2"
+        infra_env_name = f"{config.cluster.cluster_name}-day2"
     else:
-        infra_env_name = f"{config.cluster_name}-infra-env"
+        infra_env_name = f"{config.cluster.cluster_name}-infra-env"
     
     infra_env = ai_client.get_infra_env_by_name(infra_env_name)
     if not infra_env:
@@ -580,7 +580,7 @@ def get_iso(config: "Config", iso_type: str = "day1", action: str = "download") 
         return url
     
     # Download ISO
-    iso_path = Path(config.iso_dir) / f"{config.cluster_name}-{iso_type}.iso"
+    iso_path = Path(config.vm.iso_folder) / f"{config.cluster.cluster_name}-{iso_type}.iso"
     ensure_directory(iso_path.parent)
     
     if ai_client.download_iso(infra_env["id"], iso_path):

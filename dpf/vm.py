@@ -573,21 +573,21 @@ def create_vms(config: Any) -> bool:
     Returns:
         True if successful
     """
-    log_step(f"Creating {config.vm_count} VMs")
+    log_step(f"Creating {config.vm.vm_count} VMs")
     
     if not LIBVIRT_AVAILABLE:
         log_error("libvirt-python is not installed. Install with: pip install libvirt-python")
         return False
     
     # Get ISO path
-    iso_path = Path(config.iso_dir) / f"{config.cluster_name}-day1.iso"
+    iso_path = Path(config.vm.iso_folder) / f"{config.cluster.cluster_name}-day1.iso"
     if not iso_path.exists():
         log_error(f"ISO not found: {iso_path}")
         log_error("Run 'dpf cluster download-iso' first")
         return False
     
     # Create each VM
-    for i in range(config.vm_count):
+    for i in range(config.vm.vm_count):
         vm_name = f"{config.vm_prefix}-{i}"
         
         # Generate MAC addresses from config or random
@@ -625,7 +625,7 @@ def create_vms(config: Any) -> bool:
             log_error(f"Failed to create VM {vm_name}")
             return False
     
-    log_info(f"Created {config.vm_count} VMs")
+    log_info(f"Created {config.vm.vm_count} VMs")
     return True
 
 
@@ -676,7 +676,7 @@ def wait_for_vms_running(config: Any, timeout: int = 300) -> bool:
     log_step("Waiting for VMs to start")
     
     start_time = time.time()
-    expected_count = config.vm_count
+    expected_count = config.vm.vm_count
     
     while time.time() - start_time < timeout:
         vms = list_vms(prefix=config.vm_prefix)

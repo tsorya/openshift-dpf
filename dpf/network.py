@@ -471,16 +471,16 @@ def update_etc_hosts(config: Any) -> bool:
     """
     log_step("Updating /etc/hosts")
     
-    cluster_name = config.cluster_name
+    cluster_name = config.cluster.cluster_name
     base_domain = config.base_dns_domain
     
     # Determine IP address
-    if config.vm_count > 1:
-        ip_address = config.api_vip
+    if config.vm.vm_count > 1:
+        ip_address = config.network.api_vip
     else:
         # Single node - get VM IP
         # This would need to query libvirt or wait for the VM to get an IP
-        ip_address = config.api_vip or "127.0.0.1"
+        ip_address = config.network.api_vip or "127.0.0.1"
     
     if not ip_address:
         log_error("Could not determine API IP address")
@@ -496,9 +496,9 @@ def update_etc_hosts(config: Any) -> bool:
     entries = [
         f"{ip_address} {api_hostname}",
         f"{ip_address} {api_int_hostname}",
-        f"{config.ingress_vip or ip_address} {apps_hostname.replace('*', 'wildcard')}",
-        f"{config.ingress_vip or ip_address} {oauth_hostname}",
-        f"{config.ingress_vip or ip_address} {console_hostname}",
+        f"{config.network.ingress_vip or ip_address} {apps_hostname.replace('*', 'wildcard')}",
+        f"{config.network.ingress_vip or ip_address} {oauth_hostname}",
+        f"{config.network.ingress_vip or ip_address} {console_hostname}",
     ]
     
     # Read current /etc/hosts

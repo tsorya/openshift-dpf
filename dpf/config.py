@@ -236,6 +236,67 @@ class Config:
         """Get the DPF pull secret path."""
         return os.environ.get("DPF_PULL_SECRET", "dpf-pull-secret.yaml")
 
+    # Convenience properties for commonly accessed nested attributes
+    @property
+    def pull_secret_path(self) -> str:
+        """Get the pull secret path."""
+        return self.openshift_pull_secret
+
+    @property
+    def ssh_public_key_path(self) -> str:
+        """Get the SSH public key path."""
+        return self.cluster.ssh_key
+
+    @property
+    def assisted_installer_url(self) -> str:
+        """Get the Assisted Installer URL."""
+        return os.environ.get("AI_URL", "http://192.168.122.1:8090")
+
+    @property
+    def mtu(self) -> int:
+        """Get the network MTU."""
+        return self.network.nodes_mtu
+
+    @property
+    def network_bridge(self) -> str:
+        """Get the network bridge name."""
+        return self.vm.bridge_name
+
+    @property
+    def vm_prefix(self) -> str:
+        """Get the VM name prefix."""
+        return self.vm.vm_prefix
+
+    @property
+    def vm_disk_dir(self) -> str:
+        """Get the VM disk directory."""
+        return self.vm.disk_path
+
+    @property
+    def vm_ram(self) -> int:
+        """Get the VM RAM in MB."""
+        return self.vm.ram
+
+    @property
+    def vm_vcpus(self) -> int:
+        """Get the VM vCPU count."""
+        return self.vm.vcpus
+
+    @property
+    def vm_disk_size(self) -> int:
+        """Get the VM disk size in GB."""
+        return self.vm.disk_size1
+
+    @property
+    def base_dns_domain(self) -> str:
+        """Get the base DNS domain."""
+        return self.cluster.base_domain
+
+    @property
+    def nfs_path(self) -> str:
+        """Get the NFS export path."""
+        return self.nfs.path
+
 
 def load_env_file(env_file: Optional[Path] = None) -> dict[str, str]:
     """
