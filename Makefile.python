@@ -1,0 +1,208 @@
+# OpenShift DPF - Python-based Makefile
+# This Makefile uses the Python CLI instead of bash scripts
+
+# Include environment variables
+-include .env
+
+# Export variables to child processes
+export
+
+# Python executable
+PYTHON := python3
+DPF_CLI := $(PYTHON) -m dpf.cli
+
+.PHONY: all clean check-cluster create-cluster prepare-manifests help delete-cluster verify-files \
+        download-iso create-vms delete-vms cluster-install wait-for-ready wait-for-installed \
+        deploy-dpf kubeconfig deploy-nfd install-hypershift install-helm deploy-dpu-services \
+        prepare-dpu-files create-day2-cluster redeploy-dpu enable-ovn-injector deploy-argocd \
+        deploy-maintenance-operator deploy-core-operator-sources setup-nfs-server deploy-metallb \
+        deploy-lso deploy-odf prepare-nfs run-dpf-sanity install setup-venv update-etc-hosts
+
+# Virtual environment setup
+VENV_DIR := .venv
+VENV_PYTHON := $(VENV_DIR)/bin/python
+VENV_PIP := $(VENV_DIR)/bin/pip
+
+# Default target
+all: install
+	@mkdir -p logs
+	@$(DPF_CLI) all 2>&1 | tee "logs/make_all_$$(date +%Y%m%d_%H%M%S).log"
+
+# Setup virtual environment
+setup-venv:
+	@echo "Setting up Python virtual environment..."
+	@$(PYTHON) -m venv $(VENV_DIR)
+	@$(VENV_PIP) install --upgrade pip
+	@$(VENV_PIP) install -r requirements.txt
+	@echo "Virtual environment created at $(VENV_DIR)"
+	@echo "Activate with: source $(VENV_DIR)/bin/activate"
+
+# Install the package
+install: setup-venv
+	@$(VENV_PIP) install -e .
+	@echo "Package installed. Use 'dpf' command to run."
+
+# Verify required files
+verify-files:
+	@$(DPF_CLI) verify-files
+
+# Cluster management
+clean:
+	@$(DPF_CLI) cluster clean-all
+
+delete-cluster:
+	@$(DPF_CLI) cluster delete
+
+check-cluster:
+	@$(DPF_CLI) cluster create
+
+create-cluster:
+	@$(DPF_CLI) cluster create
+
+create-day2-cluster:
+	@$(DPF_CLI) cluster create-day2
+
+download-iso:
+	@$(DPF_CLI) cluster download-iso
+
+cluster-install:
+	@$(DPF_CLI) cluster install
+
+wait-for-status:
+	@$(DPF_CLI) cluster wait "$(STATUS)"
+
+wait-for-ready:
+	@$(MAKE) -f Makefile.python wait-for-status STATUS=ready
+
+wait-for-installed:
+	@$(MAKE) -f Makefile.python wait-for-status STATUS=installed
+
+kubeconfig:
+	@$(DPF_CLI) cluster kubeconfig
+
+clean-all:
+	@$(DPF_CLI) cluster clean-all
+
+deploy-lso:
+	@$(DPF_CLI) cluster deploy-lso
+
+deploy-odf:
+	@$(DPF_CLI) cluster deploy-odf
+
+# VM management
+create-vms: download-iso
+	@$(DPF_CLI) vm create
+
+delete-vms:
+	@$(DPF_CLI) vm delete
+
+# Manifest management
+prepare-manifests:
+	@$(DPF_CLI) manifests prepare-cluster
+
+prepare-dpf-manifests:
+	@$(DPF_CLI) manifests prepare-dpf
+
+prepare-nfs:
+	@$(DPF_CLI) manifests prepare-nfs
+
+deploy-core-operator-sources:
+	@$(DPF_CLI) manifests deploy-operators
+
+# DPF deployment
+deploy-argocd: install-helm
+	@$(DPF_CLI) dpf deploy-argocd
+
+deploy-maintenance-operator: install-helm
+	@$(DPF_CLI) dpf deploy-maintenance
+
+deploy-dpf: prepare-dpf-manifests
+	@$(DPF_CLI) dpf deploy
+
+deploy-nfd:
+	@$(DPF_CLI) dpf deploy-nfd
+
+deploy-metallb:
+	@$(DPF_CLI) dpf deploy-metallb
+
+deploy-hypershift:
+	@$(DPF_CLI) dpf deploy-hypershift
+
+create-ignition-template:
+	@$(DPF_CLI) dpf create-ignition
+
+# Post-installation
+prepare-dpu-files:
+	@$(DPF_CLI) post-install prepare
+
+deploy-dpu-services: prepare-dpu-files
+	@$(DPF_CLI) post-install apply
+
+redeploy-dpu:
+	@$(DPF_CLI) post-install redeploy
+
+# Tools
+install-helm:
+	@$(DPF_CLI) tools install-helm
+
+install-hypershift:
+	@$(DPF_CLI) tools install-hypershift
+
+# Network
+update-etc-hosts:
+	@$(DPF_CLI) network update-hosts
+
+setup-nfs-server:
+	@$(DPF_CLI) network setup-nfs
+
+# Enable OVN injector (uses existing script)
+enable-ovn-injector: install-helm
+	@scripts/enable-ovn-injector.sh
+
+# Sanity checks
+run-dpf-sanity:
+	@echo "Running DPF sanity checks..."
+	@$(DPF_CLI) sanity-check
+
+# Help
+help:
+	@echo "OpenShift DPF - Python-based CLI"
+	@echo ""
+	@echo "Setup:"
+	@echo "  make setup-venv    - Create Python virtual environment"
+	@echo "  make install       - Install the dpf package"
+	@echo ""
+	@echo "Main workflow:"
+	@echo "  make all           - Complete setup: verify, create cluster, VMs, install, deploy"
+	@echo ""
+	@echo "Cluster Management:"
+	@echo "  make create-cluster    - Create a new cluster"
+	@echo "  make delete-cluster    - Delete the cluster"
+	@echo "  make cluster-install   - Start cluster installation"
+	@echo "  make kubeconfig        - Download cluster kubeconfig"
+	@echo "  make clean-all         - Delete cluster, VMs, and clean all"
+	@echo ""
+	@echo "VM Management:"
+	@echo "  make create-vms        - Create virtual machines"
+	@echo "  make delete-vms        - Delete virtual machines"
+	@echo ""
+	@echo "DPF Installation:"
+	@echo "  make deploy-dpf            - Deploy DPF operator"
+	@echo "  make deploy-argocd         - Deploy GitOps operator"
+	@echo "  make deploy-maintenance-operator - Deploy Maintenance Operator"
+	@echo "  make prepare-dpu-files     - Prepare post-installation manifests"
+	@echo "  make deploy-dpu-services   - Deploy DPU services"
+	@echo ""
+	@echo "Tools:"
+	@echo "  make install-helm          - Install Helm"
+	@echo "  make install-hypershift    - Install Hypershift"
+	@echo ""
+	@echo "Network:"
+	@echo "  make update-etc-hosts      - Update /etc/hosts"
+	@echo "  make setup-nfs-server      - Set up NFS server"
+	@echo ""
+	@echo "Testing:"
+	@echo "  make run-dpf-sanity        - Run DPF sanity checks"
+	@echo ""
+	@echo "Use 'dpf --help' for full CLI documentation"
+

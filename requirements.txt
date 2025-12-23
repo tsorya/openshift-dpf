@@ -1,0 +1,23 @@
+# OpenShift DPF Python Dependencies
+# Install with: pip install -r requirements.txt
+
+# CLI framework
+click>=8.0.0
+
+# YAML parsing
+PyYAML>=6.0
+
+# Kubernetes client
+kubernetes>=28.1.0
+
+# Assisted Installer CLI (includes AssistedClient)
+aicli
+
+# HTTP requests
+requests>=2.31.0
+
+# Libvirt bindings for VM management
+libvirt-python>=9.0.0
+
+# Jinja2 for templating
+Jinja2>=3.1.0
