@@ -302,31 +302,35 @@ prepare_dpf_manifests() {
         "<KUBERNETES_VERSION>" "$OPENSHIFT_VERSION" \
         "<HOSTED_CLUSTER_NAME>" "$HOSTED_CLUSTER_NAME"
 
-    # Extract NGC API key and update secrets
-    NGC_API_KEY=$(jq -r '.auths."nvcr.io".password // empty' "$DPF_PULL_SECRET" 2>/dev/null)
-    if [ -z "$NGC_API_KEY" ] || [ "$NGC_API_KEY" = "null" ]; then
-        log "ERROR" "Failed to extract NGC API key from pull secret"
-        return 1
-    fi
-    
-    # Process ngc-secrets.yaml using process_template function
-    update_file_multi_replace \
-        "$MANIFESTS_DIR/dpf-installation/ngc-secrets.yaml" \
-        "$GENERATED_DIR/ngc-secrets.yaml" \
-        "<NGC_API_KEY>" "$NGC_API_KEY"
+    # Extract NGC API key and update secrets (only if DPF_PULL_SECRET is provided)
+    if [ -n "$DPF_PULL_SECRET" ]; then
+        NGC_API_KEY=$(jq -r '.auths."nvcr.io".password // empty' "$DPF_PULL_SECRET" 2>/dev/null)
+        if [ -z "$NGC_API_KEY" ] || [ "$NGC_API_KEY" = "null" ]; then
+            log "ERROR" "Failed to extract NGC API key from pull secret"
+            return 1
+        fi
 
-    # Update pull secret
-    # Encode pull secret (Linux/GNU base64)
-    PULL_SECRET=$(cat "$DPF_PULL_SECRET" | base64 -w 0)
-    if [ -z "$PULL_SECRET" ]; then
-        log "ERROR" "Failed to encode pull secret"
-        return 1
+        # Process ngc-secrets.yaml using process_template function
+        update_file_multi_replace \
+            "$MANIFESTS_DIR/dpf-installation/ngc-secrets.yaml" \
+            "$GENERATED_DIR/ngc-secrets.yaml" \
+            "<NGC_API_KEY>" "$NGC_API_KEY"
+
+        # Update pull secret
+        # Encode pull secret (Linux/GNU base64)
+        PULL_SECRET=$(cat "$DPF_PULL_SECRET" | base64 -w 0)
+        if [ -z "$PULL_SECRET" ]; then
+            log "ERROR" "Failed to encode pull secret"
+            return 1
+        fi
+        local escaped_secret=$(escape_sed_replacement "$PULL_SECRET")
+        update_file_multi_replace \
+            "$GENERATED_DIR/dpf-pull-secret.yaml" \
+            "$GENERATED_DIR/dpf-pull-secret.yaml" \
+            "<PULL_SECRET_BASE64>" "$escaped_secret"
+    else
+        log "INFO" "DPF_PULL_SECRET not provided - skipping NGC secrets and pull secret generation"
     fi
-    local escaped_secret=$(escape_sed_replacement "$PULL_SECRET")
-    update_file_multi_replace \
-        "$GENERATED_DIR/dpf-pull-secret.yaml" \
-        "$GENERATED_DIR/dpf-pull-secret.yaml" \
-        "<PULL_SECRET_BASE64>" "$escaped_secret"
 
     prepare_nfs
     

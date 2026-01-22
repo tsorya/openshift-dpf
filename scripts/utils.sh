@@ -58,8 +58,8 @@ function verify_files() {
         exit 1
     fi
 
-    if [ ! -f "${DPF_PULL_SECRET}" ]; then
-        log "ERROR" "${DPF_PULL_SECRET} not found"
+    if [ -n "${DPF_PULL_SECRET}" ] && [ ! -f "${DPF_PULL_SECRET}" ]; then
+        log "ERROR" "DPF_PULL_SECRET file not found: ${DPF_PULL_SECRET}"
         exit 1
     fi
 

@@ -51,6 +51,10 @@ if [ -z "${MAKELEVEL:-}" ]; then
     validate_mtu
 fi
 
+
+# DPF Pull Secret Configuration (optional - validated in verify_files if provided)
+DPF_PULL_SECRET=${DPF_PULL_SECRET:-""}
+
 # Directory Configuration
 MANIFESTS_DIR=${MANIFESTS_DIR:-"manifests"}
 GENERATED_DIR=${GENERATED_DIR:-"$MANIFESTS_DIR/generated"}
