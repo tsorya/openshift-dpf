@@ -140,13 +140,8 @@ function prepare_cluster_manifests() {
     # Copy all manifests except excluded files using utility function
     copy_manifests_with_exclusions "$MANIFESTS_DIR/cluster-installation" "$GENERATED_DIR" "${excluded_files[@]}"
 
-    # Process subscription manifests with catalog source name
-    if [ -f "$MANIFESTS_DIR/cluster-installation/nfd-subscription.yaml" ]; then
-        update_file_multi_replace \
-            "$MANIFESTS_DIR/cluster-installation/nfd-subscription.yaml" \
-            "$GENERATED_DIR/nfd-subscription.yaml" \
-            "<CATALOG_SOURCE_NAME>" "$CATALOG_SOURCE_NAME"
-    fi
+
+    deploy_core_operator_sources
 
     # Configure cluster components
     log [INFO] "Configuring cluster installation..."
@@ -203,29 +198,29 @@ update_worker_manifest() {
 }
 
 function deploy_core_operator_sources() {
-    log [INFO] "Deploying NFD and SR-IOV subscriptions..."
+    log [INFO] "Deploying NFD subscriptions..."
     log [INFO] "Using catalog source: ${CATALOG_SOURCE_NAME}"
     log [INFO] "Storage type: ${STORAGE_TYPE}"
 
     mkdir -p "$GENERATED_DIR"
+
+    if [ "${USE_CUSTOM_CATALOG_SOURCE}" == "true" ]; then
+        log [INFO] "Deploying custom catalog source (USE_V419_WORKAROUND=true)"
+        local catalog_file="$MANIFESTS_DIR/cluster-installation/custom-catalogsource.yaml"
+        if [ -f "$catalog_file" ]; then
+            apply_manifest "$catalog_file" true
+        else
+            log [ERROR] "Custom catalog source file not found: $catalog_file"
+            log [ERROR] "USE_CUSTOM_CATALOG_SOURCE=true requires the catalog file to exist"
+            return 1
+        fi
+    fi
 
     update_file_multi_replace \
         "$MANIFESTS_DIR/cluster-installation/nfd-subscription.yaml" \
         "$GENERATED_DIR/nfd-subscription.yaml" \
         "<CATALOG_SOURCE_NAME>" "$CATALOG_SOURCE_NAME"
     apply_manifest "$GENERATED_DIR/nfd-subscription.yaml" true
-
-    if [ "${USE_V419_WORKAROUND}" == "true" ]; then
-        log [INFO] "Deploying v4.19 catalog source (USE_V419_WORKAROUND=true)"
-        local catalog_file="$MANIFESTS_DIR/cluster-installation/4.19-cataloguesource.yaml"
-        if [ -f "$catalog_file" ]; then
-            apply_manifest "$catalog_file" true
-        else
-            log [ERROR] "v4.19 catalog source file not found: $catalog_file"
-            log [ERROR] "USE_V419_WORKAROUND=true requires the catalog file to exist"
-            return 1
-        fi
-    fi
 
     log [INFO] "Core operator sources deployed."
 }

@@ -193,13 +193,14 @@ NODES_MTU=${NODES_MTU:-"1500"}
 PRIMARY_IFACE=${PRIMARY_IFACE:-enp1s0}
 
 # OLM Catalog Source Configuration
-# USE_V419_WORKAROUND: Set to true for OpenShift versions where operators
+# USE_CUSTOM_CATALOG_SOURCE: Set to true for OpenShift versions where operators
 # (NFD, SR-IOV, LSO, ODF) are not available in the standard redhat-operators catalog.
 # This is INDEPENDENT from STORAGE_TYPE - affects all operator subscriptions.
-USE_V419_WORKAROUND=${USE_V419_WORKAROUND:-"false"}
+USE_V419_WORKAROUND=${USE_V419_WORKAROUND:-"false"} # Deprecated, use USE_CUSTOM_CATALOG_SOURCE instead
+USE_CUSTOM_CATALOG_SOURCE=${USE_CUSTOM_CATALOG_SOURCE:-${USE_V419_WORKAROUND}}
 
-if [[ "${USE_V419_WORKAROUND}" == "true" ]]; then
-    CATALOG_SOURCE_NAME="redhat-operators-v419"
+if [[ "${USE_CUSTOM_CATALOG_SOURCE}" == "true" ]]; then
+    CATALOG_SOURCE_NAME="custom-catalogsource"
 else
     CATALOG_SOURCE_NAME=${CATALOG_SOURCE_NAME:-"redhat-operators"}
 fi
