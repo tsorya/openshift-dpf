@@ -21,7 +21,6 @@ metadata:
   name: lvms-operator
   namespace: openshift-storage
 spec:
-  channel: stable-4.18
   name: lvms-operator
   source: <CATALOG_SOURCE_NAME>
   sourceNamespace: openshift-marketplace
