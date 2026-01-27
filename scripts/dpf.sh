@@ -359,7 +359,7 @@ function deploy_argocd() {
         mkdir -p "$GENERATED_DIR"
         process_template \
             "${MANIFESTS_DIR}/gitops-operator/subscription.yaml" \
-            "$GENERATED_DIR/gitops-operator-subscription.yaml" \
+            "$GENERATED_DIR/gitops-operator-subscription.yaml"
         apply_manifest "$GENERATED_DIR/gitops-operator-subscription.yaml"
 
         # Prefer CSV readiness over pod label matching for stability
