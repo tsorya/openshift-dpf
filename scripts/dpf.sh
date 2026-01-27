@@ -22,7 +22,11 @@ function deploy_nfd() {
     # Check if NFD subscription exists, if not apply it
     if ! oc get subscription -n openshift-nfd nfd &>/dev/null; then
         log [INFO] "NFD subscription not found. Applying NFD subscription..."
-        apply_manifest "$MANIFESTS_DIR/cluster-installation/nfd-subscription.yaml" true
+
+        process_template "$MANIFESTS_DIR/cluster-installation/nfd-subscription.yaml" \
+        "$GENERATED_DIR/nfd-subscription.yaml" \
+        "<CATALOG_SOURCE_NAME>" "$CATALOG_SOURCE_NAME"
+        apply_manifest "$GENERATED_DIR/nfd-subscription.yaml" true
         
         # Verify operator is ready by checking CSV
         log [INFO] "Verifying NFD operator installation..."
@@ -36,8 +40,8 @@ function deploy_nfd() {
     fi
 
     log [INFO] "Creating NFD instance..."
-    mkdir -p "$GENERATED_DIR"
-    update_file_multi_replace "$MANIFESTS_DIR/dpf-installation/nfd-cr-template.yaml" "$GENERATED_DIR/nfd-cr-template.yaml" \
+    process_template "$MANIFESTS_DIR/dpf-installation/nfd-cr-template.yaml" \
+    "$GENERATED_DIR/nfd-cr-template.yaml" \
         "api.<CLUSTER_FQDN>" "$HOST_CLUSTER_API"
 
     # Apply the NFD CR
