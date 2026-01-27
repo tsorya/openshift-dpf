@@ -26,19 +26,11 @@ function deploy_nfd() {
         process_template "$MANIFESTS_DIR/cluster-installation/nfd-subscription.yaml" \
         "$GENERATED_DIR/nfd-subscription.yaml" \
         "<CATALOG_SOURCE_NAME>" "$CATALOG_SOURCE_NAME"
-        apply_manifest "$GENERATED_DIR/nfd-subscription.yaml" true
-        
-        # Verify operator is ready by checking CSV
-        log [INFO] "Verifying NFD operator installation..."
-        if ! retry 30 10 bash -c 'oc get csv -n openshift-nfd -o jsonpath="{.items[*].status.phase}" | grep -q "Succeeded"'; then
-            log [ERROR] "Timeout: NFD operator installation failed"
-            return 1
-        fi
-        log [INFO] "NFD operator installation verified successfully"
+        apply_manifest "$GENERATED_DIR/nfd-subscription.yaml" true  
     else
         log [INFO] "NFD subscription already exists. Skipping deployment."
     fi
-
+    wait_for_pods "openshift-nfd" "control-plane=controller-manager" 30 10
     log [INFO] "Creating NFD instance..."
     process_template "$MANIFESTS_DIR/dpf-installation/nfd-cr-template.yaml" \
     "$GENERATED_DIR/nfd-cr-template.yaml" \
