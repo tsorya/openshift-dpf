@@ -228,6 +228,10 @@ function start_cluster_installation() {
     aicli start cluster ${CLUSTER_NAME}
     log "INFO" "Waiting for cluster to be finalizing..."
     wait_for_cluster_status "finalizing"
+    if [ "${USE_CUSTOM_CATALOG_SOURCE}" == "true" ] || [ "${STORAGE_TYPE}" == "lvm" ]; then
+        log "INFO" "STORAGE_TYPE=lvm detected. Deploying LVM..."
+        deploy_lvm
+    fi
     log "INFO" "Waiting for installation to complete..."
     wait_for_cluster_status "installed"
     log "INFO" "Cluster installation completed successfully"
@@ -327,6 +331,23 @@ function deploy_lso() {
     
     log "INFO" "LSO deployment completed successfully!"
     log "INFO" "Local storage will use block devices on nodes"
+}
+
+
+function deploy_lvm() {
+    log "INFO" "Deploying LVM Storage operator with custom catalog source..."
+    get_kubeconfig
+
+    log "INFO" "Deploying LVMS subscription using catalog: ${CATALOG_SOURCE_NAME}"
+    mkdir -p "$GENERATED_DIR"
+
+    # Process subscription template
+    process_template \
+        "${MANIFESTS_DIR}/cluster-installation/lvm/lvm-subscription.yaml" \
+        "${GENERATED_DIR}/lvm-subscription.yaml" \
+        "<CATALOG_SOURCE_NAME>" "${CATALOG_SOURCE_NAME}"
+
+    apply_manifest "${GENERATED_DIR}/lvm-subscription.yaml" true
 }
 
 
@@ -511,13 +532,16 @@ function main() {
         deploy-lso)
             deploy_lso
             ;;
+        deploy-lvm)
+            deploy_lvm
+            ;;
         deploy-odf)
             deploy_odf
             ;;
         *)
             log "Unknown command: $command"
             log "Available commands: check-create-cluster, delete-cluster, cluster-install,"
-            log "  wait-for-status, get-kubeconfig, clean-all, download-iso, create-day2-cluster, get-day2-iso, deploy-lso, deploy-odf"
+            log "  wait-for-status, get-kubeconfig, clean-all, download-iso, create-day2-cluster, get-day2-iso, deploy-lso, deploy-lvm, deploy-odf"
             exit 1
             ;;
     esac
