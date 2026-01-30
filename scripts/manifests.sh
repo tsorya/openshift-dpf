@@ -149,6 +149,14 @@ function prepare_cluster_manifests() {
             "<CATALOG_SOURCE_NAME>" "$CATALOG_SOURCE_NAME"
     fi
 
+    # Process cno-dpu-host-cm.yaml with SRIOV resource name
+    if [ -f "$GENERATED_DIR/cno-dpu-host-cm.yaml" ]; then
+        update_file_multi_replace \
+            "$GENERATED_DIR/cno-dpu-host-cm.yaml" \
+            "$GENERATED_DIR/cno-dpu-host-cm.yaml" \
+            "<SRIOV_RESOURCE_NAME_MGMT>" "$SRIOV_RESOURCE_NAME_MGMT"
+    fi
+
     # Configure cluster components
     log [INFO] "Configuring cluster installation..."
     
@@ -271,6 +279,15 @@ prepare_dpf_manifests() {
     
     # Copy all manifests except Helm values files using utility function
     copy_manifests_with_exclusions "$MANIFESTS_DIR/dpf-installation" "$GENERATED_DIR" "${excluded_files[@]}"
+
+    # Process sriov-device-plugin.yaml with SRIOV resource names
+    if [ -f "$GENERATED_DIR/sriov-device-plugin.yaml" ]; then
+        update_file_multi_replace \
+            "$GENERATED_DIR/sriov-device-plugin.yaml" \
+            "$GENERATED_DIR/sriov-device-plugin.yaml" \
+            "<SRIOV_RESOURCE_NAME>" "$SRIOV_RESOURCE_NAME" \
+            "<SRIOV_RESOURCE_NAME_MGMT>" "$SRIOV_RESOURCE_NAME_MGMT"
+    fi
 
     # Copy cert-manager manifest (required for DPF deployment)
     log "INFO" "Copying Cert-Manager manifest (required for DPF operator)..."
@@ -431,6 +448,7 @@ function generate_ovn_manifests() {
         -e "s|<OVN_KUBERNETES_IMAGE_TAG>|$OVN_KUBERNETES_IMAGE_TAG|" \
         -e "s|<OVN_KUBERNETES_UTILS_IMAGE_REPO>|$OVN_KUBERNETES_UTILS_IMAGE_REPO|" \
         -e "s|<OVN_KUBERNETES_UTILS_IMAGE_TAG>|$OVN_KUBERNETES_UTILS_IMAGE_TAG|" \
+        -e "s|<SRIOV_RESOURCE_NAME>|$SRIOV_RESOURCE_NAME|" \
         "$HELM_CHARTS_DIR/ovn-values.yaml" > "$GENERATED_DIR/temp/ovn-values-resolved.yaml"
     
     log [INFO] "Generating OVN manifests from helm template..."

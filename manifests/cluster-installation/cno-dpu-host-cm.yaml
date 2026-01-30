@@ -5,4 +5,4 @@ metadata:
     namespace: openshift-network-operator
 data:
     dpu-host-mode-label: "feature.node.kubernetes.io/dpu-enabled="
-    mgmt-port-resource-name: "openshift.io/bf3-p0-vfs-mgmt"
+    mgmt-port-resource-name: "openshift.io/<SRIOV_RESOURCE_NAME_MGMT>"

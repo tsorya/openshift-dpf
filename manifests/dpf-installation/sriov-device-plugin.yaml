@@ -168,7 +168,7 @@ data:
     {
       "resourceList": [
         {
-          "resourceName": "bf3-p0-vfs",
+          "resourceName": "<SRIOV_RESOURCE_NAME>",
           "selectors": {
             "vendors": ["$TARGET_VENDOR"],
             "devices": ["$VF_DEVICE_ID"],
@@ -179,7 +179,7 @@ data:
           }
         },
         {
-          "resourceName": "bf3-p0-vfs-mgmt",
+          "resourceName": "<SRIOV_RESOURCE_NAME_MGMT>",
           "selectors": {
             "vendors": ["$TARGET_VENDOR"],
             "devices": ["$VF_DEVICE_ID"],

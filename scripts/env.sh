@@ -194,6 +194,11 @@ else
 fi
 NUM_VFS=${NUM_VFS:-"46"}
 
+# SR-IOV Resource Name Configuration
+# These names are used by the SRIOV device plugin to expose VF resources
+SRIOV_RESOURCE_NAME=${SRIOV_RESOURCE_NAME:-"bf3-p0-vfs"}
+SRIOV_RESOURCE_NAME_MGMT=${SRIOV_RESOURCE_NAME_MGMT:-"${SRIOV_RESOURCE_NAME}-mgmt"}
+
 # Feature Configuration
 
 # GitOps Operator Configuration
