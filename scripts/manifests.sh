@@ -55,6 +55,12 @@ function prepare_nfs() {
         return 0
     fi
 
+    # Internal NFS server - check if already deployed (PVC is immutable)
+    if oc get pvc nfs-server-data -n nfs-server &>/dev/null; then
+        log "INFO" "NFS server already deployed, skipping (PVC is immutable)"
+        return 0
+    fi
+
     if [ -z "${ETCD_STORAGE_CLASS}" ]; then
         log "ERROR" "ETCD_STORAGE_CLASS is not set but required for internal NFS deployment"
         return 1
