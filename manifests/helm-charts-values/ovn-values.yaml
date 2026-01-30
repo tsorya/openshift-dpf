@@ -52,7 +52,7 @@ dpuManifests:
 
 ovn-kubernetes-resource-injector:
   enabled: false
-  resourceName: openshift.io/bf3-p0-vfs
+  resourceName: openshift.io/<SRIOV_RESOURCE_NAME>
   image:
     repository: <OVN_KUBERNETES_UTILS_IMAGE_REPO>
     tag: <OVN_KUBERNETES_UTILS_IMAGE_TAG>

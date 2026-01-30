@@ -24,7 +24,9 @@ log [INFO] "Enabling OVN resource injector via MutatingAdmissionPolicy..."
 rm -rf "$GENERATED_DIR/ovn-injector" || true
 mkdir -p "$GENERATED_DIR/ovn-injector"
 
-INJECTOR_RESOURCE_NAME="${INJECTOR_RESOURCE_NAME:-openshift.io/bf3-p0-vfs}"
+# Use SRIOV_RESOURCE_NAME as base, with openshift.io/ prefix
+# INJECTOR_RESOURCE_NAME can still be overridden directly if needed
+INJECTOR_RESOURCE_NAME="${INJECTOR_RESOURCE_NAME:-openshift.io/${SRIOV_RESOURCE_NAME:-bf3-p0-vfs}}"
 
 # Escape the resource name for JSON Patch path (/ becomes ~1)
 INJECTOR_RESOURCE_NAME_ESCAPED=$(echo "${INJECTOR_RESOURCE_NAME}" | sed 's/\//~1/g')
