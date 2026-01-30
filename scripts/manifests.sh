@@ -299,18 +299,18 @@ prepare_dpf_manifests() {
     cp "$MANIFESTS_DIR/cluster-installation/openshift-cert-manager.yaml" "$GENERATED_DIR/"
 
     # Update manifests with configuration
-    # Check if bfb-pvc.yaml exists before modifying
-    if [ ! -f "$GENERATED_DIR/bfb-pvc.yaml" ]; then
-        log "ERROR" "bfb-pvc.yaml not found in $GENERATED_DIR"
-        return 1
+    # Check if bfb-pvc already exists in cluster (PVCs are immutable)
+    if oc get pvc bfb-pvc -n dpf-operator-system &>/dev/null; then
+        log "INFO" "bfb-pvc already exists in cluster, skipping (PVCs are immutable)"
+        rm -f "$GENERATED_DIR/bfb-pvc.yaml"
+    else
+        # Always use auto-provisioned NFS for BFB storage (works for both SNO and MNO)
+        # Set empty storageClassName to enable direct binding to NFS PersistentVolume
+        update_file_multi_replace \
+            "$GENERATED_DIR/bfb-pvc.yaml" \
+            "$GENERATED_DIR/bfb-pvc.yaml" \
+            "<STORAGE_CLASS_LINE>" ""
     fi
-    
-    # Always use auto-provisioned NFS for BFB storage (works for both SNO and MNO)
-    # Set empty storageClassName to enable direct binding to NFS PersistentVolume
-    update_file_multi_replace \
-        "$GENERATED_DIR/bfb-pvc.yaml" \
-        "$GENERATED_DIR/bfb-pvc.yaml" \
-        "<STORAGE_CLASS_LINE>" ""
 
     # Update static DPU cluster template
     update_file_multi_replace \
