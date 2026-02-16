@@ -45,6 +45,12 @@ function prepare_nfs() {
     # Ensure generated directory exists
     mkdir -p "$GENERATED_DIR"
 
+        # Internal NFS server - check if already deployed (PVC is immutable)
+    if oc get pvc nfs-server-data -n nfs-server &>/dev/null; then
+        log "INFO" "NFS server already deployed, skipping (PVC is immutable)"
+        return 0
+    fi
+
     if [ "${NFS_SERVER_NODE_IP}" != "" ]; then
         log "INFO" "Using external NFS server: ${NFS_SERVER_NODE_IP}:${nfs_path}"
         update_file_multi_replace \
@@ -52,12 +58,6 @@ function prepare_nfs() {
             "${GENERATED_DIR}/nfs-pv.yaml" \
             "<NFS_SERVER_NODE_IP>" "${NFS_SERVER_NODE_IP}" \
             "<NFS_PATH>" "${nfs_path}"
-        return 0
-    fi
-
-    # Internal NFS server - check if already deployed (PVC is immutable)
-    if oc get pvc nfs-server-data -n nfs-server &>/dev/null; then
-        log "INFO" "NFS server already deployed, skipping (PVC is immutable)"
         return 0
     fi
 
