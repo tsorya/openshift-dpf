@@ -272,6 +272,54 @@ function prepare_post_installation() {
     log [INFO] "Post-installation manifest preparation completed successfully"
 }
 
+# Function to wait for DPF provisioning webhook to be ready
+function wait_for_webhook() {
+    log [INFO] "Waiting for DPF provisioning webhook service to be ready..."
+    local webhook_ready=false
+    local max_attempts=30
+    local attempt=0
+
+    while [ $attempt -lt $max_attempts ] && [ "$webhook_ready" = "false" ]; do
+        attempt=$((attempt + 1))
+
+        if oc get endpoints -n dpf-operator-system dpf-provisioning-webhook-service -o jsonpath='{.subsets[*].addresses[*].ip}' 2>/dev/null | grep -q .; then
+            log [INFO] "DPF provisioning webhook service is ready"
+            webhook_ready=true
+        else
+            if [ $attempt -eq 1 ]; then
+                log [INFO] "Waiting for webhook endpoints to be available..."
+            fi
+            sleep 5
+        fi
+    done
+
+    if [ "$webhook_ready" = "false" ]; then
+        log [ERROR] "DPF provisioning webhook service not ready after $max_attempts attempts"
+        log [ERROR] "This may cause failures when applying DPU manifests that require webhook validation"
+        if [ "${STRICT_WEBHOOK_CHECK:-true}" = "true" ]; then
+            return 1
+        else
+            log [WARN] "STRICT_WEBHOOK_CHECK is disabled, proceeding anyway..."
+        fi
+    fi
+}
+
+# Provisioning resources (provisioning.dpu.nvidia.com) that require the webhook
+WEBHOOK_DEPENDENT_FILES=(
+    "bfb.yaml"
+    "dpuflavor.yaml"
+)
+
+function is_webhook_dependent() {
+    local filename=$1
+    for wf in "${WEBHOOK_DEPENDENT_FILES[@]}"; do
+        if [[ "${filename}" == "${wf}" ]]; then
+            return 0
+        fi
+    done
+    return 1
+}
+
 # Function to apply post-installation manifests
 function apply_post_installation() {
     log [INFO] "Starting post-installation manifest application..."
@@ -285,67 +333,55 @@ function apply_post_installation() {
     
     # Get kubeconfig
     get_kubeconfig
-    
-    # Wait for DPF provisioning webhook to be ready before applying manifests
-    log [INFO] "Waiting for DPF provisioning webhook service to be ready..."
-    local webhook_ready=false
-    local max_attempts=30
-    local attempt=0
-    
-    while [ $attempt -lt $max_attempts ] && [ "$webhook_ready" = "false" ]; do
-        attempt=$((attempt + 1))
-        
-        # Check if webhook endpoints are available
-        if oc get endpoints -n dpf-operator-system dpf-provisioning-webhook-service -o jsonpath='{.subsets[*].addresses[*].ip}' 2>/dev/null | grep -q .; then
-            log [INFO] "DPF provisioning webhook service is ready"
-            webhook_ready=true
-        else
-            if [ $attempt -eq 1 ]; then
-                log [INFO] "Waiting for webhook endpoints to be available..."
-            fi
-            sleep 5
-        fi
-    done
-    
-    if [ "$webhook_ready" = "false" ]; then
-        log [ERROR] "DPF provisioning webhook service not ready after $max_attempts attempts"
-        log [ERROR] "This may cause failures when applying DPU manifests that require webhook validation"
-        # Check if we should fail or continue based on environment variable
-        if [ "${STRICT_WEBHOOK_CHECK:-true}" = "true" ]; then
-            return 1
-        else
-            log [WARN] "STRICT_WEBHOOK_CHECK is disabled, proceeding anyway..."
-        fi
-    fi
-    
-    # Apply each YAML file in the generated post-installation directory
+
+    # Phase 1: Apply manifests that don't need the provisioning webhook
+    log [INFO] "Phase 1: Applying non-provisioning manifests..."
     for file in "${GENERATED_POST_INSTALL_DIR}"/*.yaml; do
         if [ -f "$file" ]; then
             local filename=$(basename "$file")
-            # Skip dpudeployment.yaml as it will be applied last
-            if [[ "${filename}" != "dpudeployment.yaml" ]]; then
-                # Special handling for SCC - must be applied to hosted cluster
-                if [[ "${filename}" == "dpu-services-scc.yaml" ]] && [[ -f "${HOSTED_CLUSTER_NAME}.kubeconfig" ]]; then
-                    log [INFO] "Applying SCC to hosted cluster: ${filename}"
-                    local saved_kubeconfig="${KUBECONFIG}"
-                    export KUBECONFIG="${HOSTED_CLUSTER_NAME}.kubeconfig"
-                    apply_manifest "$file" "true"
-                    export KUBECONFIG="${saved_kubeconfig}"
-                else
-                    log [INFO] "Applying post-installation manifest: ${filename}"
-                    apply_manifest "$file" "true"
-                fi
+            # Skip dpudeployment and webhook-dependent provisioning resources
+            if [[ "${filename}" == "dpudeployment.yaml" ]] || is_webhook_dependent "${filename}"; then
+                continue
+            fi
+            if [[ "${filename}" == "dpu-services-scc.yaml" ]] && [[ -f "${HOSTED_CLUSTER_NAME}.kubeconfig" ]]; then
+                log [INFO] "Applying SCC to hosted cluster: ${filename}"
+                local saved_kubeconfig="${KUBECONFIG}"
+                export KUBECONFIG="${HOSTED_CLUSTER_NAME}.kubeconfig"
+                apply_manifest "$file" "true"
+                export KUBECONFIG="${saved_kubeconfig}"
+            else
+                log [INFO] "Applying post-installation manifest: ${filename}"
+                apply_manifest "$file" "true"
             fi
         fi
     done
-    
-    # Apply dpudeployment.yaml last if it exists, with apply_always=true
+
+    # Phase 2: Apply DPUDeployment — triggers the DHCP operator and provisioning chain
     if [ -f "${GENERATED_POST_INSTALL_DIR}/dpudeployment.yaml" ]; then
-        log [INFO] "Applying dpudeployment.yaml (last manifest)..."
+        log [INFO] "Phase 2: Applying dpudeployment.yaml..."
         apply_manifest "${GENERATED_POST_INSTALL_DIR}/dpudeployment.yaml" "true"
     else
         log [WARN] "dpudeployment.yaml not found in ${GENERATED_POST_INSTALL_DIR}"
     fi
+
+    # Wait for the DHCP operator to create the custom-bfb.cfg configmap
+    log [INFO] "Waiting for DHCP operator to create custom-bfb.cfg configmap..."
+    if ! wait_for_resource "dpf-operator-system" "configmap" "custom-bfb.cfg" 60 10; then
+        log [ERROR] "custom-bfb.cfg configmap not created in time"
+        return 1
+    fi
+
+    # Wait for provisioning webhook now that the provisioning chain is running
+    wait_for_webhook
+
+    # Phase 3: Apply provisioning resources that require webhook validation
+    log [INFO] "Phase 3: Applying provisioning manifests (webhook-dependent)..."
+    for wf in "${WEBHOOK_DEPENDENT_FILES[@]}"; do
+        if [ -f "${GENERATED_POST_INSTALL_DIR}/${wf}" ]; then
+            log [INFO] "Applying provisioning manifest: ${wf}"
+            apply_manifest "${GENERATED_POST_INSTALL_DIR}/${wf}" "true"
+        fi
+    done
     
     log [INFO] "Post-installation manifest application completed successfully"
 
