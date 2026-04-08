@@ -42,6 +42,16 @@ helm template -n ${OVNK_NAMESPACE} ovn-kubernetes \
     --set controlPlaneManifests.enabled=false \
     --set commonManifests.enabled=false > "$GENERATED_DIR/ovn-injector-output.yaml"
 
+# Workaround: the chart hardcodes containerPort 9443, which collides with
+# openshift-cloud-controller-manager-operator on SNO (hostNetwork=true).
+# The scheduler rejects the pod due to port conflict. Patching containerPort
+# to a different value lets the pod schedule. With hostNetwork the process
+# still binds to 9443 on the host (the binary doesn't support changing it yet).
+# TODO: once Mellanox/ovn-kubernetes-dpf#36 merges and the chart is released,
+# replace this sed with:
+#   --set ovn-kubernetes-resource-injector.controllerManager.webhookPort=19443
+sed -i 's/containerPort: 9443/containerPort: 19443/' "$GENERATED_DIR/ovn-injector-output.yaml"
+
 oc apply -f "$GENERATED_DIR/ovn-injector-output.yaml"
 
 rm -rf "$GENERATED_DIR/ovn-injector"
