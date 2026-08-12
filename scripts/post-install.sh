@@ -207,7 +207,8 @@ function prepare_post_installation() {
         update_file_multi_replace \
             "${POST_INSTALL_DIR}/dpudeployment.yaml" \
             "${GENERATED_POST_INSTALL_DIR}/dpudeployment.yaml" \
-            "<SRIOV_DP_CONFIG_NAME>" "${SRIOV_DP_CONFIG_NAME}"
+            "<SRIOV_DP_CONFIG_NAME>" "${SRIOV_DP_CONFIG_NAME}" \
+            "<KATA_SRIOV_DP_CONFIG_NAME>" "${KATA_SRIOV_DP_CONFIG_NAME}"
     fi
 
     # Process NodeSRIOVDevicePluginConfig template
@@ -216,11 +217,15 @@ function prepare_post_installation() {
         return 1
     fi
     local vf_range_end=$((NUM_VFS - 1))
+    local kata_vf_range_end=$((KATA_NUM_VFS - 1))
     update_file_multi_replace \
         "${POST_INSTALL_DIR}/nodesriovdevicepluginconfig.yaml" \
         "${GENERATED_POST_INSTALL_DIR}/nodesriovdevicepluginconfig.yaml" \
         "<SRIOV_DP_CONFIG_NAME>" "${SRIOV_DP_CONFIG_NAME}" \
-        "<NUM_VFS_END>" "${vf_range_end}"
+        "<NUM_VFS_END>" "${vf_range_end}" \
+        "<KATA_SRIOV_DP_CONFIG_NAME>" "${KATA_SRIOV_DP_CONFIG_NAME}" \
+        "<KATA_SRIOV_PF_INDEX>" "${KATA_SRIOV_PF_INDEX}" \
+        "<KATA_NUM_VFS_END>" "${kata_vf_range_end}"
 
     # Copy remaining manifests using utility function (exclude special files)
     copy_manifests_with_exclusions "${POST_INSTALL_DIR}" "${GENERATED_POST_INSTALL_DIR}" "${SPECIAL_FILES[@]}"
