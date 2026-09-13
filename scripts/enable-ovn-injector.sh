@@ -41,23 +41,16 @@ helm_args=(
     --set ovn-kubernetes-resource-injector.controllerManager.healthProbeBindAddress=":${INJECTOR_HEALTH_PROBE_PORT}"
     --set ovn-kubernetes-resource-injector.controllerManager.webhook.image.pullPolicy=IfNotPresent
     --set "ovn-kubernetes-resource-injector.controllerManager.webhook.args={--leader-elect,--metrics-bind-address=:${INJECTOR_METRICS_PORT}}"
+    # Kata and regular pods share INJECTOR_RESOURCE_NAME / dpf-ovn-kubernetes.
+    # Force an empty mapping so a previous kata-pool install does not keep a
+    # leftover runtimeClassMappings value on helm upgrade.
+    --set-json 'ovn-kubernetes-resource-injector.runtimeClassMappings=[]'
     --set nodeWithDPUManifests.enabled=false
     --set nodeWithoutDPUManifests.enabled=false
     --set dpuManifests.enabled=false
     --set controlPlaneManifests.enabled=false
     --set commonManifests.enabled=false
 )
-
-if [ "${KATA_ENABLED}" = "true" ]; then
-    log [INFO] "KATA_ENABLED=true: adding runtime class mapping ${KATA_RUNTIME_CLASS} -> ${KATA_NAD_NAME} (${KATA_INJECTOR_RESOURCE_NAME})"
-    helm_args+=(
-        --set "ovn-kubernetes-resource-injector.runtimeClassMappings[0].runtimeClass=${KATA_RUNTIME_CLASS}"
-        --set "ovn-kubernetes-resource-injector.runtimeClassMappings[0].nadName=${KATA_NAD_NAME}"
-        --set "ovn-kubernetes-resource-injector.runtimeClassMappings[0].resourceName=${KATA_INJECTOR_RESOURCE_NAME}"
-    )
-else
-    log [INFO] "KATA_ENABLED=${KATA_ENABLED:-false}: skipping kata runtime class mapping"
-fi
 
 if ! helm "${helm_args[@]}"; then
     log [ERROR] "Helm deployment of OVN resource injector failed"
@@ -89,15 +82,4 @@ else
     exit 1
 fi
 
-# Kata NAD exists only when the runtime class mapping was set above.
-if [ "${KATA_ENABLED}" = "true" ]; then
-    if oc get net-attach-def -n "${OVNK_NAMESPACE}" "${KATA_NAD_NAME}" &>/dev/null; then
-        log [INFO] "NetworkAttachmentDefinition '${KATA_NAD_NAME}' created successfully"
-    else
-        log [ERROR] "NetworkAttachmentDefinition '${KATA_NAD_NAME}' was not created"
-        exit 1
-    fi
-    log [INFO] "OVN resource injector enabled successfully (with Kata runtime class mapping)"
-else
-    log [INFO] "OVN resource injector enabled successfully"
-fi
+log [INFO] "OVN resource injector enabled successfully"

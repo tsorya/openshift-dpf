@@ -7,7 +7,7 @@
 # (that plus worker-dpu is "belongs to 2 custom roles").
 # Creates RuntimeClass kata-coldplug when missing.
 #
-# Run after enable-ovn-injector with KATA_ENABLED=true so the kata NAD exists.
+# Run after enable-ovn-injector so dpf-ovn-kubernetes exists (shared VF NAD).
 # Not part of make all.
 
 set -e
@@ -333,13 +333,13 @@ function enable_kata() {
     fi
 
     if [ "${KATA_ENABLED}" != "true" ]; then
-        log [ERROR] "KATA_ENABLED is not true. Set KATA_ENABLED=true and re-run make enable-ovn-injector, then make enable-kata."
+        log [ERROR] "KATA_ENABLED is not true. Set KATA_ENABLED=true and re-run make enable-kata."
         exit 1
     fi
 
-    if ! oc get net-attach-def -n "${OVNK_NAMESPACE}" "${KATA_NAD_NAME}" &>/dev/null; then
-        log [ERROR] "NetworkAttachmentDefinition '${KATA_NAD_NAME}' not found in ${OVNK_NAMESPACE}."
-        log [ERROR] "Set KATA_ENABLED=true and run make enable-ovn-injector before make enable-kata."
+    if ! oc get net-attach-def -n "${OVNK_NAMESPACE}" dpf-ovn-kubernetes &>/dev/null; then
+        log [ERROR] "NetworkAttachmentDefinition 'dpf-ovn-kubernetes' not found in ${OVNK_NAMESPACE}."
+        log [ERROR] "Run make enable-ovn-injector before make enable-kata."
         exit 1
     fi
 

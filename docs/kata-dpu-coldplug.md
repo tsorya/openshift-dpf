@@ -1,6 +1,6 @@
 # Kata DPU cold-plug: setup, debug, and runbook
 
-Notes from bringing up `kata-dpu-test` on a DPU worker (`worker-303ea712f378` / nvd-srv-45). Host-side pieces come from [jensfr/rhcos-layer-kata-dpu](https://github.com/jensfr/rhcos-layer-kata-dpu/tree/dpu-coldplug-nvidia-ref). DPF-side pieces (shared VF pool, OVN injector mapping) live in this repo.
+Notes from bringing up `kata-dpu-test` on a DPU worker (`worker-303ea712f378` / nvd-srv-45). Host-side pieces come from [jensfr/rhcos-layer-kata-dpu](https://github.com/jensfr/rhcos-layer-kata-dpu/tree/dpu-coldplug-nvidia-ref). DPF-side pieces (shared VF pool, default OVN injector NAD) live in this repo.
 
 **Do not use `ovs-ctl` to restart OVS on DPUs.** It wipes the database. Use:
 
@@ -17,15 +17,15 @@ kd debug node/<dpu-node> -- chroot /host systemctl restart ovs-vswitchd
 
 1. DPF creates SR-IOV VFs on BlueField. `mlx5_core` binds and each VF gets a netdev.
 2. Device plugin advertises one VF pool (`openshift.io/bf3_vfs`) on PF0 and PF1.
-3. Pod uses `runtimeClassName: kata-coldplug`. The OVN injector adds **one** VF from that shared pool and sets the kata NAD.
-4. OVN injector webhook sets `v1.multus-cni.io/default-network` to the kata NAD.
+3. Pod uses `runtimeClassName: kata-coldplug`. The OVN injector adds **one** VF from that shared pool and sets `dpf-ovn-kubernetes` (same NAD as regular DPU pods).
+4. OVN injector webhook sets `v1.multus-cni.io/default-network` to `openshift-ovn-kubernetes/dpf-ovn-kubernetes`.
 5. CNI moves the VF **as a netdev** into the sandbox netns (VF must still be on `mlx5_core`).
 6. Kata rebinds the VF `mlx5_core` → `vfio-pci`, cold-plugs it into QEMU.
 7. Guest `mlx5_core` binds; kata agent applies captured IP/MAC/routes.
 
 If step 6 happens **before** step 5 (or leftover `driver_override=vfio-pci`), CNI fails with `stat .../net: no such file or directory`.
 
-Regular and kata pods share the same VF pool. The injector selects the NAD from `runtimeClassName`.
+Regular and kata pods share the same VF pool and the same NAD. No `runtimeClassMappings` entry is required.
 
 ---
 
@@ -34,25 +34,21 @@ Regular and kata pods share the same VF pool. The injector selects the NAD from 
 ```bash
 KATA_ENABLED=true
 KATA_RUNTIME_CLASS=kata-coldplug
-# Defaults to INJECTOR_RESOURCE_NAME (shared pool, e.g. openshift.io/bf3_vfs)
-KATA_INJECTOR_RESOURCE_NAME=openshift.io/bf3_vfs
-KATA_NAD_NAME=dpf-ovn-kubernetes-kata-coldplug
 KATA_RHCOS_LAYER_IMAGE=quay.io/jensfr/rhcos-kata-dpu@sha256:ce05dea3e0214c7bf7864cef1110e414a6419430fe2f55b5e9c848b71b799a8f
 KATA_SKIP_RHCOS_LAYER=false
 ```
 
-NAD name does not have to match the RuntimeClass. Injector `runtimeClass` + `nadName` must be unique; `resourceName` can match the regular pool.
+Kata pods use the default injector NAD `dpf-ovn-kubernetes` and pool `openshift.io/bf3_vfs`. There is no separate kata NAD.
 
 ---
 
 ## Bring-up
 
-After DPF is up (`make all` includes `enable-ovn-injector` **without** the kata NAD):
+After DPF is up (`make all` already includes `enable-ovn-injector`):
 
 ```bash
 # in .env
 KATA_ENABLED=true
-make enable-ovn-injector   # webhook + kata NAD
 make enable-kata           # OSC + inert KataConfig, worker-dpu MCs, RuntimeClass
 ```
 
@@ -162,18 +158,12 @@ modprobe vfio-pci   # host-side workaround if the module is not loaded
 ## Webhook / NAD
 
 ```bash
-grep -E 'KATA_NAD|KATA_RUNTIME|KATA_INJECTOR|KATA_ENABLED' .env
-oc get net-attach-def -n openshift-ovn-kubernetes | grep -E 'kata|dpf-ovn'
+grep -E 'KATA_RUNTIME|KATA_ENABLED' .env
+oc get net-attach-def -n openshift-ovn-kubernetes dpf-ovn-kubernetes
 oc get runtimeclass kata-coldplug
 ```
 
-Injector mapping (`scripts/enable-ovn-injector.sh`, when `KATA_ENABLED=true`):
-
-```text
-runtimeClass  = ${KATA_RUNTIME_CLASS}              # kata-coldplug
-nadName       = ${KATA_NAD_NAME}
-resourceName  = ${KATA_INJECTOR_RESOURCE_NAME}     # shared: openshift.io/bf3_vfs
-```
+Kata and regular pods both use NAD `dpf-ovn-kubernetes` (`resourceName: openshift.io/bf3_vfs`). No injector `runtimeClassMappings` entry.
 
 Pod after admit should have:
 
@@ -187,10 +177,10 @@ Working example (jensfr demo / our success):
 
 | Annotation | Example |
 |------------|---------|
-| `v1.multus-cni.io/default-network` | `openshift-ovn-kubernetes/dpf-ovn-kubernetes-kata-coldplug` (or your `KATA_NAD_NAME`) |
+| `v1.multus-cni.io/default-network` | `openshift-ovn-kubernetes/dpf-ovn-kubernetes` |
 | `k8s.ovn.org/dpu.connection-details` | `{"default":{"pfId":"1","vfId":"...","vfNetdevName":"ens7f1v16"}}` |
 | `k8s.ovn.org/pod-networks` | IP/MAC/gateway |
-| `k8s.v1.cni.cncf.io/network-status` | kata NAD, `"default": true` |
+| `k8s.v1.cni.cncf.io/network-status` | `dpf-ovn-kubernetes`, `"default": true` |
 
 `dpu.connection-status` should appear within ~30s. Empty + CNI timeout = DPU did not finish PF1 plumbing (not “DPU is down for PF0”).
 
@@ -316,7 +306,7 @@ Wait 2–3 minutes. Ping DPU gateway from the worker if you use that topology (`
 |---------|--------|-----|
 | `failed to add any hypervisor device to devices cgroup` | No `/dev/kvm` (VMX off in BIOS) | Enable VT-x, cold boot host |
 | `stat /sys/bus/pci/devices/XXXX/net: no such file` | VF on vfio/UNBOUND before CNI | Rebind to `mlx5_core`; do not leave pod retrying |
-| First CNI OK (`AddedInterface` kata NAD), then `create container timeout` | `vfio-pci` module not loaded | `modprobe vfio-pci` |
+| First CNI OK (`AddedInterface` dpf-ovn-kubernetes), then `create container timeout` | `vfio-pci` module not loaded | `modprobe vfio-pci` |
 | Same netdev error on **new** PCI each retry | Cascade from first timeout | Delete pod, fix **all** stale VFs, then one retry |
 | `timed out waiting for annotations` / missing `dpu.connection-status` | Host wrote `connection-details`; DPU never finished PF1 | Stop retries; DPU ovnkube logs; PF1 representors; bounce DPU ovnkube-node |
 | `rpm -q kata-containers` shows `3.31.0-3` | Layer uses patched **same NVR** | Confirm with `rpm-ostree status`, not RPM name |
@@ -396,7 +386,7 @@ ps aux | grep qemu-kvm | grep -o 'vfio-pci,host=[^ ]*'
 | Path | Role |
 |------|------|
 | `scripts/enable-kata.sh` | OSC, inert KataConfig, worker-dpu MCs, RuntimeClass |
-| `scripts/enable-ovn-injector.sh` | Injector + kata NAD mapping |
+| `scripts/enable-ovn-injector.sh` | Injector + shared NAD `dpf-ovn-kubernetes` |
 | `manifests/kata/01-osc-operator.yaml` | OSC namespace, OperatorGroup, Subscription |
 | `manifests/kata/02-kataconfig.yaml` | KataConfig selector matches no nodes |
 | `manifests/kata/03-rhcos-layer.yaml` | `99-kata-dpu-layered` (`osImageURL`) |
