@@ -16,7 +16,7 @@ All runtime configuration flows through a single `.env` file at the repo root (g
 2. `ci/env.required` — variables with no default; generation fails if unset
 3. `ci/env.template` — canonical ordered list; `envsubst` renders it into `.env`
 
-Generate with `make generate-env` (fails if `.env` exists; use `FORCE=true` to overwrite). Validate with `make validate-env-files` (checks defaults ↔ template consistency).
+Generate with `make generate-env` (fails if `.env` exists; use `FORCE=true` to overwrite). Put personal overrides in `user.env` (see `user.env.example`); `make generate-env` auto-loads it, or source it first with `source user.env` / `source scripts/source-user-env.sh`. Validate with `make validate-env-files` (checks defaults ↔ template consistency).
 
 When adding a new variable: add the default to `ci/env.defaults`, add a `${VAR}` line to `ci/env.template`, and if it has no sensible default add a guard to `ci/env.required`.
 

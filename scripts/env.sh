@@ -120,10 +120,53 @@ validate_env_test_files() {
     _do_validate_env_files "$ci_dir/env.test.defaults" "$ci_dir/env.test.template" "$ci_dir/env.test.required" ".env.test"
 }
 
-# _do_generate_env <defaults_file> <required_file> <template_file> <output_file> <force>
+# Apply KEY=VALUE assignments from a file without overriding variables
+# already set in the environment (same semantics as ci/env.defaults).
+_apply_env_file_if_unset() {
+    local env_file="$1"
+    local line key value
+
+    [ -f "$env_file" ] || return 0
+
+    while IFS= read -r line || [ -n "$line" ]; do
+        [[ "$line" =~ ^[[:space:]]*# ]] && continue
+        [[ "$line" =~ ^[[:space:]]*$ ]] && continue
+
+        line="${line#"${line%%[![:space:]]*}"}"
+        line="${line%"${line##*[![:space:]]}"}"
+        [[ "$line" =~ ^export[[:space:]] ]] && line="${line#export }"
+
+        key="${line%%=*}"
+        [[ "$key" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || continue
+
+        value="${line#*=}"
+        value="$(_strip_surrounding_quotes "$value")"
+
+        if [ -z "${!key+x}" ]; then
+            export "$key=$value"
+        fi
+    done < "$env_file"
+}
+
+# Source user.env with auto-export so plain VAR=value lines work in child
+# processes (e.g. make generate-env). Safe to call when the file is absent.
+source_user_env() {
+    local env_file="${1:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/user.env}"
+
+    if [ ! -f "$env_file" ]; then
+        return 0
+    fi
+
+    set -a
+    # shellcheck source=/dev/null
+    source "$env_file"
+    set +a
+}
+
+# _do_generate_env <defaults_file> <required_file> <template_file> <output_file> <force> [user_env_file]
 _do_generate_env() {
     local defaults_file="$1" required_file="$2" template_file="$3"
-    local output_file="$4" force="${5:-false}"
+    local output_file="$4" force="${5:-false}" user_env_file="${6:-}"
 
     if [ -f "$output_file" ] && [ "$force" != "true" ]; then
         echo "ERROR: $output_file already exists. To overwrite, run with FORCE=true"
@@ -133,6 +176,9 @@ _do_generate_env() {
     echo "Generating $output_file..."
     (
         set -a
+        if [ -n "$user_env_file" ]; then
+            _apply_env_file_if_unset "$user_env_file"
+        fi
         source "$defaults_file"
         set +a
         source "$required_file"
@@ -147,7 +193,7 @@ generate_env() {
     ci_dir="${root_dir}/ci"
     _do_generate_env \
         "$ci_dir/env.defaults" "$ci_dir/env.required" "$ci_dir/env.template" \
-        "${root_dir}/.env" "${1:-false}"
+        "${root_dir}/.env" "${1:-false}" "${root_dir}/user.env"
 }
 
 generate_env_test() {
@@ -157,7 +203,7 @@ generate_env_test() {
     ci_dir="${root_dir}/ci"
     _do_generate_env \
         "$ci_dir/env.test.defaults" "$ci_dir/env.test.required" "$ci_dir/env.test.template" \
-        "${root_dir}/.env.test" "${1:-false}"
+        "${root_dir}/.env.test" "${1:-false}" "${root_dir}/user.env.test"
 }
 
 validate_mtu() {

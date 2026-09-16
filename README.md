@@ -99,23 +99,37 @@ for your local setup.
 
 ### How to generate
 
-1. **Export your required variables** (and any optional overrides):
+1. **Provide your required variables** (and any optional overrides).
+
+   Copy `user.env.example` to `user.env` and edit it. No `export` keyword
+   is needed on each line. Shell exports always override `user.env` values.
+
+   **Option A — auto-load** (recommended): `make generate-env` reads
+   `user.env` automatically when the file exists.
+
+   ```bash
+   cp user.env.example user.env
+   make generate-env
+   ```
+
+   **Option B — source first**: load values into your shell, then generate.
+   Useful when you want the same overrides available for other commands.
+
+   ```bash
+   cp user.env.example user.env
+   source user.env                    # works when copied from user.env.example
+   # or: source scripts/source-user-env.sh
+   make generate-env
+   ```
+
+   You can still export variables manually instead of using `user.env`:
 
    ```bash
    export CLUSTER_NAME=my-cluster
    export BASE_DOMAIN=example.com
-   export API_VIP=10.1.150.100
-   export INGRESS_VIP=10.1.150.101
    export DPU_HOST_CIDR=10.0.110.0/24
    export BFB_URL=https://content.mellanox.com/BlueField/...
-   ```
-
-   To keep overrides reusable, put them in a personal file (e.g. `user.env`)
-   and source it first:
-
-   ```bash
-   source user.env
-   make generate-env  
+   make generate-env
    ```
 
 2. **Run the generator:**
@@ -127,11 +141,13 @@ for your local setup.
 
 ### What happens under the hood
 
-1. `ci/env.defaults` is sourced — sets defaults for every variable, but
-   does not overwrite anything already exported in your shell.
-2. `ci/env.required` is sourced — aborts with an error if any required
+1. `user.env` is applied (if present) — sets only variables not already
+   exported in your shell.
+2. `ci/env.defaults` is sourced — sets defaults for every variable, but
+   does not overwrite anything already set.
+3. `ci/env.required` is sourced — aborts with an error if any required
    variable is still unset.
-3. `envsubst` renders `ci/env.template` into `.env`, substituting every
+4. `envsubst` renders `ci/env.template` into `.env`, substituting every
    `${VAR}` with its resolved value.
 
 ### Result
