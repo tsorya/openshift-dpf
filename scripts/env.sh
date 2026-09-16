@@ -120,34 +120,6 @@ validate_env_test_files() {
     _do_validate_env_files "$ci_dir/env.test.defaults" "$ci_dir/env.test.template" "$ci_dir/env.test.required" ".env.test"
 }
 
-# Apply KEY=VALUE assignments from a file without overriding variables
-# already set in the environment (same semantics as ci/env.defaults).
-_apply_env_file_if_unset() {
-    local env_file="$1"
-    local line key value
-
-    [ -f "$env_file" ] || return 0
-
-    while IFS= read -r line || [ -n "$line" ]; do
-        [[ "$line" =~ ^[[:space:]]*# ]] && continue
-        [[ "$line" =~ ^[[:space:]]*$ ]] && continue
-
-        line="${line#"${line%%[![:space:]]*}"}"
-        line="${line%"${line##*[![:space:]]}"}"
-        [[ "$line" =~ ^export[[:space:]] ]] && line="${line#export }"
-
-        key="${line%%=*}"
-        [[ "$key" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || continue
-
-        value="${line#*=}"
-        value="$(_strip_surrounding_quotes "$value")"
-
-        if [ -z "${!key+x}" ]; then
-            export "$key=$value"
-        fi
-    done < "$env_file"
-}
-
 # Source user.env with auto-export so plain VAR=value lines work in child
 # processes (e.g. make generate-env). Safe to call when the file is absent.
 source_user_env() {
@@ -175,12 +147,26 @@ _do_generate_env() {
 
     echo "Generating $output_file..."
     (
+        local saved_env
+        saved_env="$(mktemp)"
+        export -p > "$saved_env"
+
         set -a
-        if [ -n "$user_env_file" ]; then
-            _apply_env_file_if_unset "$user_env_file"
+        if [ -n "$user_env_file" ] && [ -f "$user_env_file" ]; then
+            echo "Applying overrides from $user_env_file"
+            # shellcheck source=/dev/null
+            source "$user_env_file"
         fi
         source "$defaults_file"
         set +a
+
+        # Shell exports win over user.env (same semantics as ci/env.defaults).
+        set -a
+        # shellcheck source=/dev/null
+        source "$saved_env"
+        set +a
+        rm -f "$saved_env"
+
         source "$required_file"
         envsubst < "$template_file" > "$output_file"
     )
@@ -189,7 +175,7 @@ _do_generate_env() {
 generate_env() {
     local script_dir root_dir ci_dir
     script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-    root_dir="${script_dir}/.."
+    root_dir="$(cd "${script_dir}/.." && pwd)"
     ci_dir="${root_dir}/ci"
     _do_generate_env \
         "$ci_dir/env.defaults" "$ci_dir/env.required" "$ci_dir/env.template" \
@@ -199,7 +185,7 @@ generate_env() {
 generate_env_test() {
     local script_dir root_dir ci_dir
     script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-    root_dir="${script_dir}/.."
+    root_dir="$(cd "${script_dir}/.." && pwd)"
     ci_dir="${root_dir}/ci"
     _do_generate_env \
         "$ci_dir/env.test.defaults" "$ci_dir/env.test.required" "$ci_dir/env.test.template" \
