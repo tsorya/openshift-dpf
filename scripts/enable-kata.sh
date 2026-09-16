@@ -2,9 +2,10 @@
 # enable-kata.sh - Install OSC and kata-coldplug host support on DPU workers
 #
 # Validates each component first and only creates it when missing.
-# DPU workers stay on MCP worker-dpu. OSC stays installed; KataConfig uses a
-# selector that matches no nodes so OSC does not add node-role kata-oc
-# (that plus worker-dpu is "belongs to 2 custom roles").
+# DPU workers stay on MCP worker-dpu. OSC uses DaemonSet install
+# (osc-feature-gates deploymentMode=DaemonSet) so KataConfig can select
+# worker-dpu without creating MCP kata-oc (that plus worker-dpu is
+# "belongs to 2 custom roles").
 # Creates RuntimeClass kata-coldplug when missing.
 #
 # Run after enable-ovn-injector with KATA_ENABLED=true so the kata NAD exists.
@@ -89,14 +90,89 @@ function ensure_osc() {
 
     log [INFO] "Installing OpenShift Sandboxed Containers operator..."
     apply_manifest "${KATA_MANIFESTS_DIR}/01-osc-operator.yaml" "true"
-    wait_for_osc_csv
 }
 
-# Selector matches no nodes so OSC does not label DPU hosts kata-oc.
+# Must exist before KataConfig. DaemonSet mode avoids MCP kata-oc.
+function ensure_osc_feature_gate() {
+    if ! oc get namespace "${OSC_NAMESPACE}" &>/dev/null; then
+        log [ERROR] "Namespace ${OSC_NAMESPACE} not found; install OSC before the feature gate"
+        return 1
+    fi
+    log [INFO] "Applying OSC feature gate (deploymentMode=DaemonSet)"
+    apply_manifest "${KATA_MANIFESTS_DIR}/01b-feature-gate.yaml" "true"
+}
+
+function kataconfig_node_counts() {
+    local ready total
+    ready=$(oc get kataconfig example-kataconfig -o jsonpath='{.status.kataNodes.readyNodeCount}' 2>/dev/null || true)
+    total=$(oc get kataconfig example-kataconfig -o jsonpath='{.status.kataNodes.nodeCount}' 2>/dev/null || true)
+    if [ -z "${ready}" ]; then
+        ready=$(oc get kataconfig example-kataconfig -o jsonpath='{.status.readyNodeCount}' 2>/dev/null || true)
+    fi
+    if [ -z "${total}" ]; then
+        total=$(oc get kataconfig example-kataconfig -o jsonpath='{.status.totalNodesCount}' 2>/dev/null || true)
+    fi
+    echo "${ready:-}|${total:-}"
+}
+
+function wait_for_kataconfig_ready() {
+    log [INFO] "Waiting for KataConfig example-kataconfig DaemonSet install..."
+    local attempts=0
+    local max_attempts=60
+    while [ $attempts -lt $max_attempts ]; do
+        attempts=$((attempts + 1))
+
+        if ! oc get nodes &>/dev/null; then
+            log [INFO] "API unavailable (node rebooting)..."
+            wait_for_api
+            sleep 15
+            continue
+        fi
+
+        local inprog failed counts ready total
+        inprog=$(oc get kataconfig example-kataconfig -o jsonpath='{.status.conditions[?(@.type=="InProgress")].status}' 2>/dev/null || true)
+        failed=$(oc get kataconfig example-kataconfig -o jsonpath='{.status.conditions[?(@.type=="Failed")].status}' 2>/dev/null || true)
+        counts=$(kataconfig_node_counts)
+        ready="${counts%%|*}"
+        total="${counts##*|}"
+
+        log [INFO] "KataConfig: inProgress=${inprog:-?} failed=${failed:-?} ready=${ready:-?}/${total:-?} (attempt ${attempts}/${max_attempts})"
+
+        if [ "${failed}" = "True" ]; then
+            log [ERROR] "KataConfig example-kataconfig is Failed"
+            oc get kataconfig example-kataconfig -o yaml || true
+            return 1
+        fi
+
+        if [ "${inprog}" = "False" ] && [ -n "${total}" ] && [ "${total}" != "0" ] \
+            && [ -n "${ready}" ] && [ "${ready}" = "${total}" ]; then
+            log [INFO] "KataConfig example-kataconfig is ready (${ready}/${total})"
+            return 0
+        fi
+
+        # Some OSC versions only clear InProgress when install finished.
+        if [ "${inprog}" = "False" ] && [ -n "${total}" ] && [ "${total}" != "0" ] && [ -z "${ready}" ]; then
+            log [INFO] "KataConfig InProgress=False with ${total} node(s)"
+            return 0
+        fi
+
+        sleep 15
+    done
+
+    log [ERROR] "Timed out waiting for KataConfig example-kataconfig"
+    oc get kataconfig example-kataconfig -o yaml || true
+    return 1
+}
+
 function ensure_kataconfig() {
     wait_for_kataconfig_crd
-    log [INFO] "Applying KataConfig example-kataconfig (selector matches no nodes; DPU hosts stay on worker-dpu)"
-    apply_manifest "${KATA_MANIFESTS_DIR}/02-kataconfig.yaml" "true"
+    log [INFO] "Applying KataConfig example-kataconfig (selector node-role.kubernetes.io/${worker_role})"
+    render_kata_manifest \
+        "${KATA_MANIFESTS_DIR}/02-kataconfig.yaml" \
+        "${GENERATED_KATA_DIR}/02-kataconfig.yaml" \
+        "<KATA_MC_ROLE>" "${worker_role}"
+    apply_manifest "${GENERATED_KATA_DIR}/02-kataconfig.yaml" "true"
+    wait_for_kataconfig_ready
 }
 
 function cluster_has_kata_sriov_pool() {
@@ -385,8 +461,10 @@ function enable_kata() {
 
     mkdir -p "${GENERATED_KATA_DIR}"
 
-    # KataConfig selector matches no nodes. Do not label DPU hosts kata-oc.
+    # Feature gate before CSV/KataConfig so OSC starts in DaemonSet mode.
     ensure_osc
+    ensure_osc_feature_gate
+    wait_for_osc_csv
     ensure_kataconfig
     warn_if_dpu_nodes_have_kata_oc_role
     ensure_machineconfigs
