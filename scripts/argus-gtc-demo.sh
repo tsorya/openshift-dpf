@@ -21,7 +21,6 @@ DEMO_NAMESPACE="argus-gtc-demo"
 DEMO_MANIFESTS_DIR="${MANIFESTS_DIR}/argus-gtc-demo"
 GENERATED_DEMO_DIR="${GENERATED_DIR}/argus-gtc-demo"
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-DEMO_SRC_DIR="${REPO_ROOT}/demo/argus-gtc"
 MANIFESTS_DIR=${MANIFESTS_DIR:-"${REPO_ROOT}/manifests"}
 GENERATED_DIR=${GENERATED_DIR:-"${MANIFESTS_DIR}/generated"}
 
@@ -54,50 +53,15 @@ function require_demo_prereqs() {
         log "ERROR" "DOCA Argus pods not found on hosted cluster. Run make enable-argus first."
         exit 1
     fi
+    if [ -z "${ARGUS_GTC_SERVER_IMAGE}" ]; then
+        log "ERROR" "ARGUS_GTC_SERVER_IMAGE must be set to your pre-built demo server image in a registry the cluster can pull."
+        exit 1
+    fi
 }
 
 function remove_argus_log_cleaner() {
     log "INFO" "Removing destructive Argus log-cleaner DaemonSet from hosted cluster"
     KUBECONFIG="${HOSTED_KUBECONFIG}" oc delete daemonset argus-log-cleaner -n dpf-operator-system --ignore-not-found
-}
-
-function build_demo_image() {
-    local image="${ARGUS_GTC_SERVER_IMAGE}"
-    log "INFO" "Building demo server image ${image}"
-    if command -v podman &>/dev/null; then
-        podman build -t "${image}" "${DEMO_SRC_DIR}"
-    elif command -v docker &>/dev/null; then
-        docker build -t "${image}" "${DEMO_SRC_DIR}"
-    else
-        log "ERROR" "podman or docker is required to build ${image}"
-        exit 1
-    fi
-}
-
-function maybe_push_demo_image() {
-    local image="${ARGUS_GTC_SERVER_IMAGE}"
-    if [ "${ARGUS_GTC_PUSH_IMAGE:-true}" != "true" ]; then
-        return 0
-    fi
-    local registry route_host token dest
-    registry=$(oc get route default-route -n openshift-image-registry -o jsonpath='{.spec.host}' 2>/dev/null || true)
-    if [ -z "${registry}" ]; then
-        log "WARN" "OpenShift internal registry route not found; ensure ${image} is pullable by the cluster"
-        return 0
-    fi
-    token=$(oc whoami -t)
-    dest="${registry}/argus-gtc-demo/argus-gtc:latest"
-    log "INFO" "Pushing demo image to ${dest}"
-    if command -v podman &>/dev/null; then
-        podman tag "${image}" "${dest}"
-        podman login "${registry}" -u "$(oc whoami)" -p "${token}" --tls-verify=false
-        podman push "${dest}" --tls-verify=false
-    else
-        docker tag "${image}" "${dest}"
-        echo "${token}" | docker login "${registry}" -u "$(oc whoami)" --password-stdin
-        docker push "${dest}"
-    fi
-    export ARGUS_GTC_SERVER_IMAGE="${dest}"
 }
 
 function render_demo_manifests() {
@@ -141,11 +105,7 @@ function deploy_argus_gtc_demo() {
     require_demo_prereqs
     remove_argus_log_cleaner
 
-    if [ "${ARGUS_GTC_BUILD_IMAGE:-true}" = "true" ]; then
-        build_demo_image
-        maybe_push_demo_image
-    fi
-
+    log "INFO" "Using pre-built demo server image ${ARGUS_GTC_SERVER_IMAGE}"
     render_demo_manifests
     create_hosted_kubeconfig_secret
 

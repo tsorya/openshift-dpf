@@ -15,16 +15,32 @@ All scenarios are **bounded and allowlisted**. They do not use malware, internet
 3. `make deploy-observability` recommended for DTS panels (Thanos metrics).
 4. Hosted cluster kubeconfig available (`doca.kubeconfig` or secret fetch).
 
-## Deploy
+## Build the demo server image (one-time, outside this repo)
+
+Build from `demo/argus-gtc/` on a workstation with podman/docker, push to your
+registry, then set `ARGUS_GTC_SERVER_IMAGE` in `.env`:
 
 ```bash
-make deploy-argus-gtc-demo
+# example — use your registry and tag
+podman build -t quay.io/<user>/argus-gtc-demo:v1 -f Containerfile demo/argus-gtc
+podman push quay.io/<user>/argus-gtc-demo:v1
+```
+
+The image only needs Python 3.11, `requirements.txt`, and the `server/` + `static/`
+directories. Keep the Containerfile in your registry build workspace; this repo
+does not ship one.
+
+## Deploy
+
+Set the image in `.env` (or export it), then deploy:
+
+```bash
+ARGUS_GTC_SERVER_IMAGE=quay.io/<user>/argus-gtc-demo:v1 make deploy-argus-gtc-demo
 ```
 
 This command:
 
 - Removes the legacy Argus log-cleaner DaemonSet (if present).
-- Builds and pushes the demo server image to the cluster integrated registry (override with `ARGUS_GTC_BUILD_IMAGE=false` / `ARGUS_GTC_PUSH_IMAGE=false`).
 - Deploys the Kata workload, scenario sink, NetworkPolicy, and UI on the management cluster.
 - Deploys a read-only log collector DaemonSet on the hosted cluster.
 - Prints the OpenShift Route URL for the UI.
@@ -33,8 +49,8 @@ This command:
 
 | Variable | Default | Purpose |
 |----------|---------|---------|
-| `ARGUS_GTC_DEMO_IMAGE` | `nicolaka-netshoot:v0.13` | Digest-pinned Kata workload image |
-| `ARGUS_GTC_SERVER_IMAGE` | `argus-gtc-demo:local` | Demo server/collector image |
+| `ARGUS_GTC_DEMO_IMAGE` | `nicolaka-netshoot:v0.13` | Kata workload + sink image |
+| `ARGUS_GTC_SERVER_IMAGE` | *(required)* | Pre-built demo server/collector image |
 | `ARGUS_LOG_THRESHOLD_SIZE` | `50M` | Argus native log rotation threshold |
 | `ARGUS_LOG_MAX_FILES_COUNT` | `10` | Argus rotated log file cap |
 
@@ -63,7 +79,7 @@ Removes only `argus-gtc-demo` namespace resources on management and hosted clust
 | No Argus events in UI | Argus pods Running on hosted cluster; logs under `/var/log/doca_argus_activity_report/`; log-cleaner absent |
 | Argus status Pending | `KUBECONFIG=doca.kubeconfig oc get pods -n dpf-operator-system \| grep argus` |
 | Workload Pending | Kata VF pool on PF0; NAD/injector applied |
-| UI image pull errors | Set `ARGUS_GTC_SERVER_IMAGE` to a registry the cluster can reach |
+| UI image pull errors | Ensure `ARGUS_GTC_SERVER_IMAGE` points to a registry the cluster can pull (image pull secret if private) |
 | Collector not forwarding | Hosted→management Route reachability; server still tails Argus pods via hosted kubeconfig fallback |
 
 ## Measuring detection latency
