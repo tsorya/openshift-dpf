@@ -133,7 +133,7 @@ function ensure_kata_sriov_pool() {
     mkdir -p "${GENERATED_POST_INSTALL_DIR}"
     update_nodesriov_device_plugin_config
     apply_manifest "${GENERATED_POST_INSTALL_DIR}/nodesriovdevicepluginconfig.yaml" "true"
-    log [INFO] "NodeSRIOVDevicePluginConfig applied"
+    log [INFO] "NodeSRIOVDevicePluginConfig applied from current env (KATA_SRIOV_PF_INDEX=${KATA_SRIOV_PF_INDEX}, KATA_SRIOV_DP_CONFIG_NAME=${KATA_SRIOV_DP_CONFIG_NAME})"
 }
 
 function warn_if_dpu_nodes_have_kata_oc_role() {
