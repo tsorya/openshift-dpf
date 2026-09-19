@@ -30,7 +30,7 @@ class Settings(BaseSettings):
     )
     hosted_kubeconfig: str = ""
 
-    demo_image: str = "quay.io/wabouham/ecosys-nvidia/nicolaka-netshoot:v0.13"
+    demo_image: str = "quay.io/wabouham/ecosys-nvidia/nicolaka-netshoot:latest"
 
     max_events: int = 500
     poll_interval_seconds: float = 1.0
