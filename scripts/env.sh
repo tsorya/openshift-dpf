@@ -947,12 +947,12 @@ if [[ "${BASH_SOURCE[0]}" != "${0}" ]]; then
     # Kata defaults for .env files generated before these variables existed.
     KATA_ENABLED=${KATA_ENABLED:-false}
     KATA_RUNTIME_CLASS=${KATA_RUNTIME_CLASS:-kata-coldplug}
-    KATA_SRIOV_PF_INDEX=${KATA_SRIOV_PF_INDEX:-0}
-    if [ "${KATA_SRIOV_PF_INDEX}" != "0" ]; then
-        echo "Error: this Kata/Argus integration currently requires KATA_SRIOV_PF_INDEX=0 (got '${KATA_SRIOV_PF_INDEX}')" >&2
+    KATA_SRIOV_PF_INDEX=${KATA_SRIOV_PF_INDEX:-1}
+    if [ "${KATA_SRIOV_PF_INDEX}" != "0" ] && [ "${KATA_SRIOV_PF_INDEX}" != "1" ]; then
+        echo "Error: KATA_SRIOV_PF_INDEX must be 0 or 1 (got '${KATA_SRIOV_PF_INDEX}')" >&2
         exit 1
     fi
-    KATA_SRIOV_DP_CONFIG_NAME=${KATA_SRIOV_DP_CONFIG_NAME:-bf3-p0-vfs-kata}
+    KATA_SRIOV_DP_CONFIG_NAME=${KATA_SRIOV_DP_CONFIG_NAME:-bf3-p${KATA_SRIOV_PF_INDEX}-vfs-kata}
     KATA_NUM_VFS=${KATA_NUM_VFS:-24}
     KATA_NAD_NAME=${KATA_NAD_NAME:-dpf-ovn-kubernetes-${KATA_RUNTIME_CLASS}}
     KATA_INJECTOR_RESOURCE_NAME=${KATA_INJECTOR_RESOURCE_NAME:-${SRIOV_DP_RESOURCE_PREFIX}/${KATA_SRIOV_DP_CONFIG_NAME}}

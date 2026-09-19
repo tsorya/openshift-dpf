@@ -129,7 +129,7 @@ function ensure_kata_sriov_pool() {
     else
         log [INFO] "Kata VF pool ${KATA_SRIOV_DP_CONFIG_NAME} not listed in NodeSRIOVDevicePluginConfig; reconciling from env"
     fi
-    log [INFO] "Applying NodeSRIOVDevicePluginConfig for PF0 kata pool ${KATA_SRIOV_DP_CONFIG_NAME}"
+    log [INFO] "Applying NodeSRIOVDevicePluginConfig for PF${KATA_SRIOV_PF_INDEX} kata pool ${KATA_SRIOV_DP_CONFIG_NAME}"
     mkdir -p "${GENERATED_POST_INSTALL_DIR}"
     update_nodesriov_device_plugin_config
     apply_manifest "${GENERATED_POST_INSTALL_DIR}/nodesriovdevicepluginconfig.yaml" "true"
