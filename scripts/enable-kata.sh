@@ -116,7 +116,7 @@ function ensure_kata_sriov_pool() {
     mkdir -p "${GENERATED_POST_INSTALL_DIR}"
     update_nodesriov_device_plugin_config
     apply_manifest "${GENERATED_POST_INSTALL_DIR}/nodesriovdevicepluginconfig.yaml" "true"
-    log [INFO] "NodeSRIOVDevicePluginConfig applied"
+    log [INFO] "NodeSRIOVDevicePluginConfig applied from current env (KATA_SRIOV_PF_INDEX=${KATA_SRIOV_PF_INDEX}, KATA_SRIOV_DP_CONFIG_NAME=${KATA_SRIOV_DP_CONFIG_NAME})"
 }
 
 # The injector grants kata pods their primary VF from this NAD annotation
