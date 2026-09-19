@@ -147,13 +147,23 @@ function wait_for_argus_dpuservices_ready() {
     return 1
 }
 
+function remove_argus_log_cleaner() {
+    if ! ensure_hosted_kubeconfig; then
+        return 0
+    fi
+    local namespace="${DPF_OPERATOR_NAMESPACE:-dpf-operator-system}"
+    if KUBECONFIG="${HOSTED_KUBECONFIG}" oc get daemonset argus-log-cleaner -n "${namespace}" &>/dev/null; then
+        log "INFO" "Removing legacy Argus log-cleaner DaemonSet to preserve demo evidence"
+        KUBECONFIG="${HOSTED_KUBECONFIG}" oc delete daemonset argus-log-cleaner -n "${namespace}" --ignore-not-found
+    fi
+}
+
 function enable_argus() {
     get_kubeconfig
     if ! oc get dpudeployment dpudeployment -n dpf-operator-system >/dev/null 2>&1; then
         log "ERROR" "DPUDeployment dpudeployment was not found. Deploy DPU services before running make enable-argus."
         return 1
     fi
-
     if [ "${KATA_ENABLED}" = "true" ]; then
         require_argus_kata_prereqs || return 1
     fi
@@ -164,6 +174,7 @@ function enable_argus() {
     log "INFO" "Adding Argus to DPUDeployment dpudeployment..."
     patch_argus_service
     wait_for_argus_dpuservices_ready
+    remove_argus_log_cleaner
     log "INFO" "Argus service enabled"
 }
 

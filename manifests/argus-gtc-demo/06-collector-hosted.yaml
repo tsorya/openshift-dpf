@@ -1,0 +1,61 @@
+# Hosted/DPU cluster collector: read-only tail of Argus JSON logs on each node.
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: argus-gtc-collector
+  namespace: argus-gtc-demo
+  labels:
+    app: argus-gtc-collector
+spec:
+  selector:
+    matchLabels:
+      app: argus-gtc-collector
+  template:
+    metadata:
+      labels:
+        app: argus-gtc-collector
+    spec:
+      serviceAccountName: argus-gtc-collector
+      tolerations:
+        - operator: Exists
+      containers:
+        - name: collector
+          image: <ARGUS_GTC_SERVER_IMAGE>
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: ARGUS_GTC_ROLE
+              value: collector
+            - name: ARGUS_GTC_COLLECTOR_URL
+              value: <ARGUS_GTC_SERVER_URL>
+            - name: ARGUS_GTC_INGEST_TOKEN
+              value: <ARGUS_GTC_INGEST_TOKEN>
+            - name: ARGUS_GTC_ACTIVITY_LOG_DIR
+              value: /var/log/doca_argus_activity_report
+            - name: ARGUS_GTC_SERVICE_LOG_DIR
+              value: /var/log/doca_argus
+          ports:
+            - containerPort: 8080
+              name: http
+          volumeMounts:
+            - name: activity-report
+              mountPath: /var/log/doca_argus_activity_report
+              readOnly: true
+            - name: service-log
+              mountPath: /var/log/doca_argus
+              readOnly: true
+          resources:
+            requests:
+              cpu: 20m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 256Mi
+      volumes:
+        - name: activity-report
+          hostPath:
+            path: /var/log/doca_argus_activity_report
+            type: DirectoryOrCreate
+        - name: service-log
+          hostPath:
+            path: /var/log/doca_argus
+            type: DirectoryOrCreate

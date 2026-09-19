@@ -20,6 +20,9 @@ spec:
                 bm:
                   dma_device_name: <ARGUS_DMA_DEVICE_NAME>
                   representor_id: <ARGUS_REPRESENTOR_ID>
+              output:
+                log_threshold_size: <ARGUS_LOG_THRESHOLD_SIZE>
+                log_max_files_count: <ARGUS_LOG_MAX_FILES_COUNT>
         containerImage: <ARGUS_IMAGE>
   upgradePolicy:
     applyNodeEffect: false

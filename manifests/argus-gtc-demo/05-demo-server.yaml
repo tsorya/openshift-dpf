@@ -1,0 +1,109 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: argus-gtc-ingest-token
+  namespace: argus-gtc-demo
+type: Opaque
+stringData:
+  token: <ARGUS_GTC_INGEST_TOKEN>
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: argus-gtc-demo
+  namespace: argus-gtc-demo
+  labels:
+    app: argus-gtc-demo
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: argus-gtc-demo
+  template:
+    metadata:
+      labels:
+        app: argus-gtc-demo
+    spec:
+      serviceAccountName: argus-gtc-demo
+      containers:
+        - name: server
+          image: <ARGUS_GTC_SERVER_IMAGE>
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8080
+              name: http
+          env:
+            - name: ARGUS_GTC_ROLE
+              value: server
+            - name: ARGUS_GTC_NAMESPACE
+              value: argus-gtc-demo
+            - name: ARGUS_GTC_KATA_RUNTIME_CLASS
+              value: <KATA_RUNTIME_CLASS>
+            - name: ARGUS_GTC_HOSTED_KUBECONFIG
+              value: /etc/hosted/kubeconfig
+            - name: ARGUS_GTC_INGEST_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: argus-gtc-ingest-token
+                  key: token
+            - name: ARGUS_GTC_DEMO_IMAGE
+              value: <ARGUS_GTC_DEMO_IMAGE>
+          volumeMounts:
+            - name: hosted-kubeconfig
+              mountPath: /etc/hosted
+              readOnly: true
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /api/health
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+      volumes:
+        - name: hosted-kubeconfig
+          secret:
+            secretName: argus-gtc-hosted-kubeconfig
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: argus-gtc-demo
+  namespace: argus-gtc-demo
+  labels:
+    app: argus-gtc-demo
+spec:
+  selector:
+    app: argus-gtc-demo
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+---
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: argus-gtc-demo
+  namespace: argus-gtc-demo
+  labels:
+    app: argus-gtc-demo
+spec:
+  to:
+    kind: Service
+    name: argus-gtc-demo
+  port:
+    targetPort: http
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect

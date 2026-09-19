@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Invisible VM, Visible Threat — Argus GTC Demo</title>
+  <link rel="stylesheet" href="/assets/style.css" />
+</head>
+<body>
+  <header class="hero">
+    <div>
+      <p class="eyebrow">NVIDIA DOCA Argus · OpenShift DPF · Kata</p>
+      <h1>Invisible VM, Visible Threat</h1>
+      <p class="subtitle">No in-guest agent. BlueField observes the Kata workload out-of-band while OpenShift supplies workload context.</p>
+    </div>
+    <div class="ribbon" id="status-ribbon">
+      <div class="pill" data-key="cluster"><span>Cluster</span><strong>—</strong></div>
+      <div class="pill" data-key="dpu"><span>DPU</span><strong>—</strong></div>
+      <div class="pill" data-key="argus"><span>Argus</span><strong>—</strong></div>
+      <div class="pill" data-key="kata_vm"><span>Kata VM</span><strong>—</strong></div>
+      <div class="pill" data-key="vf_link"><span>VF / Link</span><strong>—</strong></div>
+      <div class="pill" data-key="argus_freshness"><span>Argus Feed</span><strong>—</strong></div>
+    </div>
+  </header>
+
+  <main class="layout">
+    <section class="panel topology">
+      <h2>Topology</h2>
+      <div class="flow">
+        <div class="node">Pod<div class="sub" id="pod-name">—</div></div>
+        <div class="arrow">→</div>
+        <div class="node">Kata VM<div class="sub" id="runtime-class">—</div></div>
+        <div class="arrow">→</div>
+        <div class="node">SR-IOV VF<div class="sub" id="vf-state">—</div></div>
+        <div class="arrow">→</div>
+        <div class="node">BlueField DPU<div class="sub" id="dpu-node">—</div></div>
+        <div class="arrow">→</div>
+        <div class="node accent">DOCA Argus<div class="sub" id="argus-pods">—</div></div>
+      </div>
+      <p class="note">Demo-side scenario labels are applied in the controller; ATT&CK mappings are not native Argus output.</p>
+    </section>
+
+    <section class="panel actions">
+      <h2>Bounded Scenarios</h2>
+      <div class="buttons">
+        <button data-scenario="discovery">Run Discovery</button>
+        <button data-scenario="compute-simulation">Run Compute Simulation</button>
+        <button data-scenario="reverse-shell">Reverse Shell Simulation</button>
+        <button data-scenario="shell-history">Shell History Tampering</button>
+        <button data-scenario="decoy-modify">Decoy Modification</button>
+        <button data-scenario="network-burst">Network Burst</button>
+      </div>
+      <div class="contain-row">
+        <button class="danger" id="contain-btn">Contain Workload</button>
+        <button class="secondary" id="reset-btn">Restore Workload</button>
+      </div>
+      <pre id="action-log"></pre>
+    </section>
+
+    <section class="panel timeline">
+      <h2>Live Argus Timeline</h2>
+      <div id="timeline" class="timeline-list"></div>
+    </section>
+
+    <section class="panel metrics">
+      <h2>DTS Health</h2>
+      <div class="metric-grid" id="metric-grid"></div>
+    </section>
+  </main>
+
+  <script src="/assets/app.js"></script>
+</body>
+</html>
