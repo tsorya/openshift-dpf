@@ -61,10 +61,20 @@ On an already-installed cluster:
 ```bash
 KATA_ENABLED=true
 make enable-ovn-injector   # webhook + kata NAD
-make enable-kata           # kata VF pool (if missing), OSC, inert KataConfig, worker-dpu MCs, RuntimeClass
+make enable-kata           # reconcile kata VF pool from .env, OSC, inert KataConfig, worker-dpu MCs, RuntimeClass
 ```
 
-`enable-kata` updates `NodeSRIOVDevicePluginConfig` when the kata VF pool is missing (for example after an install with `KATA_ENABLED=false`). You can still run `make prepare-dpu-files` alone to regenerate manifests without applying.
+Argus (Kata VFs must be on PF0):
+
+```bash
+KATA_ENABLED=true
+KATA_SRIOV_PF_INDEX=0
+make enable-ovn-injector
+make enable-kata
+ARGUS_REPRESENTOR_ID=<DPU-VU-string> make enable-argus
+```
+
+`enable-kata` always regenerates and applies `NodeSRIOVDevicePluginConfig` from the current `.env` (kata pool plus regular PF ranges), and aligns the kata NAD `resourceName` annotation with `KATA_INJECTOR_RESOURCE_NAME`. Re-run after changing `KATA_NUM_VFS`. You can still run `make prepare-dpu-files` alone to regenerate manifests without applying.
 
 ### OSC stays idle on DPU hosts
 
