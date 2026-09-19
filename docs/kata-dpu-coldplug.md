@@ -1,6 +1,6 @@
 # Kata DPU cold-plug: setup, debug, and runbook
 
-Notes from bringing up `kata-dpu-test` on a DPU worker (`worker-303ea712f378` / nvd-srv-45). Host-side pieces come from [jensfr/rhcos-layer-kata-dpu](https://github.com/jensfr/rhcos-layer-kata-dpu/tree/dpu-coldplug-nvidia-ref). DPF-side pieces (PF1 kata VF pool, OVN injector mapping) live in this repo.
+Notes from bringing up `kata-dpu-test` on a DPU worker (`worker-303ea712f378` / nvd-srv-45). Host-side pieces come from [jensfr/rhcos-layer-kata-dpu](https://github.com/jensfr/rhcos-layer-kata-dpu/tree/dpu-coldplug-nvidia-ref). DPF-side pieces (kata VF pool, OVN injector mapping, optional Argus) live in this repo.
 
 **Do not use `ovs-ctl` to restart OVS on DPUs.** It wipes the database. Use:
 
@@ -16,7 +16,7 @@ kd debug node/<dpu-node> -- chroot /host systemctl restart ovs-vswitchd
 ## How it is supposed to work
 
 1. DPF creates SR-IOV VFs on BlueField. `mlx5_core` binds and each VF gets a netdev.
-2. Device plugin advertises regular RDMA VFs (`openshift.io/bf3_vfs`) and, when `KATA_ENABLED=true`, a non-RDMA PF1 kata pool (`openshift.io/bf3-p1-vfs-kata`).
+2. Device plugin advertises regular RDMA VFs (`openshift.io/bf3_vfs`) and, when `KATA_ENABLED=true`, a non-RDMA kata pool on `KATA_SRIOV_PF_INDEX` (default PF1: `openshift.io/bf3-p1-vfs-kata`). PF0 (`bf3-p0-vfs-kata`) is required for Argus.
 3. Pod uses `runtimeClassName: kata-coldplug`. The OVN injector adds **one** VF from the kata pool and sets the kata NAD.
 4. OVN injector webhook sets `v1.multus-cni.io/default-network` to the kata NAD.
 5. CNI moves the VF **as a netdev** into the sandbox netns (VF must still be on `mlx5_core`).
@@ -34,7 +34,8 @@ The kata pool omits `isRdma` so host uverbs are not mounted into the VM. Regular
 ```bash
 KATA_ENABLED=true
 KATA_RUNTIME_CLASS=kata-coldplug
-KATA_SRIOV_DP_CONFIG_NAME=bf3-p1-vfs-kata
+KATA_SRIOV_PF_INDEX=1          # 0 for Argus (low-index PF0 carve); 1 = default high-index PF1
+KATA_SRIOV_DP_CONFIG_NAME=bf3-p1-vfs-kata   # defaults to bf3-p${KATA_SRIOV_PF_INDEX}-vfs-kata
 KATA_NUM_VFS=24
 KATA_INJECTOR_RESOURCE_NAME=openshift.io/bf3-p1-vfs-kata
 KATA_NAD_NAME=dpf-ovn-kubernetes-kata-coldplug
@@ -42,7 +43,7 @@ KATA_RHCOS_LAYER_IMAGE=quay.io/jensfr/rhcos-kata-dpu@sha256:ce05dea3e0214c7bf786
 KATA_SKIP_RHCOS_LAYER=false
 ```
 
-`make all` with `KATA_ENABLED=false` does not split PF1. With `KATA_ENABLED=true`, `make all` splits PF1, creates the kata NAD, and runs `enable-kata` last.
+`make all` with `KATA_ENABLED=false` does not split a kata pool. With `KATA_ENABLED=true`, `make all` splits `KATA_SRIOV_PF_INDEX`, creates the kata NAD, and runs `enable-kata` last. `KATA_SRIOV_PF_INDEX` actually carves that PF: PF1 keeps the original high-index split; PF0 carves VFs `2..(1+KATA_NUM_VFS)` (after mgmt VF1) so Argus `auto_scan` reaches them quickly.
 
 The kata NAD `resourceName` must be the kata pool. Regular pods keep `dpf-ovn-kubernetes` / `openshift.io/bf3_vfs`.
 
@@ -61,10 +62,20 @@ On an already-installed cluster:
 ```bash
 KATA_ENABLED=true
 make enable-ovn-injector   # webhook + kata NAD
-make enable-kata           # PF1 kata VF pool (if missing), OSC, inert KataConfig, worker-dpu MCs, RuntimeClass
+make enable-kata           # kata VF pool (if missing), OSC, inert KataConfig, worker-dpu MCs, RuntimeClass
 ```
 
-`enable-kata` updates `NodeSRIOVDevicePluginConfig` when the kata VF pool is missing (for example after an install with `KATA_ENABLED=false`). You can still run `make prepare-dpu-files` alone to regenerate manifests without applying.
+Argus (Kata VFs must be on PF0):
+
+```bash
+KATA_ENABLED=true
+KATA_SRIOV_PF_INDEX=0
+make enable-ovn-injector
+make enable-kata
+ARGUS_REPRESENTOR_ID=<DPU-VU-string> make enable-argus
+```
+
+`enable-kata` updates `NodeSRIOVDevicePluginConfig` when the kata VF pool is missing (for example after an install with `KATA_ENABLED=false`), and aligns the kata NAD `resourceName` annotation with `KATA_INJECTOR_RESOURCE_NAME`. You can still run `make prepare-dpu-files` alone to regenerate manifests without applying.
 
 ### OSC stays idle on DPU hosts
 
@@ -75,6 +86,19 @@ Those nodes stay exclusively in MCP `worker-dpu`. An empty MCP `kata-oc` may exi
 Kata RPM and CRI-O are already on the node (RHCOS layer or z-stream). Cold-plug MachineConfigs are labeled `worker-dpu`. RuntimeClass `kata-coldplug` selects `worker-dpu`.
 
 Do **not** add `node-role.kubernetes.io/kata-oc` to DPU nodes.
+
+### Argus (optional)
+
+Argus introspects Kata guests from the DPU via DMA. It only sees VFs on **PF0**, so set `KATA_SRIOV_PF_INDEX=0` before `enable-ovn-injector` / `enable-kata`. `make enable-argus` only installs the Argus DPUService (pool + NAD are already done by `enable-kata`). Opt-in, not part of `make all`.
+
+`ARGUS_REPRESENTOR_ID` is the DPU's PF0 VU string (no VF suffix). There is no lab default.
+
+```bash
+KATA_ENABLED=true KATA_SRIOV_PF_INDEX=0
+make enable-ovn-injector
+make enable-kata
+ARGUS_REPRESENTOR_ID=MT... make enable-argus
+```
 
 Apply test pods (`KATA_TEST_REPLICAS` defaults to 1):
 
@@ -408,6 +432,7 @@ ps aux | grep qemu-kvm | grep -o 'vfio-pci,host=[^ ]*'
 | Path | Role |
 |------|------|
 | `scripts/enable-kata.sh` | OSC, inert KataConfig, worker-dpu MCs, RuntimeClass |
+| `scripts/enable-argus.sh` | Argus DPUService (PF0 kata pool, NAD, template, DPUDeployment patch, log-cleaner) |
 | `scripts/enable-ovn-injector.sh` | Injector + kata NAD mapping |
 | `manifests/kata/01-osc-operator.yaml` | OSC namespace, OperatorGroup, Subscription |
 | `manifests/kata/02-kataconfig.yaml` | KataConfig selector matches no nodes |
@@ -416,5 +441,6 @@ ps aux | grep qemu-kvm | grep -o 'vfio-pci,host=[^ ]*'
 | `manifests/kata/04-kata-coldplug.yaml` | CRI-O handler, coldplug.toml, vfio-pci modules-load |
 | `manifests/kata/05-runtimeclass.yaml` | `kata-coldplug` (nodeSelector worker-dpu) |
 | `manifests/kata/06-test-deployment.yaml` | kata-dpu-test Deployment (KATA_TEST_REPLICAS) |
+| `manifests/argus/` | Argus DPUServiceTemplate, DPUDeployment patch, configuration, log-cleaner |
 | `manifests/post-installation/nodesriovdevicepluginconfig.yaml` | Regular RDMA pool; `<KATA_SRIOV_POOL>` filled only when KATA_ENABLED=true |
-| `ci/env.defaults` | `KATA_*` variables |
+| `ci/env.defaults` | `KATA_*` and `ARGUS_*` variables |

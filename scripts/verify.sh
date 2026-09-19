@@ -224,13 +224,15 @@ verify_deployment() {
 # -----------------------------------------------------------------------------
 # Command Dispatcher
 # -----------------------------------------------------------------------------
-case "${1:-}" in
-    verify-workers)       verify_worker_nodes ;;
-    verify-dpu-nodes)     verify_dpu_nodes ;;
-    verify-dpudeployment) verify_dpudeployment ;;
-    verify-deployment)    verify_deployment ;;
-    *)
-        echo "Usage: $0 {verify-workers|verify-dpu-nodes|verify-dpudeployment|verify-deployment}"
-        exit 1
-        ;;
-esac
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    case "${1:-}" in
+        verify-workers)       verify_worker_nodes ;;
+        verify-dpu-nodes)     verify_dpu_nodes ;;
+        verify-dpudeployment) verify_dpudeployment ;;
+        verify-deployment)    verify_deployment ;;
+        *)
+            echo "Usage: $0 {verify-workers|verify-dpu-nodes|verify-dpudeployment|verify-deployment}"
+            exit 1
+            ;;
+    esac
+fi

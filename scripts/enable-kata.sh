@@ -107,19 +107,35 @@ function cluster_has_kata_sriov_pool() {
 }
 
 function ensure_kata_sriov_pool() {
-    if cluster_has_kata_sriov_pool; then
-        log [INFO] "NodeSRIOVDevicePluginConfig already has kata pool ${KATA_SRIOV_DP_CONFIG_NAME}"
-        return 0
-    fi
     if ! [[ "${NUM_VFS}" =~ ^[1-9][0-9]*$ ]]; then
         log [ERROR] "NUM_VFS must be a positive integer"
         return 1
     fi
-    log [INFO] "Kata VF pool missing from NodeSRIOVDevicePluginConfig; regenerating and applying"
+    if cluster_has_kata_sriov_pool; then
+        log [INFO] "NodeSRIOVDevicePluginConfig already has kata pool ${KATA_SRIOV_DP_CONFIG_NAME}"
+        return 0
+    fi
+    log [INFO] "Kata VF pool ${KATA_SRIOV_DP_CONFIG_NAME} missing from NodeSRIOVDevicePluginConfig; regenerating and applying"
     mkdir -p "${GENERATED_POST_INSTALL_DIR}"
     update_nodesriov_device_plugin_config
     apply_manifest "${GENERATED_POST_INSTALL_DIR}/nodesriovdevicepluginconfig.yaml" "true"
     log [INFO] "NodeSRIOVDevicePluginConfig applied"
+}
+
+# The injector grants kata pods their primary VF from this NAD annotation
+# (not from the pod spec). Keep it aligned with KATA_INJECTOR_RESOURCE_NAME.
+function ensure_kata_nad() {
+    local current
+    current=$(oc get net-attach-def -n "${OVNK_NAMESPACE}" "${KATA_NAD_NAME}" \
+        -o jsonpath='{.metadata.annotations.k8s\.v1\.cni\.cncf\.io/resourceName}' 2>/dev/null || true)
+    if [ "${current}" = "${KATA_INJECTOR_RESOURCE_NAME}" ]; then
+        log [INFO] "NAD ${KATA_NAD_NAME} already uses ${KATA_INJECTOR_RESOURCE_NAME}"
+        return 0
+    fi
+    log [INFO] "Pointing NAD ${KATA_NAD_NAME} at ${KATA_INJECTOR_RESOURCE_NAME} (was '${current}')"
+    oc annotate net-attach-def -n "${OVNK_NAMESPACE}" "${KATA_NAD_NAME}" \
+        "k8s.v1.cni.cncf.io/resourceName=${KATA_INJECTOR_RESOURCE_NAME}" \
+        --overwrite
 }
 
 function warn_if_dpu_nodes_have_kata_oc_role() {
@@ -373,13 +389,14 @@ function enable_kata() {
         exit 1
     fi
 
-    ensure_kata_sriov_pool
-
     if ! oc get net-attach-def -n "${OVNK_NAMESPACE}" "${KATA_NAD_NAME}" &>/dev/null; then
         log [ERROR] "NetworkAttachmentDefinition '${KATA_NAD_NAME}' not found in ${OVNK_NAMESPACE}."
         log [ERROR] "Set KATA_ENABLED=true and run make enable-ovn-injector before make enable-kata."
         exit 1
     fi
+
+    ensure_kata_sriov_pool
+    ensure_kata_nad
 
     check_kvm_on_workers
 

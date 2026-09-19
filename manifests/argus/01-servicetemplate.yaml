@@ -1,0 +1,14 @@
+# Unmanaged DPUServiceTemplate for DOCA Argus.
+# DPF does not ship a managed template for Argus (unlike hbn/ovn/dts).
+apiVersion: svc.dpu.nvidia.com/v1alpha1
+kind: DPUServiceTemplate
+metadata:
+  name: argus
+  namespace: dpf-operator-system
+spec:
+  deploymentServiceName: "argus"
+  helmChart:
+    source:
+      repoURL: <ARGUS_HELM_REPO_URL>
+      chart: doca-argus
+      version: "<ARGUS_CHART_VERSION>"

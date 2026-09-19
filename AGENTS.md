@@ -35,6 +35,8 @@ Key scripts and their responsibilities:
 - `manifests.sh` — manifest preparation and OVN manifest generation; template processing with variable substitution
 - `dpf.sh` — DPF operator deployment (NFD, ArgoCD/GitOps, Maintenance Operator, Helm chart installs)
 - `post-install.sh` — post-installation manifests (BFB, HBN, DTS, OVN, DPU services, observability)
+- `enable-kata.sh` — OSC + kata-coldplug on worker-dpu
+- `enable-argus.sh` — DOCA Argus DPUService (requires PF0 kata VF pool)
 - `worker.sh` — physical worker provisioning via BMO/Redfish (BareMetalHost CRs, MachineConfig, CSR approval)
 - `vm.sh` — libvirt VM management (create/delete cluster VMs and worker VMs, static IP support, remote libvirt via SSH)
 - `verify.sh` — deployment verification (worker nodes Ready, DPU nodes Ready in DPUCluster, DPUDeployment status)
@@ -47,6 +49,8 @@ Key scripts and their responsibilities:
 - `post-installation/` — DPU service definitions (BFB, HBN, DTS, OVN, DPUDeployment)
 - `helm-charts-values/` — Helm values files for OVN and DPF charts
 - `worker-provisioning/` — BareMetalHost and Secret templates for physical workers
+- `kata/` — OSC, RuntimeClass, cold-plug MachineConfigs
+- `argus/` — DOCA Argus DPUServiceTemplate, configuration, log-cleaner
 - `observability/` — Grafana dashboards and monitoring operator manifests
 
 Templates use placeholder strings (e.g., `<CLUSTER_FQDN>`, `<BFB_URL>`) that are substituted at runtime by `process_template()` or `sed`. Generated output goes to `manifests/generated/` (gitignored).
@@ -61,6 +65,9 @@ make create-cluster       # Create OpenShift cluster via Assisted Installer
 make deploy-dpf           # Deploy DPF operator
 make add-worker-nodes     # Provision physical workers via BMO/Redfish
 make deploy-dpu-services  # Deploy DPU services (HBN, DTS, OVN)
+make enable-ovn-injector  # OVN resource injector (kata NAD when KATA_ENABLED=true)
+make enable-kata          # OSC + kata-coldplug (last make all step when KATA_ENABLED=true)
+make enable-argus         # DOCA Argus DPUService (KATA_SRIOV_PF_INDEX=0, ARGUS_REPRESENTOR_ID)
 make worker-status        # Check worker provisioning status
 make run-dpf-sanity       # Run sanity checks
 make verify-deployment    # Full verification (workers + DPU nodes + DPUDeployment)
