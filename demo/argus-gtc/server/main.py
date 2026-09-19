@@ -101,7 +101,8 @@ def create_app() -> FastAPI:
     @app.get("/api/status")
     async def status() -> dict[str, Any]:
         dts_health = await app.state.metrics.health_summary()
-        ribbon = app.state.k8s.build_status_ribbon(
+        ribbon = await asyncio.to_thread(
+            app.state.k8s.build_status_ribbon,
             app.state.store.last_event_at,
             dts_health,
         )
@@ -145,14 +146,14 @@ def create_app() -> FastAPI:
         if scenario_id not in ALLOWED_SCENARIOS:
             raise HTTPException(status_code=400, detail="scenario not allowlisted")
         try:
-            result = app.state.scenarios.run(scenario_id)
+            result = await asyncio.to_thread(app.state.scenarios.run, scenario_id)
         except Exception as exc:
             raise HTTPException(status_code=500, detail=str(exc)) from exc
         return result.model_dump()
 
     @app.post("/api/contain")
     async def contain() -> dict[str, Any]:
-        result = app.state.k8s.scale_workload(0)
+        result = await asyncio.to_thread(app.state.k8s.scale_workload, 0)
         return ContainResult(
             status="contained",
             message="Demo workload scaled to zero; DPU services unchanged",
@@ -161,7 +162,7 @@ def create_app() -> FastAPI:
 
     @app.post("/api/reset")
     async def reset() -> dict[str, Any]:
-        result = app.state.k8s.scale_workload(1)
+        result = await asyncio.to_thread(app.state.k8s.scale_workload, 1)
         return {
             "status": "reset",
             "message": "Demo workload restored to one replica",

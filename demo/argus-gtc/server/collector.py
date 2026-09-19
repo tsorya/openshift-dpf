@@ -140,8 +140,8 @@ class ArgusLogTailer:
             event.demo_label = SCENARIO_LABELS.get(scenario_id)
         return event
 
-    async def poll_once(self) -> int:
-        added = 0
+    def _poll_once_sync(self) -> list[NormalizedEvent]:
+        events: list[NormalizedEvent] = []
         for base in self._iter_log_dirs():
             if not base.is_dir():
                 continue
@@ -160,12 +160,17 @@ class ArgusLogTailer:
                         for line in handle:
                             event = self._parse_line(line, source_file=key)
                             if event:
-                                await self.store.add(event)
-                                added += 1
+                                events.append(event)
                         self._offsets[key] = handle.tell()
                 except OSError as exc:
                     logger.debug("skip %s: %s", path, exc)
-        return added
+        return events
+
+    async def poll_once(self) -> int:
+        events = await asyncio.to_thread(self._poll_once_sync)
+        for event in events:
+            await self.store.add(event)
+        return len(events)
 
     async def run(self, stop_event: asyncio.Event) -> None:
         while not stop_event.is_set():
@@ -202,16 +207,17 @@ class HostedArgusPodTailer:
             logger.debug("hosted kubeconfig unavailable", exc_info=True)
             return None
 
-    async def poll_once(self) -> int:
+    def _poll_once_sync(self) -> list[NormalizedEvent]:
         clients = self._hosted_clients()
         if not clients:
-            return 0
-        core, k8s_client = clients
+            return []
+        core, _k8s_client = clients
         from kubernetes.stream import stream
 
         pods = core.list_namespaced_pod(namespace=self.settings.dpf_namespace).items
         argus_pods = [p for p in pods if p.metadata.name and "doca-argus" in p.metadata.name]
-        added = 0
+        events: list[NormalizedEvent] = []
+        parser = ArgusLogTailer(self.settings, self.store, self.scenario_lookup)
         for pod in argus_pods:
             if not pod.status or pod.status.phase != "Running":
                 continue
@@ -257,14 +263,20 @@ class HostedArgusPodTailer:
                     continue
                 if not chunk:
                     continue
-                self._offsets[f"{pod_key}:{path}"] = offset + len(chunk.encode("utf-8", errors="ignore"))
-                tailer = ArgusLogTailer(self.settings, self.store, self.scenario_lookup)
+                self._offsets[f"{pod_key}:{path}"] = offset + len(
+                    chunk.encode("utf-8", errors="ignore")
+                )
                 for line in chunk.splitlines():
-                    event = tailer._parse_line(line, source_file=f"{pod_key}:{path}")
+                    event = parser._parse_line(line, source_file=f"{pod_key}:{path}")
                     if event:
-                        await self.store.add(event)
-                        added += 1
-        return added
+                        events.append(event)
+        return events
+
+    async def poll_once(self) -> int:
+        events = await asyncio.to_thread(self._poll_once_sync)
+        for event in events:
+            await self.store.add(event)
+        return len(events)
 
     async def run(self, stop_event: asyncio.Event) -> None:
         while not stop_event.is_set():
