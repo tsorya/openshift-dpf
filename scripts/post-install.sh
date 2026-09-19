@@ -204,23 +204,20 @@ function update_nodesriov_device_plugin_config() {
             log [ERROR] "KATA_NUM_VFS (${KATA_NUM_VFS}) must be less than NUM_VFS (${NUM_VFS})"
             return 1
         fi
-        local kata_vf_start kata_vf_end
+        local kata_vf_start kata_vf_end kata_regular_count
+        kata_regular_count=$((NUM_VFS - KATA_NUM_VFS))
+        kata_vf_start=${kata_regular_count}
+        kata_vf_end="${vf_range_end}"
         if [ "${KATA_SRIOV_PF_INDEX}" = "0" ]; then
-            # PF0 VF1 is mgmt. Carve low-index VFs so Argus auto_scan reaches them quickly.
-            # Leave at least one PF0 VF for the regular RDMA pool.
-            if [ "${KATA_NUM_VFS}" -gt $((NUM_VFS - 3)) ]; then
-                log [ERROR] "KATA_NUM_VFS (${KATA_NUM_VFS}) must be <= $((NUM_VFS - 3)) when KATA_SRIOV_PF_INDEX=0 (PF0 VF1 is mgmt)"
+            # PF0 VF1 is mgmt; regular RDMA VFs are 2..(kata_start-1), kata pool at the high end.
+            if [ "${kata_vf_start}" -le 2 ]; then
+                log [ERROR] "KATA_NUM_VFS (${KATA_NUM_VFS}) must be <= $((NUM_VFS - 3)) when KATA_SRIOV_PF_INDEX=0 (PF0 VF1 is mgmt; need room for regular VFs 2..${kata_vf_start}-1)"
                 return 1
             fi
-            kata_vf_start=2
-            kata_vf_end=$((1 + KATA_NUM_VFS))
-            pf0_regular_start=$((kata_vf_end + 1))
-            log [INFO] "KATA_ENABLED=true: PF0 kata pool ${KATA_SRIOV_DP_CONFIG_NAME} VFs ${kata_vf_start}-${kata_vf_end}, PF0 regular ${pf0_regular_start}-${pf0_regular_end}, PF1 regular 0-${pf1_regular_end}"
+            pf0_regular_end=$((kata_vf_start - 1))
+            log [INFO] "KATA_ENABLED=true: PF0 regular VFs ${pf0_regular_start}-${pf0_regular_end}, kata pool ${KATA_SRIOV_DP_CONFIG_NAME} VFs ${kata_vf_start}-${kata_vf_end}, PF1 regular 0-${pf1_regular_end}"
         else
-            local pf1_regular_count=$((NUM_VFS - KATA_NUM_VFS))
-            pf1_regular_end=$((pf1_regular_count - 1))
-            kata_vf_start=${pf1_regular_count}
-            kata_vf_end="${vf_range_end}"
+            pf1_regular_end=$((kata_vf_start - 1))
             log [INFO] "KATA_ENABLED=true: PF1 regular VFs ${pf1_regular_start}-${pf1_regular_end}, kata pool ${KATA_SRIOV_DP_CONFIG_NAME} VFs ${kata_vf_start}-${kata_vf_end}"
         fi
         # Template already has the list-item indent before <KATA_SRIOV_POOL>.

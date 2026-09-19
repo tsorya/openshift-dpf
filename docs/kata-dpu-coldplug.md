@@ -34,7 +34,7 @@ The kata pool omits `isRdma` so host uverbs are not mounted into the VM. Regular
 ```bash
 KATA_ENABLED=true
 KATA_RUNTIME_CLASS=kata-coldplug
-KATA_SRIOV_PF_INDEX=1          # 0 for Argus (low-index PF0 carve); 1 = default high-index PF1
+KATA_SRIOV_PF_INDEX=1          # 0 for Argus (kata pool on PF0); 1 = default (kata pool on PF1)
 KATA_SRIOV_DP_CONFIG_NAME=bf3-p1-vfs-kata   # defaults to bf3-p${KATA_SRIOV_PF_INDEX}-vfs-kata
 KATA_NUM_VFS=24
 KATA_INJECTOR_RESOURCE_NAME=openshift.io/bf3-p1-vfs-kata
@@ -43,7 +43,7 @@ KATA_RHCOS_LAYER_IMAGE=quay.io/jensfr/rhcos-kata-dpu@sha256:ce05dea3e0214c7bf786
 KATA_SKIP_RHCOS_LAYER=false
 ```
 
-`make all` with `KATA_ENABLED=false` does not split a kata pool. With `KATA_ENABLED=true`, `make all` splits `KATA_SRIOV_PF_INDEX`, creates the kata NAD, and runs `enable-kata` last. `KATA_SRIOV_PF_INDEX` actually carves that PF: PF1 keeps the original high-index split; PF0 carves VFs `2..(1+KATA_NUM_VFS)` (after mgmt VF1) so Argus `auto_scan` reaches them quickly.
+`make all` with `KATA_ENABLED=false` does not split a kata pool. With `KATA_ENABLED=true`, `make all` splits `KATA_SRIOV_PF_INDEX`, creates the kata NAD, and runs `enable-kata` last. On the selected PF the kata pool is always the **high-index** range `(NUM_VFS - KATA_NUM_VFS)..(NUM_VFS - 1)`; the regular pool on that PF gets the lower indices (PF0 regular starts at 2 after mgmt VF1).
 
 The kata NAD `resourceName` must be the kata pool. Regular pods keep `dpf-ovn-kubernetes` / `openshift.io/bf3_vfs`.
 
