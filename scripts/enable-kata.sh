@@ -99,23 +99,20 @@ function ensure_kataconfig() {
     apply_manifest "${KATA_MANIFESTS_DIR}/02-kataconfig.yaml" "true"
 }
 
-function cluster_has_kata_sriov_pool() {
-    local pools
-    pools=$(oc get nodesriovdevicepluginconfig "${SRIOV_DP_CONFIG_CR_NAME}" -n dpf-operator-system \
-        -o jsonpath='{range .spec.devicePluginResources[*]}{.name}{"\n"}{end}' 2>/dev/null || true)
-    grep -Fx "${KATA_SRIOV_DP_CONFIG_NAME}" <<< "${pools}" >/dev/null
-}
-
 function ensure_kata_sriov_pool() {
+    local pools
     if ! [[ "${NUM_VFS}" =~ ^[1-9][0-9]*$ ]]; then
         log [ERROR] "NUM_VFS must be a positive integer"
         return 1
     fi
-    if cluster_has_kata_sriov_pool; then
-        log [INFO] "NodeSRIOVDevicePluginConfig already has kata pool ${KATA_SRIOV_DP_CONFIG_NAME}"
-        return 0
+    pools=$(oc get nodesriovdevicepluginconfig "${SRIOV_DP_CONFIG_CR_NAME}" -n dpf-operator-system \
+        -o jsonpath='{range .spec.devicePluginResources[*]}{.name}{"\n"}{end}' 2>/dev/null || true)
+    if grep -Fx "${KATA_SRIOV_DP_CONFIG_NAME}" <<< "${pools}" >/dev/null; then
+        log [INFO] "NodeSRIOVDevicePluginConfig already lists kata pool ${KATA_SRIOV_DP_CONFIG_NAME}; reconciling from env anyway"
+    else
+        log [INFO] "Kata VF pool ${KATA_SRIOV_DP_CONFIG_NAME} not listed in NodeSRIOVDevicePluginConfig; reconciling from env"
     fi
-    log [INFO] "Kata VF pool ${KATA_SRIOV_DP_CONFIG_NAME} missing from NodeSRIOVDevicePluginConfig; regenerating and applying"
+    log [INFO] "Applying NodeSRIOVDevicePluginConfig for PF${KATA_SRIOV_PF_INDEX} kata pool ${KATA_SRIOV_DP_CONFIG_NAME}"
     mkdir -p "${GENERATED_POST_INSTALL_DIR}"
     update_nodesriov_device_plugin_config
     apply_manifest "${GENERATED_POST_INSTALL_DIR}/nodesriovdevicepluginconfig.yaml" "true"
