@@ -3,7 +3,7 @@
 #
 # Run after make enable-kata with KATA_SRIOV_PF_INDEX=0 (Argus cannot introspect
 # PF1 VFs). Kata VF pool and NAD wiring are handled by enable-kata; this script
-# only installs Argus (STEPS.md 1-5 + hosted log-cleaner).
+# only installs Argus (STEPS.md 1-5). Log retention uses native Argus rotation.
 #
 #   KATA_ENABLED=true KATA_SRIOV_PF_INDEX=0 make enable-ovn-injector
 #   make enable-kata
@@ -99,7 +99,9 @@ function apply_argus_configuration() {
         "${GENERATED_ARGUS_DIR}/03-configuration.yaml" \
         "<ARGUS_DMA_DEVICE_NAME>" "${ARGUS_DMA_DEVICE_NAME}" \
         "<ARGUS_REPRESENTOR_ID>" "${ARGUS_REPRESENTOR_ID}" \
-        "<ARGUS_IMAGE>" "${ARGUS_IMAGE}"
+        "<ARGUS_IMAGE>" "${ARGUS_IMAGE}" \
+        "<ARGUS_LOG_THRESHOLD_SIZE>" "${ARGUS_LOG_THRESHOLD_SIZE:-50M}" \
+        "<ARGUS_LOG_MAX_FILES_COUNT>" "${ARGUS_LOG_MAX_FILES_COUNT:-10}"
     apply_manifest "${GENERATED_ARGUS_DIR}/03-configuration.yaml" "true"
 }
 
@@ -130,11 +132,13 @@ function wait_for_argus_pods() {
     return 1
 }
 
-function apply_argus_log_cleaner() {
-    log [INFO] "Applying Argus log-cleaner DaemonSet on the hosted cluster"
-    if ! KUBECONFIG="${HOSTED_KUBECONFIG}" oc apply -f "${ARGUS_MANIFESTS_DIR}/04-log-cleaner.yaml"; then
-        log [ERROR] "Failed to apply Argus log-cleaner on the hosted cluster"
-        exit 1
+function remove_argus_log_cleaner() {
+    if ! ensure_hosted_kubeconfig; then
+        return 0
+    fi
+    if KUBECONFIG="${HOSTED_KUBECONFIG}" oc get daemonset argus-log-cleaner -n "${DPF_NAMESPACE}" &>/dev/null; then
+        log [INFO] "Removing legacy Argus log-cleaner DaemonSet (destructive during demos)"
+        KUBECONFIG="${HOSTED_KUBECONFIG}" oc delete daemonset argus-log-cleaner -n "${DPF_NAMESPACE}" --ignore-not-found
     fi
 }
 
@@ -153,9 +157,10 @@ function enable_argus() {
         exit 1
     fi
     wait_for_argus_pods
-    apply_argus_log_cleaner
+    remove_argus_log_cleaner
 
     log [INFO] "Argus installed. Pods run on the hosted cluster; logs are under /var/log/doca_argus_activity_report/"
+    log [INFO] "Log retention uses Argus rotation (threshold=${ARGUS_LOG_THRESHOLD_SIZE:-50M}, max_files=${ARGUS_LOG_MAX_FILES_COUNT:-10})"
 }
 
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then

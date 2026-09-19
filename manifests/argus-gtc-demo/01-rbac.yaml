@@ -1,0 +1,45 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: argus-gtc-demo
+  namespace: argus-gtc-demo
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: argus-gtc-demo
+  namespace: argus-gtc-demo
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "pods/exec", "pods/log"]
+    verbs: ["get", "list", "watch", "create"]
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["get", "list", "watch", "patch", "update"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: argus-gtc-demo
+  namespace: argus-gtc-demo
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: argus-gtc-demo
+subjects:
+  - kind: ServiceAccount
+    name: argus-gtc-demo
+    namespace: argus-gtc-demo
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: argus-gtc-demo-monitoring-view
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: cluster-monitoring-view
+subjects:
+  - kind: ServiceAccount
+    name: argus-gtc-demo
+    namespace: argus-gtc-demo

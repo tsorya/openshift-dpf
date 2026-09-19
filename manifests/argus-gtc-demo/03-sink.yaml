@@ -1,0 +1,37 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: scenario-sink
+  namespace: argus-gtc-demo
+  labels:
+    app: scenario-sink
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: scenario-sink
+  template:
+    metadata:
+      labels:
+        app: scenario-sink
+    spec:
+      nodeSelector:
+        node-role.kubernetes.io/<WORKER_ROLE>: ""
+      containers:
+        - name: sink
+          image: <ARGUS_GTC_DEMO_IMAGE>
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              echo "scenario sink listening on :4444"
+              while true; do nc -lk -p 4444 -v; sleep 1; done
+          ports:
+            - containerPort: 4444
+              name: sink
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi

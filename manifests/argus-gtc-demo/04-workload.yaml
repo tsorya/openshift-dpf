@@ -1,0 +1,63 @@
+# Kata demo workload for Argus GTC. No in-guest security agent.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: invisible-vm
+  namespace: argus-gtc-demo
+  labels:
+    app: invisible-vm
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: invisible-vm
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 0
+      maxUnavailable: 1
+  template:
+    metadata:
+      labels:
+        app: invisible-vm
+    spec:
+      runtimeClassName: <KATA_RUNTIME_CLASS>
+      nodeSelector:
+        node-role.kubernetes.io/<WORKER_ROLE>: ""
+      initContainers:
+        - name: plant-decoys
+          image: <ARGUS_GTC_DEMO_IMAGE>
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              mkdir -p /decoys
+              cat > /decoys/credentials.txt <<'EOF'
+              DB_USER=demo_admin
+              DB_PASS=not-a-real-secret
+              API_TOKEN=decoy-token-001
+              EOF
+              cat > /decoys/runbook.txt <<'EOF'
+              Internal runbook — demo decoy only.
+              EOF
+              chmod 644 /decoys/*
+              ls -la /decoys
+          volumeMounts:
+            - name: decoys
+              mountPath: /decoys
+      containers:
+        - name: workload
+          image: <ARGUS_GTC_DEMO_IMAGE>
+          command: ["sleep", "infinity"]
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+          volumeMounts:
+            - name: decoys
+              mountPath: /decoys
+      volumes:
+        - name: decoys
+          emptyDir: {}

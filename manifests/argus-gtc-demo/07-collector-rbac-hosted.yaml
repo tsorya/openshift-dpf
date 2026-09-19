@@ -1,0 +1,5 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: argus-gtc-collector
+  namespace: argus-gtc-demo
