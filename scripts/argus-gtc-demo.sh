@@ -14,6 +14,7 @@ set -o pipefail
 
 source "$(dirname "${BASH_SOURCE[0]}")/env.sh"
 source "$(dirname "${BASH_SOURCE[0]}")/utils.sh"
+source "$(dirname "${BASH_SOURCE[0]}")/cluster.sh"
 source "$(dirname "${BASH_SOURCE[0]}")/verify.sh"
 
 DEMO_NAMESPACE="argus-gtc-demo"
