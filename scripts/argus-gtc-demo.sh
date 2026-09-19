@@ -137,6 +137,8 @@ function deploy_argus_gtc_demo() {
         --dry-run=client -o yaml | oc apply -f -
 
     apply_manifest "${GENERATED_DEMO_DIR}/05-demo-server.yaml" "true"
+    oc -n "${DEMO_NAMESPACE}" set image deployment/argus-gtc-demo \
+        server="${ARGUS_GTC_SERVER_IMAGE}"
 
     wait_for_demo_ready
 
@@ -160,6 +162,8 @@ function deploy_argus_gtc_demo() {
         "<ARGUS_GTC_SERVER_URL>" "${server_url}"
     KUBECONFIG="${HOSTED_KUBECONFIG}" oc apply -f "${GENERATED_DEMO_DIR}/07-collector-rbac-hosted.yaml"
     KUBECONFIG="${HOSTED_KUBECONFIG}" oc apply -f "${GENERATED_DEMO_DIR}/06-collector-hosted.yaml"
+    KUBECONFIG="${HOSTED_KUBECONFIG}" oc -n "${DEMO_NAMESPACE}" set image daemonset/argus-gtc-collector \
+        collector="${ARGUS_GTC_SERVER_IMAGE}" || true
 
     log "INFO" "Argus GTC demo deployed. See docs/argus-gtc-demo-runbook.md"
 }
