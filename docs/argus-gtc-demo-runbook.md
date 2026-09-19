@@ -49,7 +49,7 @@ This command:
 
 | Variable | Default | Purpose |
 |----------|---------|---------|
-| `ARGUS_GTC_DEMO_IMAGE` | `nicolaka-netshoot:v0.13` | Kata workload + sink image |
+| `ARGUS_GTC_DEMO_IMAGE` | `nicolaka-netshoot:latest` | Kata workload + sink image |
 | `ARGUS_GTC_SERVER_IMAGE` | *(required)* | Pre-built demo server/collector image |
 | `ARGUS_LOG_THRESHOLD_SIZE` | `50M` | Argus native log rotation threshold |
 | `ARGUS_LOG_MAX_FILES_COUNT` | `10` | Argus rotated log file cap |
