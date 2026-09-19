@@ -947,6 +947,11 @@ if [[ "${BASH_SOURCE[0]}" != "${0}" ]]; then
     # Kata defaults for .env files generated before these variables existed.
     KATA_ENABLED=${KATA_ENABLED:-false}
     KATA_RUNTIME_CLASS=${KATA_RUNTIME_CLASS:-kata-coldplug}
+    KATA_SRIOV_PF_INDEX=${KATA_SRIOV_PF_INDEX:-0}
+    if [ "${KATA_SRIOV_PF_INDEX}" != "0" ]; then
+        echo "Error: this Kata/Argus integration currently requires KATA_SRIOV_PF_INDEX=0 (got '${KATA_SRIOV_PF_INDEX}')" >&2
+        exit 1
+    fi
     KATA_SRIOV_DP_CONFIG_NAME=${KATA_SRIOV_DP_CONFIG_NAME:-bf3-p0-vfs-kata}
     KATA_NUM_VFS=${KATA_NUM_VFS:-24}
     KATA_NAD_NAME=${KATA_NAD_NAME:-dpf-ovn-kubernetes-${KATA_RUNTIME_CLASS}}
@@ -963,6 +968,10 @@ if [[ "${BASH_SOURCE[0]}" != "${0}" ]]; then
     ARGUS_IMAGE=${ARGUS_IMAGE:-nvcr.io/nvidia/doca/doca_argus:1.5.0-doca3.5.0}
     ARGUS_IMAGE_PULL_SECRET=${ARGUS_IMAGE_PULL_SECRET:-dpf-pull-secret}
     ARGUS_TELEMETRY_NODE_PORT=${ARGUS_TELEMETRY_NODE_PORT:-30224}
+    ARGUS_DMA_DEVICE_NAME=${ARGUS_DMA_DEVICE_NAME:-mlx5_bond_0}
+    ARGUS_REPRESENTOR_ID=${ARGUS_REPRESENTOR_ID:-}
+    ARGUS_LOG_THRESHOLD_SIZE=${ARGUS_LOG_THRESHOLD_SIZE:-50M}
+    ARGUS_LOG_MAX_FILES_COUNT=${ARGUS_LOG_MAX_FILES_COUNT:-10}
 
     resolve_dpf_storage_class
 

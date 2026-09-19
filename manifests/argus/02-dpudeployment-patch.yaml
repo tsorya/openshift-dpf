@@ -1,0 +1,7 @@
+# Merge-patch adding Argus to the existing DPUDeployment.
+# spec.services is a map; only the argus key is touched.
+spec:
+  services:
+    argus:
+      serviceConfiguration: argus
+      serviceTemplate: argus

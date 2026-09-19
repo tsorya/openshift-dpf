@@ -33,6 +33,13 @@ function render_argus_manifests() {
         "<ARGUS_IMAGE_PULL_SECRET>" "${ARGUS_IMAGE_PULL_SECRET}"
     update_file_multi_replace "${src}/02-configuration.yaml" "${dst}/argus-02-configuration.yaml" \
         "<ARGUS_TELEMETRY_ADDRESS>" "${telemetry_host}:${ARGUS_TELEMETRY_NODE_PORT}"
+    update_file_multi_replace "${src}/03-configuration.yaml" "${dst}/argus-03-configuration.yaml" \
+        "<ARGUS_DMA_DEVICE_NAME>" "${ARGUS_DMA_DEVICE_NAME}" \
+        "<ARGUS_REPRESENTOR_ID>" "${ARGUS_REPRESENTOR_ID}" \
+        "<ARGUS_IMAGE>" "${ARGUS_IMAGE}" \
+        "<ARGUS_LOG_THRESHOLD_SIZE>" "${ARGUS_LOG_THRESHOLD_SIZE}" \
+        "<ARGUS_LOG_MAX_FILES_COUNT>" "${ARGUS_LOG_MAX_FILES_COUNT}" \
+        "<ARGUS_TELEMETRY_ADDRESS>" "${telemetry_host}:${ARGUS_TELEMETRY_NODE_PORT}"
     cp "${src}/03-logs-namespace.yaml" "${dst}/argus-03-logs-namespace.yaml"
     update_file_multi_replace "${src}/04-loki.yaml" "${dst}/argus-04-loki.yaml" \
         "<ARGUS_LOGS_STORAGE_CLASS>" "${ETCD_STORAGE_CLASS}"
@@ -48,7 +55,44 @@ function apply_argus_manifests() {
 
     log "INFO" "Applying Argus DPUServiceTemplate and DPUServiceConfiguration..."
     retry 5 30 apply_manifest "${GENERATED_POST_INSTALL_DIR}/argus-01-servicetemplate.yaml" "true"
-    retry 5 30 apply_manifest "${GENERATED_POST_INSTALL_DIR}/argus-02-configuration.yaml" "true"
+    if [ "${KATA_ENABLED}" = "true" ]; then
+        retry 5 30 apply_manifest "${GENERATED_POST_INSTALL_DIR}/argus-03-configuration.yaml" "true"
+    else
+        retry 5 30 apply_manifest "${GENERATED_POST_INSTALL_DIR}/argus-02-configuration.yaml" "true"
+    fi
+}
+
+function require_argus_kata_prereqs() {
+    if [ "${KATA_SRIOV_PF_INDEX}" != "0" ]; then
+        log "ERROR" "Argus can introspect Kata VFs on PF0 only (KATA_SRIOV_PF_INDEX=${KATA_SRIOV_PF_INDEX})."
+        return 1
+    fi
+    if [ -z "${ARGUS_REPRESENTOR_ID}" ]; then
+        log "ERROR" "ARGUS_REPRESENTOR_ID is required for Kata introspection (DPU PF0 VU string)."
+        return 1
+    fi
+    if ! oc get runtimeclass "${KATA_RUNTIME_CLASS}" >/dev/null 2>&1; then
+        log "ERROR" "RuntimeClass ${KATA_RUNTIME_CLASS} not found; run make enable-kata first."
+        return 1
+    fi
+    if ! oc get net-attach-def -n "${OVNK_NAMESPACE}" "${KATA_NAD_NAME}" >/dev/null 2>&1; then
+        log "ERROR" "NetworkAttachmentDefinition ${KATA_NAD_NAME} not found in ${OVNK_NAMESPACE}; run make enable-ovn-injector and make enable-kata first."
+        return 1
+    fi
+    local pools
+    pools=$(oc get nodesriovdevicepluginconfig "${SRIOV_DP_CONFIG_CR_NAME}" -n dpf-operator-system \
+        -o jsonpath='{range .spec.devicePluginResources[*]}{.name}{"\n"}{end}' 2>/dev/null || true)
+    if ! grep -Fx "${KATA_SRIOV_DP_CONFIG_NAME}" <<< "${pools}" >/dev/null; then
+        log "ERROR" "Kata VF pool ${KATA_SRIOV_DP_CONFIG_NAME} not found in NodeSRIOVDevicePluginConfig."
+        return 1
+    fi
+    local nad_resource
+    nad_resource=$(oc get net-attach-def -n "${OVNK_NAMESPACE}" "${KATA_NAD_NAME}" \
+        -o jsonpath='{.metadata.annotations.k8s\.v1\.cni\.cncf\.io/resourceName}' 2>/dev/null || true)
+    if [ "${nad_resource}" != "${KATA_INJECTOR_RESOURCE_NAME}" ]; then
+        log "ERROR" "NAD ${KATA_NAD_NAME} uses '${nad_resource}', expected '${KATA_INJECTOR_RESOURCE_NAME}'."
+        return 1
+    fi
 }
 
 function patch_argus_service() {
@@ -108,6 +152,10 @@ function enable_argus() {
     if ! oc get dpudeployment dpudeployment -n dpf-operator-system >/dev/null 2>&1; then
         log "ERROR" "DPUDeployment dpudeployment was not found. Deploy DPU services before running make enable-argus."
         return 1
+    fi
+
+    if [ "${KATA_ENABLED}" = "true" ]; then
+        require_argus_kata_prereqs || return 1
     fi
 
     render_argus_manifests

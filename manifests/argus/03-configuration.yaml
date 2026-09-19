@@ -1,0 +1,25 @@
+# DPUServiceConfiguration for Argus Kata/VM introspection.
+# auto_scan: true with a bm: system entry (aserdean/argus STEPS.md config 05).
+# Requires ARGUS_REPRESENTOR_ID (DPU VU string, PF0, no VF suffix).
+apiVersion: svc.dpu.nvidia.com/v1alpha1
+kind: DPUServiceConfiguration
+metadata:
+  name: argus
+  namespace: dpf-operator-system
+spec:
+  deploymentServiceName: "argus"
+  serviceConfiguration:
+    helmChart:
+      values:
+        config:
+          isLocalPath: false
+          content:
+            apsh_config:
+              auto_scan: true
+              systems:
+                bm:
+                  dma_device_name: <ARGUS_DMA_DEVICE_NAME>
+                  representor_id: <ARGUS_REPRESENTOR_ID>
+        containerImage: <ARGUS_IMAGE>
+  upgradePolicy:
+    applyNodeEffect: false
