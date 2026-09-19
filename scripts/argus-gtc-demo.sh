@@ -42,7 +42,20 @@ function require_demo_prereqs() {
         exit 1
     fi
     if ! oc get runtimeclass "${KATA_RUNTIME_CLASS}" &>/dev/null; then
-        log "ERROR" "RuntimeClass ${KATA_RUNTIME_CLASS} not found. Run make enable-kata first."
+        log "ERROR" "RuntimeClass ${KATA_RUNTIME_CLASS} not found (KUBECONFIG=${KUBECONFIG}, context=$(oc config current-context 2>/dev/null || echo unknown))"
+        local available
+        available=$(oc get runtimeclass -o jsonpath='{range .items[*]}{.metadata.name}{" "}{end}' 2>/dev/null || true)
+        if [ -n "${available}" ]; then
+            log "ERROR" "RuntimeClasses on this cluster: ${available}"
+        fi
+        local cluster_kc="kubeconfig.${CLUSTER_NAME}"
+        if [ -f "${cluster_kc}" ] && [ "${KUBECONFIG}" != "${cluster_kc}" ]; then
+            if KUBECONFIG="${cluster_kc}" oc get runtimeclass "${KATA_RUNTIME_CLASS}" &>/dev/null; then
+                log "ERROR" "${KATA_RUNTIME_CLASS} exists in ${cluster_kc}; .env KUBECONFIG points elsewhere"
+                log "ERROR" "Fix .env or run: make KUBECONFIG=${cluster_kc} deploy-argus-gtc-demo"
+            fi
+        fi
+        log "ERROR" "Run make enable-kata on the management cluster, or fix KUBECONFIG in .env"
         exit 1
     fi
     if ! ensure_hosted_kubeconfig; then
@@ -102,6 +115,7 @@ function wait_for_demo_ready() {
 
 function deploy_argus_gtc_demo() {
     get_kubeconfig
+    log "INFO" "Management cluster: KUBECONFIG=${KUBECONFIG} context=$(oc config current-context 2>/dev/null || echo unknown)"
     require_demo_prereqs
     remove_argus_log_cleaner
 
