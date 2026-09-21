@@ -57,7 +57,7 @@ class NativeAlertModelTests(unittest.TestCase):
         self.assertIn("bash --noprofile --norc -i", command)
         self.assertIn("argus-gtc-audit_evasion-test.history", command)
         self.assertIn('trap \'rm -f -- "$HISTFILE"\' EXIT', command)
-        self.assertIn("timeout -s KILL 32", command)
+        self.assertIn("timeout --foreground -s KILL 32", command)
         self.assertNotIn("<<", command)
 
         expected_lines = [

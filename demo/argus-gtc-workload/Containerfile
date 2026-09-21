@@ -1,0 +1,24 @@
+FROM registry.access.redhat.com/ubi9/ubi:latest
+
+LABEL org.opencontainers.image.title="Argus GTC demo workload" \
+      org.opencontainers.image.description="UBI9 workload image with a glibc Bash supported by DOCA Argus shell-history detection"
+
+USER root
+
+# Keep the demo scenarios self-contained while using the UBI/RHEL Bash build.
+# nmap-ncat supplies the namespace-local reverse-shell sink/client utility.
+RUN dnf install -y --setopt=install_weak_deps=false \
+        bash \
+        findutils \
+        nmap-ncat \
+        procps-ng \
+        util-linux \
+    && if ! command -v nc >/dev/null 2>&1 && command -v ncat >/dev/null 2>&1; then \
+         ln -s /usr/bin/ncat /usr/bin/nc; \
+       fi \
+    && dnf clean all \
+    && rm -rf /var/cache/dnf
+
+ENV HOME=/root
+
+CMD ["/usr/bin/sleep", "infinity"]

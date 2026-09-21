@@ -167,7 +167,11 @@ class ScenarioController:
         script = (
             f"HISTFILE={shlex.quote(history_file)}; export HISTFILE; "
             "trap 'rm -f -- \"$HISTFILE\"' EXIT; "
-            f"timeout -s KILL {_AUDIT_REMOTE_TIMEOUT_SECONDS} "
+            # Keep timeout in the PTY's foreground process group.  Without
+            # --foreground, coreutils timeout puts the interactive Bash in a
+            # separate process group; the terminal echoes input but Bash is
+            # stopped by SIGTTIN and never executes the history commands.
+            f"timeout --foreground -s KILL {_AUDIT_REMOTE_TIMEOUT_SECONDS} "
             f"bash -c {shlex.quote(marked_bash)}"
         )
         return ["/bin/bash", "-lc", script], _AUDIT_EVASION_INPUT
