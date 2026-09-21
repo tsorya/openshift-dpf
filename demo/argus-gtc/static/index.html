@@ -165,8 +165,8 @@
           <button type="button" class="info-sign" aria-expanded="false" aria-controls="info-audit-evasion" data-info="audit-evasion" title="What this scenario does">i</button>
           <div id="info-audit-evasion" class="scenario-info" hidden role="dialog" aria-labelledby="info-audit-evasion-title">
             <h3 id="info-audit-evasion-title">Audit Evasion Attempt</h3>
-            <p class="info-does"><strong>What it does.</strong> Starts bounded interactive Bash (<code>bash --noprofile --norc -i</code>) in the Kata VM, seeds one harmless history entry, disables history, waits briefly, clears and writes the disposable history file, then remains alive for about 10 seconds so Argus can scan it.</p>
-            <p class="info-expect"><strong>Success requirement.</strong> The server waits up to 45 seconds for raw Argus output containing <code>message_type=ALERT</code>, <code>severity=HIGH</code>, and exactly <code>Shell History Disabled</code> or <code>Shell History Cleared</code>. If none arrives, the result says “No native alert observed”; INFO/EVENT telemetry remains visible and is never promoted to an alert.</p>
+            <p class="info-does"><strong>What it does.</strong> Starts bounded Bash (<code>bash --noprofile --norc -i</code>) on a real Kubernetes exec PTY in the Kata VM. It establishes a harmless history baseline, waits for an Argus scan, clears history while history is enabled, waits again, then disables history and remains alive for another scan. The unique disposable history file is removed when the session exits.</p>
+            <p class="info-expect"><strong>Success requirement.</strong> After the bounded action completes, the server waits up to 45 seconds for raw Argus output containing <code>message_type=ALERT</code>, <code>severity=HIGH</code>, and exactly <code>Shell History Disabled</code> or <code>Shell History Cleared</code>. The full request can take about 80 seconds. If no match arrives, the result says “No native alert observed”; INFO/EVENT telemetry remains visible and is never promoted to an alert.</p>
           </div>
         </div>
         <div class="scenario-action">

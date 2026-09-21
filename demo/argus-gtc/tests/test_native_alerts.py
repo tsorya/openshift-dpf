@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import asyncio
+import threading
 import unittest
 from types import SimpleNamespace
+from unittest.mock import Mock, patch
 
 from server.collector import (
     ArgusLogParser,
@@ -48,20 +50,33 @@ class NativeAlertModelTests(unittest.TestCase):
         controller = object.__new__(ScenarioController)
         controller.settings = SimpleNamespace(sink_port=4444)
 
-        command = " ".join(
-            controller._script_for(
-                "audit-evasion", "", "argus-gtc-audit_evasion-test"
-            )
+        command_parts, stdin_text = controller._audit_evasion_execution(
+            "argus-gtc-audit_evasion-test"
         )
+        command = " ".join(command_parts)
         self.assertIn("bash --noprofile --norc -i", command)
-        self.assertIn("history -s argus-demo-before-clear", command)
-        self.assertIn("set +o history", command)
-        self.assertIn("history -c", command)
-        self.assertIn("history -w", command)
-        self.assertIn("sleep 10", command)
-        self.assertIn("<<'ARGUS_EVASION'", command)
-        self.assertNotIn("bash --noprofile --norc -i -c", command)
-        self.assertIn("timeout -s KILL 18", command)
+        self.assertIn("argus-gtc-audit_evasion-test.history", command)
+        self.assertIn('trap \'rm -f -- "$HISTFILE"\' EXIT', command)
+        self.assertIn("timeout -s KILL 32", command)
+        self.assertNotIn("<<", command)
+
+        expected_lines = [
+            "set -o history",
+            "HISTCONTROL=",
+            "HISTIGNORE=",
+            "history -s argus-demo-before-clear",
+            "history -w",
+            "sleep 7",
+            "history -c",
+            "history -w",
+            "sleep 7",
+            "history -s argus-demo-before-disable",
+            "history -w",
+            "set +o history",
+            "sleep 10",
+            "exit",
+        ]
+        self.assertEqual(stdin_text.splitlines(), expected_lines)
 
         reverse_shell = " ".join(
             controller._script_for(
@@ -70,6 +85,117 @@ class NativeAlertModelTests(unittest.TestCase):
         )
         self.assertIn("timeout -s KILL 20", reverse_shell)
         self.assertIn("/dev/tcp/10.0.0.10/4444", reverse_shell)
+
+    def test_audit_evasion_exec_uses_real_pty(self):
+        class FakeExecResponse:
+            def __init__(self):
+                self.open = True
+                self.returncode = 0
+                self.stdin_writes: list[str] = []
+                self.update_timeouts: list[float] = []
+                self.closed = False
+                self.stdout_pending = False
+
+            def is_open(self):
+                return self.open
+
+            def write_stdin(self, data):
+                self.stdin_writes.append(data)
+
+            def update(self, timeout):
+                self.update_timeouts.append(timeout)
+                self.stdout_pending = True
+                self.open = False
+
+            def peek_stdout(self):
+                return self.stdout_pending
+
+            def read_stdout(self):
+                self.stdout_pending = False
+                return "audit-evasion-complete\n"
+
+            def peek_stderr(self):
+                return False
+
+            def read_stderr(self):
+                return ""
+
+            def close(self):
+                self.closed = True
+                self.open = False
+
+        controller = object.__new__(ScenarioController)
+        controller.settings = SimpleNamespace(namespace="argus-gtc-demo")
+        controller.core = SimpleNamespace(
+            connect_get_namespaced_pod_exec=object()
+        )
+        controller._workload_pod_name = lambda: "invisible-vm-test"
+        response = FakeExecResponse()
+
+        with patch("server.scenarios.stream", return_value=response) as exec_stream:
+            output = controller._exec_interactive(
+                ["/bin/bash", "-lc", "bounded-command"],
+                "history -c\nexit\n",
+                38.0,
+            )
+
+        self.assertEqual(output, "audit-evasion-complete\n")
+        self.assertEqual(response.stdin_writes, ["history -c\nexit\n"])
+        self.assertTrue(response.closed)
+        self.assertTrue(response.update_timeouts)
+        call = exec_stream.call_args
+        self.assertEqual(call.args[1:3], ("invisible-vm-test", "argus-gtc-demo"))
+        self.assertFalse(call.kwargs["stderr"])
+        self.assertTrue(call.kwargs["stdin"])
+        self.assertTrue(call.kwargs["tty"])
+        self.assertFalse(call.kwargs["_preload_content"])
+
+    def test_audit_evasion_exec_enforces_controller_deadline(self):
+        class StuckExecResponse:
+            returncode = None
+
+            def __init__(self):
+                self.closed = False
+
+            def is_open(self):
+                return not self.closed
+
+            def write_stdin(self, _data):
+                return None
+
+            def close(self):
+                self.closed = True
+
+        controller = object.__new__(ScenarioController)
+        controller.settings = SimpleNamespace(namespace="argus-gtc-demo")
+        controller.core = SimpleNamespace(
+            connect_get_namespaced_pod_exec=object()
+        )
+        controller._workload_pod_name = lambda: "invisible-vm-test"
+        response = StuckExecResponse()
+
+        with patch("server.scenarios.stream", return_value=response):
+            with self.assertRaisesRegex(RuntimeError, "controller deadline"):
+                controller._exec_interactive(
+                    ["/bin/bash", "-lc", "bounded-command"],
+                    "exit\n",
+                    0.0,
+                )
+        self.assertTrue(response.closed)
+
+    def test_audit_evasion_run_uses_38_second_controller_deadline(self):
+        controller = object.__new__(ScenarioController)
+        controller.settings = SimpleNamespace(sink_port=4444)
+        controller._active_scenario = None
+        controller._last_scenario = None
+        controller._last_scenario_until = 0.0
+        controller._run_lock = threading.Lock()
+        controller._exec_interactive = Mock(return_value="audit-evasion-complete")
+
+        result = controller.run("audit-evasion")
+
+        self.assertEqual(result.status, "started")
+        self.assertEqual(controller._exec_interactive.call_args.args[2], 38.0)
 
     def test_empty_pod_context_matches_only_exact_native_high(self):
         event = shell_history_alert()
@@ -90,6 +216,36 @@ class NativeAlertModelTests(unittest.TestCase):
         self.assertFalse(
             native_alert_matches_scenario(
                 shell_history_alert(severity="INFO"), "audit-evasion"
+            )
+        )
+
+        medium_memory_alert = NormalizedEvent(
+            message_type="ALERT",
+            severity="MEDIUM",
+            activity_name="Executable Permissions Removed",
+            scenario_id="audit-evasion",
+        )
+        self.assertFalse(
+            native_alert_matches_scenario(medium_memory_alert, "audit-evasion")
+        )
+        unrelated_high_alert = NormalizedEvent(
+            message_type="ALERT",
+            severity="HIGH",
+            activity_name="Reverse Shell Detected",
+            scenario_id="audit-evasion",
+        )
+        self.assertFalse(
+            native_alert_matches_scenario(unrelated_high_alert, "audit-evasion")
+        )
+
+        cleared = shell_history_alert()
+        cleared.activity_name = "Shell History Cleared"
+        cleared.scenario_id = "audit-evasion"
+        self.assertTrue(
+            native_alert_matches_scenario(
+                cleared,
+                "audit-evasion",
+                "argus-gtc-audit_evasion-test",
             )
         )
 
