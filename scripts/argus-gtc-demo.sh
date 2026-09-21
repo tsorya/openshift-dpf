@@ -171,6 +171,9 @@ function deploy_argus_gtc_demo() {
 function cleanup_argus_gtc_demo() {
     get_kubeconfig
     log "INFO" "Removing Argus GTC demo resources from management cluster"
+    oc delete rolebinding argus-gtc-demo-dpu-read -n dpf-operator-system --ignore-not-found
+    oc delete role argus-gtc-demo-dpu-read -n dpf-operator-system --ignore-not-found
+    oc delete clusterrolebinding argus-gtc-demo-monitoring-view --ignore-not-found
     oc delete namespace "${DEMO_NAMESPACE}" --ignore-not-found --wait=false
 
     if ensure_hosted_kubeconfig; then

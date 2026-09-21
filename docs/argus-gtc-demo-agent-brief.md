@@ -56,8 +56,8 @@ Create a small read-only demo stack:
    - Live event timeline with severity, activity, process, pod, node, and
      scenario label.
    - DTS sparklines for traffic/errors.
-   - Three allowlisted actions only: `Run Discovery`, `Run Compute Simulation`,
-     and `Contain Workload`.
+   - Allowlisted scenario buttons plus `Contain Workload` and `Restore Workload`;
+     the API never accepts arbitrary commands.
 
 ## Demo flow
 
@@ -75,19 +75,27 @@ Each scenario runs only in a dedicated namespace and has a NetworkPolicy that
 allows traffic only to a local sink pod.
 
 - **Discovery:** run bounded `id`, `uname`, `ps`, and reads of planted decoy
-  files. Use this to populate the process/file timeline.
+  files. Use this to populate the process/file timeline with Argus events.
+- **Audit evasion attempt:** run interactive Bash history disable/clear actions,
+  wait up to 45 seconds, and report success only for native `ALERT/HIGH`
+  activity named `Shell History Disabled` or `Shell History Cleared`.
 - **Reverse-shell simulation:** create a short-lived connection from the demo
   workload to the dedicated sink pod. Argus 3.5 documents `Reverse Shell
-  Detected` as a HIGH alert.
+  Detected` as a HIGH alert; do not claim that native alert unless the event
+  `message_type`/`severity` show ALERT/HIGH. Live runs here have mostly been
+  `INFO · EVENT` (TCP/process).
 - **Shell-history tampering:** run the pre-scripted history-disable/clear
-  scenario. Argus documents both as HIGH alerts.
-- **Decoy modification:** modify a planted file and show the file-descriptor
-  content-change alert.
-- **Optional network burst:** send bounded data only to the sink pod to exercise
-  the excessive-data alert.
+  scenario. Argus documents HIGH alerts for those actions; treat them as
+  documented capabilities, not guaranteed output of each button click.
+- **Decoy modification:** modify a planted file and show file-descriptor
+  activity. A content-change alert is optional, not assumed.
+- **Optional network burst:** send bounded data only to the sink pod. An
+  excessive-data alert is documented, not guaranteed.
 
 Do not claim ATT&CK mappings are native Argus output; apply any demo labels in
-the controller and label them as demo-side classifications.
+the controller and label them as demo-side classifications. The UI demonstrates
+Argus visibility and correlation. It must not claim that every scenario
+generated a native Argus alert.
 
 ### 3. Correlation and containment
 
@@ -117,6 +125,10 @@ the controller and label them as demo-side classifications.
 - The UI shows Kubernetes readiness, Argus freshness, VF identity, and DTS
   health in one view.
 - At least two bounded scenarios produce real Argus events visible in the UI.
+- Demo classification labels are visibly distinct from native Argus ALERT/HIGH.
+- Audit-evasion success requires both raw `message_type=ALERT` and
+  `severity=HIGH`; a timeout is shown as `no-native-alert` without synthesis.
+- The UI and runbook do not claim every scenario generated a native Argus alert.
 - Containment scales down only the demo workload and leaves DPU services
   healthy.
 - No event deletion occurs during the demo window.

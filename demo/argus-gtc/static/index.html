@@ -4,51 +4,207 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Invisible VM, Visible Threat — Argus GTC Demo</title>
-  <link rel="stylesheet" href="/assets/style.css" />
+  <link rel="stylesheet" href="/assets/style.css?v=23" />
 </head>
 <body>
   <header class="hero">
-    <div>
-      <p class="eyebrow">NVIDIA DOCA Argus · OpenShift DPF · Kata</p>
-      <h1>Invisible VM, Visible Threat</h1>
-      <p class="subtitle">No in-guest agent. BlueField observes the Kata workload out-of-band while OpenShift supplies workload context.</p>
+    <div class="hero-copy">
+      <div class="brand-lockup" aria-label="NVIDIA and Red Hat technology demonstration">
+        <span class="brand-card">
+          <img src="/assets/brand/nvidia-logo.svg" alt="NVIDIA" />
+        </span>
+        <span class="brand-separator" aria-hidden="true">×</span>
+        <span class="brand-card">
+          <img src="/assets/brand/redhat-logo.svg" alt="Red Hat" />
+        </span>
+        <span class="gtc-badge"><span class="live-dot" aria-hidden="true"></span> GTC live demo</span>
+      </div>
+      <p class="eyebrow">DOCA Argus · DOCA Platform · OpenShift DPF · HyperShift · Kata Containers</p>
+      <h1>Invisible VM. <span>Visible Threat.</span></h1>
+      <p class="subtitle"><strong>No agent inside the guest.</strong> NVIDIA BlueField observes the Kata workload out-of-band. Red Hat OpenShift supplies workload context, while HyperShift hosts the DPU service plane running DOCA Argus.</p>
+      <div class="deployment-context" aria-label="Demo deployment architecture">
+        <div class="context-card management">
+          <span>Control + workload</span>
+          <strong>Management cluster</strong>
+          <small>Demo UI + Kata VM</small>
+        </div>
+        <span class="context-arrow" aria-hidden="true">→</span>
+        <div class="context-card hosted">
+          <span>DPU service plane</span>
+          <strong>HyperShift hosted cluster</strong>
+          <small>DOCA Platform + DPF services</small>
+        </div>
+        <span class="context-arrow" aria-hidden="true">→</span>
+        <div class="context-card security">
+          <span>Security</span>
+          <strong>BlueField + DOCA Argus</strong>
+          <small>Out-of-band inspection</small>
+        </div>
+      </div>
     </div>
-    <div class="ribbon" id="status-ribbon">
-      <div class="pill" data-key="cluster"><span>Cluster</span><strong>—</strong></div>
-      <div class="pill" data-key="dpu"><span>DPU</span><strong>—</strong></div>
-      <div class="pill" data-key="argus"><span>Argus</span><strong>—</strong></div>
-      <div class="pill" data-key="kata_vm"><span>Kata VM</span><strong>—</strong></div>
-      <div class="pill" data-key="vf_link"><span>VF / Link</span><strong>—</strong></div>
-      <div class="pill" data-key="argus_freshness"><span>Argus Feed</span><strong>—</strong></div>
+    <div class="hero-status">
+      <div class="status-heading">
+        <div>
+          <span>Environment</span>
+          <strong>Live system health</strong>
+        </div>
+        <span class="status-live"><span class="live-dot" aria-hidden="true"></span> connected</span>
+      </div>
+      <div class="ribbon" id="status-ribbon">
+        <div class="pill" data-key="cluster"><span>Management cluster</span><strong>—</strong></div>
+        <div class="pill" data-key="dpu"><span>DPU</span><strong>—</strong></div>
+        <div class="pill" data-key="argus"><span>Argus / HyperShift</span><strong>—</strong></div>
+        <div class="pill" data-key="kata_vm"><span>Kata VM</span><strong>—</strong></div>
+        <div class="pill" data-key="vf_link"><span>PF0 VF / Link</span><strong>—</strong></div>
+        <div class="pill" data-key="argus_freshness"><span>Security feed</span><strong>—</strong></div>
+      </div>
     </div>
   </header>
 
   <main class="layout">
     <section class="panel topology">
-      <h2>Topology</h2>
-      <div class="flow">
-        <div class="node">Pod<div class="sub" id="pod-name">—</div></div>
-        <div class="arrow">→</div>
-        <div class="node">Kata VM<div class="sub" id="runtime-class">—</div></div>
-        <div class="arrow">→</div>
-        <div class="node">SR-IOV VF<div class="sub" id="vf-state">—</div></div>
-        <div class="arrow">→</div>
-        <div class="node">BlueField DPU<div class="sub" id="dpu-node">—</div></div>
-        <div class="arrow">→</div>
-        <div class="node accent">DOCA Argus<div class="sub" id="argus-pods">—</div></div>
+      <div class="panel-heading">
+        <div>
+          <span class="section-kicker">End-to-end data path</span>
+          <h2>HyperShift workload visibility</h2>
+        </div>
+        <span class="architecture-badge">No in-guest agent</span>
       </div>
-      <p class="note">Demo-side scenario labels are applied in the controller; ATT&CK mappings are not native Argus output.</p>
+      <div class="flow">
+        <div class="node management-node"><span class="node-label">Management OpenShift cluster</span>Kata workload<div class="sub" id="pod-name">—</div><div class="sub" id="runtime-class">—</div></div>
+        <div class="arrow"><span>PF0</span>→</div>
+        <div class="node"><span class="node-label">Data plane</span>SR-IOV VF<div class="sub" id="vf-state">—</div></div>
+        <div class="arrow"><span>DMA</span>→</div>
+        <div class="node"><span class="node-label">Infrastructure</span>BlueField DPU<div class="sub" id="dpu-node">—</div></div>
+        <div class="arrow"><span>HyperShift</span>→</div>
+        <div class="node hosted-node"><span class="node-label">Hosted DPU cluster</span>DOCA Platform<div class="sub">DPF services + service chain</div></div>
+        <div class="arrow"><span>DPUService</span>→</div>
+        <div class="node accent"><span class="node-label">Security plane</span>DOCA Argus<div class="sub" id="argus-pods">—</div></div>
+      </div>
+      <p class="note topology-note">The Kata workload runs on the management cluster's DPU-attached worker. HyperShift hosts the DPU service plane, where DOCA Argus observes process, network, and file activity independently from the guest.</p>
+    </section>
+
+    <section class="panel coverage">
+      <div class="panel-heading compact-heading">
+        <div>
+          <span class="section-kicker">Observation boundary</span>
+          <h2>What Argus is watching</h2>
+        </div>
+      </div>
+      <p class="coverage-context"><strong>Management-cluster Kata workload</strong> observed through its BlueField DPU. DOCA Argus runs in the HyperShift-hosted DPU cluster.</p>
+      <p class="coverage-scope" id="coverage-scope">DPU-attached worker via DMA — not a Kubernetes pod selector.</p>
+      <dl class="coverage-meta">
+        <div><dt>DPU service plane</dt><dd>HyperShift</dd></div>
+        <div><dt>Worker</dt><dd id="coverage-node">—</dd></div>
+        <div><dt>Auto-scan</dt><dd id="coverage-scan">—</dd></div>
+        <div><dt>Representor</dt><dd id="coverage-representor">—</dd></div>
+        <div><dt>Kata</dt><dd id="coverage-kata">PF0 VFs only, no in-guest agent</dd></div>
+      </dl>
+      <h3>In this demo</h3>
+      <ul class="coverage-list" id="coverage-demo">
+        <li>invisible-vm · Kata (no in-guest agent)</li>
+        <li>scenario-sink · runc TCP sink on the same worker</li>
+      </ul>
+      <details class="coverage-detail">
+        <summary>Includes</summary>
+        <ul class="coverage-list" id="coverage-includes">
+          <li>Every process on the DPU-attached worker, including OpenShift system pods</li>
+          <li>Kata VMs whose SR-IOV VF is on PF0</li>
+          <li>runc pods on that same worker</li>
+        </ul>
+      </details>
+      <details class="coverage-detail">
+        <summary>Does not include</summary>
+        <ul class="coverage-list exclude" id="coverage-excludes">
+          <li>Pods on other workers / control-plane VMs</li>
+          <li>Kata VFs on PF1 — Argus cannot introspect them</li>
+          <li>In-guest agents — none are installed in the Kata VM</li>
+        </ul>
+      </details>
+      <details class="coverage-detail">
+        <summary>Signals</summary>
+        <ul class="coverage-list signals" id="coverage-signals">
+          <li>Process and thread lifecycle (INFO · EVENT)</li>
+          <li>TCP connections (INFO · EVENT)</li>
+          <li>File descriptors and mappings (INFO · EVENT)</li>
+          <li>Native HIGH/ALERT only when Argus emits them — not guaranteed per button</li>
+        </ul>
+      </details>
     </section>
 
     <section class="panel actions">
-      <h2>Bounded Scenarios</h2>
+      <div class="panel-heading">
+        <div>
+          <span class="section-kicker">Safe and repeatable</span>
+          <h2>Bounded attack scenarios</h2>
+        </div>
+        <span class="recommended-badge">Demo path: Reverse Shell</span>
+      </div>
+      <p class="note action-note">The controller triggers an allowlisted action in the management-cluster Kata VM. Argus observes it from the HyperShift-hosted DPU cluster; success requires a native <strong>ALERT / HIGH</strong>.</p>
       <div class="buttons">
-        <button data-scenario="discovery">Run Discovery</button>
-        <button data-scenario="compute-simulation">Run Compute Simulation</button>
-        <button data-scenario="reverse-shell">Reverse Shell Simulation</button>
-        <button data-scenario="shell-history">Shell History Tampering</button>
-        <button data-scenario="decoy-modify">Decoy Modification</button>
-        <button data-scenario="network-burst">Network Burst</button>
+        <div class="scenario-action">
+          <button data-scenario="discovery">Run Discovery</button>
+          <button type="button" class="info-sign" aria-expanded="false" aria-controls="info-discovery" data-info="discovery" title="What this scenario does">i</button>
+          <div id="info-discovery" class="scenario-info" hidden role="dialog" aria-labelledby="info-discovery-title">
+            <h3 id="info-discovery-title">Discovery</h3>
+            <p class="info-does"><strong>What it does.</strong> Execs bounded recon inside the Kata VM: <code>uname -a</code>, <code>id</code>, <code>ps aux</code>, then reads planted decoys at <code>/decoys/credentials.txt</code> and <code>/decoys/runbook.txt</code>. Named marker processes <code>argus-gtc-discovery-*</code> bookend the action. No network, no privilege escalation.</p>
+            <p class="info-expect"><strong>On the Kata timeline.</strong> Filter jumps to Discovery. Look for <code>INFO · EVENT</code> process create/terminate on <code>invisible-vm</code> with names like <code>argus-gtc-discovery-uname</code>, <code>-id</code>, <code>-ps</code>, <code>-decoys</code>, plus file-descriptor opens on those decoy paths. Demo classification “Discovery (demo classification)” — not a native HIGH/ALERT.</p>
+          </div>
+        </div>
+        <div class="scenario-action">
+          <button data-scenario="compute-simulation">Run Compute Simulation</button>
+          <button type="button" class="info-sign" aria-expanded="false" aria-controls="info-compute-simulation" data-info="compute-simulation" title="What this scenario does">i</button>
+          <div id="info-compute-simulation" class="scenario-info" hidden role="dialog" aria-labelledby="info-compute-title">
+            <h3 id="info-compute-title">Compute Simulation</h3>
+            <p class="info-does"><strong>What it does.</strong> A short CPU loop in the guest (5,000 integer squares to <code>/dev/null</code>). No network and no decoy writes. Marker processes <code>argus-gtc-compute_simulation-start/end</code> wrap it.</p>
+            <p class="info-expect"><strong>On the Kata timeline.</strong> Sparse by design: process start/end for those markers on <code>invisible-vm</code>. That is the story — Argus still sees guest compute with no in-guest agent. Expect <code>INFO · EVENT</code> process lifecycle, not a native alert.</p>
+          </div>
+        </div>
+        <div class="scenario-action">
+          <button data-scenario="audit-evasion">Audit Evasion Attempt</button>
+          <button type="button" class="info-sign" aria-expanded="false" aria-controls="info-audit-evasion" data-info="audit-evasion" title="What this scenario does">i</button>
+          <div id="info-audit-evasion" class="scenario-info" hidden role="dialog" aria-labelledby="info-audit-evasion-title">
+            <h3 id="info-audit-evasion-title">Audit Evasion Attempt</h3>
+            <p class="info-does"><strong>What it does.</strong> Starts bounded interactive Bash (<code>bash --noprofile --norc -i</code>) in the Kata VM, seeds one harmless history entry, disables history, waits briefly, clears and writes the disposable history file, then remains alive for about 10 seconds so Argus can scan it.</p>
+            <p class="info-expect"><strong>Success requirement.</strong> The server waits up to 45 seconds for raw Argus output containing <code>message_type=ALERT</code>, <code>severity=HIGH</code>, and exactly <code>Shell History Disabled</code> or <code>Shell History Cleared</code>. If none arrives, the result says “No native alert observed”; INFO/EVENT telemetry remains visible and is never promoted to an alert.</p>
+          </div>
+        </div>
+        <div class="scenario-action">
+          <button data-scenario="reverse-shell">Reverse Shell Simulation</button>
+          <button type="button" class="info-sign" aria-expanded="false" aria-controls="info-reverse-shell" data-info="reverse-shell" title="What this scenario does">i</button>
+          <div id="info-reverse-shell" class="scenario-info" hidden role="dialog" aria-labelledby="info-reverse-shell-title">
+            <h3 id="info-reverse-shell-title">Reverse Shell Simulation</h3>
+            <p class="info-does"><strong>What it does.</strong> Opens interactive bash (<code>bash -i</code>) and redirects stdin/stdout over <code>/dev/tcp</code> to the in-namespace <code>scenario-sink</code> for about 20 seconds. NetworkPolicy keeps the traffic inside the demo namespace — no internet C2.</p>
+            <p class="info-expect"><strong>On the Kata timeline.</strong> Filter includes both <code>invisible-vm</code> and <code>scenario-sink</code>. Look for process events (<code>bash -i</code> / <code>argus-gtc-reverse_shell-*</code>) and TCP connect events to the sink. Demo label is not a native alert. Argus 3.5 documents “Reverse Shell Detected” as HIGH — call that out only if the same event contains both <code>message_type=ALERT</code> and <code>severity=HIGH</code>.</p>
+          </div>
+        </div>
+        <div class="scenario-action">
+          <button data-scenario="shell-history">Shell History Tampering</button>
+          <button type="button" class="info-sign" aria-expanded="false" aria-controls="info-shell-history" data-info="shell-history" title="What this scenario does">i</button>
+          <div id="info-shell-history" class="scenario-info" hidden role="dialog" aria-labelledby="info-shell-history-title">
+            <h3 id="info-shell-history-title">Shell History Tampering</h3>
+            <p class="info-does"><strong>What it does.</strong> Pre-scripted history wipe in the Kata VM: <code>set +o history</code>, <code>HISTFILE=/dev/null</code>, <code>history -c</code>, then <code>history -w</code>. The session does not persist commands.</p>
+            <p class="info-expect"><strong>On the Kata timeline.</strong> Process markers <code>argus-gtc-shell_history-*</code> on <code>invisible-vm</code>. You may also see file activity if Argus samples <code>HISTFILE</code>. Demo classification only unless a native HIGH/ALERT for history tampering shows up on the event.</p>
+          </div>
+        </div>
+        <div class="scenario-action">
+          <button data-scenario="decoy-modify">Decoy Modification</button>
+          <button type="button" class="info-sign" aria-expanded="false" aria-controls="info-decoy-modify" data-info="decoy-modify" title="What this scenario does">i</button>
+          <div id="info-decoy-modify" class="scenario-info" hidden role="dialog" aria-labelledby="info-decoy-title">
+            <h3 id="info-decoy-title">Decoy Modification</h3>
+            <p class="info-does"><strong>What it does.</strong> Appends <code>tampered-by-demo</code> to the planted file <code>/decoys/credentials.txt</code> and cats it. Bounded write to a decoy, not a real secret.</p>
+            <p class="info-expect"><strong>On the Kata timeline.</strong> File-descriptor open/write activity for <code>/decoys/credentials.txt</code> plus process markers <code>argus-gtc-decoy_modify-*</code> on <code>invisible-vm</code>. Typical signal is file events at <code>INFO · EVENT</code>. A content-change HIGH is optional, not assumed.</p>
+          </div>
+        </div>
+        <div class="scenario-action">
+          <button data-scenario="network-burst">Network Burst</button>
+          <button type="button" class="info-sign" aria-expanded="false" aria-controls="info-network-burst" data-info="network-burst" title="What this scenario does">i</button>
+          <div id="info-network-burst" class="scenario-info" hidden role="dialog" aria-labelledby="info-network-burst-title">
+            <h3 id="info-network-burst-title">Network Burst</h3>
+            <p class="info-does"><strong>What it does.</strong> Sends 5 MiB of zeros (<code>dd if=/dev/zero | nc</code>) from the Kata VM to the in-namespace sink. Bounded; NetworkPolicy blocks anything outside the demo namespace.</p>
+            <p class="info-expect"><strong>On the Kata timeline.</strong> TCP and process events for <code>dd</code>/<code>nc</code> / <code>argus-gtc-network_burst-*</code> on <code>invisible-vm</code>, plus sink-side receive on <code>scenario-sink</code>. DTS RX/TX sparklines may tick up. Demo label “Network Burst”. An excessive-data HIGH is documented by Argus, not guaranteed per click.</p>
+          </div>
+        </div>
       </div>
       <div class="contain-row">
         <button class="danger" id="contain-btn">Contain Workload</button>
@@ -58,9 +214,66 @@
     </section>
 
     <section class="panel timeline">
-      <h2>Live Argus Timeline</h2>
+      <div class="timeline-header">
+        <div>
+          <span class="section-kicker">Out-of-band security telemetry</span>
+          <h2>Live Argus evidence</h2>
+        </div>
+        <span class="evidence-live"><span class="live-dot" aria-hidden="true"></span> Streaming</span>
+        <p class="note timeline-note">Evidence view keeps native alerts and scenario-correlated records separate from the noisy raw host feed. Newest records appear first; changing views never deletes events.</p>
+        <div class="timeline-controls">
+          <select id="timeline-filter" aria-label="Filter timeline">
+            <option value="evidence" selected>Relevant evidence</option>
+            <option value="demo">All demo workload events</option>
+            <option value="discovery">Discovery</option>
+            <option value="compute-simulation">Compute Simulation</option>
+            <option value="audit-evasion">Audit Evasion Attempt</option>
+            <option value="reverse-shell">Reverse Shell</option>
+            <option value="shell-history">Shell History</option>
+            <option value="decoy-modify">Decoy Modification</option>
+            <option value="network-burst">Network Burst</option>
+            <option value="raw">All Argus events (raw host feed)</option>
+          </select>
+          <select id="severity-filter" aria-label="Filter by severity">
+            <option value="" selected>All severities</option>
+            <option value="INFO">INFO</option>
+            <option value="WARNING">WARNING</option>
+            <option value="MEDIUM">MEDIUM</option>
+            <option value="HIGH">HIGH</option>
+            <option value="CRITICAL">CRITICAL</option>
+          </select>
+          <select id="message-type-filter" aria-label="Filter by message type">
+            <option value="" selected>All message types</option>
+            <option value="EVENT">EVENT · operation observed</option>
+            <option value="ALERT">ALERT · detection triggered</option>
+            <option value="SYSTEM_ACTIVITY">SYSTEM_ACTIVITY</option>
+          </select>
+          <button type="button" class="secondary compact" id="pause-timeline">Pause</button>
+          <span class="event-count" id="event-count">0 shown</span>
+        </div>
+        <div class="timeline-state" id="timeline-state">Loading retained events…</div>
+        <div class="timeline-story" id="timeline-story" aria-live="polite"></div>
+        <div class="timeline-pin" id="timeline-pin" hidden></div>
+      </div>
       <div id="timeline" class="timeline-list"></div>
     </section>
+
+    <dialog id="event-dialog" class="event-dialog" aria-labelledby="event-dialog-title" aria-describedby="event-dialog-description">
+      <div class="event-dialog-header">
+        <div>
+          <p class="eyebrow">Complete retained record</p>
+          <h2 id="event-dialog-title">Argus Event</h2>
+          <p class="event-dialog-meta" id="event-dialog-meta"></p>
+        </div>
+        <button type="button" class="secondary compact" id="close-event-dialog" aria-label="Close full event">Close</button>
+      </div>
+      <p class="note" id="event-dialog-description">This includes the normalized fields used by the demo and the unmodified Argus payload under <code>raw</code>. It may contain command lines and workload metadata.</p>
+      <pre id="event-dialog-json" class="event-dialog-json" tabindex="0"></pre>
+      <div class="event-dialog-actions">
+        <span id="event-copy-status" aria-live="polite"></span>
+        <button type="button" class="secondary compact" id="copy-event-json">Copy JSON</button>
+      </div>
+    </dialog>
 
     <section class="panel metrics">
       <h2>DTS Health</h2>
@@ -68,6 +281,6 @@
     </section>
   </main>
 
-  <script src="/assets/app.js"></script>
+  <script src="/assets/app.js?v=23"></script>
 </body>
 </html>

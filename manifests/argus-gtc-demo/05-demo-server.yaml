@@ -48,6 +48,10 @@ spec:
                   key: token
             - name: ARGUS_GTC_DEMO_IMAGE
               value: <ARGUS_GTC_DEMO_IMAGE>
+            - name: ARGUS_GTC_MAX_EVENTS
+              value: "5000"
+            - name: ARGUS_GTC_MAX_EVIDENCE_EVENTS
+              value: "500"
           volumeMounts:
             - name: hosted-kubeconfig
               mountPath: /etc/hosted
@@ -100,6 +104,8 @@ kind: Route
 metadata:
   name: argus-gtc-demo
   namespace: argus-gtc-demo
+  annotations:
+    haproxy.router.openshift.io/timeout: 90s
   labels:
     app: argus-gtc-demo
 spec:

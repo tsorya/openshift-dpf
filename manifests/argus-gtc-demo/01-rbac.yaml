@@ -43,3 +43,28 @@ subjects:
   - kind: ServiceAccount
     name: argus-gtc-demo
     namespace: argus-gtc-demo
+---
+# Read-only access for the demo UI status ribbon (DPU pill reads DPUDeployment Ready).
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: argus-gtc-demo-dpu-read
+  namespace: dpf-operator-system
+rules:
+  - apiGroups: ["svc.dpu.nvidia.com"]
+    resources: ["dpudeployments", "dpuservices"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: argus-gtc-demo-dpu-read
+  namespace: dpf-operator-system
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: argus-gtc-demo-dpu-read
+subjects:
+  - kind: ServiceAccount
+    name: argus-gtc-demo
+    namespace: argus-gtc-demo

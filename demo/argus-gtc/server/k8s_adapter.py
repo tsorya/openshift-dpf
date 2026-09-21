@@ -169,6 +169,7 @@ class K8sAdapter:
         pod = self.get_workload_pod()
         dpu = self.get_dpudeployment_status()
         argus = self.get_argus_status()
+        coverage = self.get_argus_coverage()
 
         cluster = "Ready"
         dpu_state = "Ready" if dpu.get("ready") else "Degraded"
@@ -207,6 +208,7 @@ class K8sAdapter:
                 "pod": pod,
                 "dpu": dpu,
                 "argus": argus,
+                "coverage": coverage,
             },
         )
 
@@ -220,4 +222,88 @@ class K8sAdapter:
         return {
             "replicas": deploy.spec.replicas,
             "status": "ok",
+        }
+
+    def get_argus_coverage(self) -> dict[str, Any]:
+        pod = self.get_workload_pod()
+        node = pod.get("node") if pod else None
+        demo_workloads: list[dict[str, Any]] = []
+        try:
+            items = self.core.list_namespaced_pod(namespace=self.settings.namespace).items
+            for item in items:
+                if not item.status or item.status.phase not in {"Running", "Pending"}:
+                    continue
+                labels = item.metadata.labels or {}
+                app = labels.get("app")
+                if app == "argus-gtc-demo":
+                    continue
+                if node and item.spec.node_name and item.spec.node_name != node:
+                    continue
+                demo_workloads.append(
+                    {
+                        "name": item.metadata.name,
+                        "app": labels.get("app"),
+                        "runtime": item.spec.runtime_class_name or "runc",
+                        "node": item.spec.node_name,
+                        "phase": item.status.phase,
+                    }
+                )
+        except ApiException:
+            logger.debug("failed to list demo pods for coverage", exc_info=True)
+
+        auto_scan = None
+        representor_id = None
+        dma_device = None
+        try:
+            obj = self.custom.get_namespaced_custom_object(
+                group="svc.dpu.nvidia.com",
+                version="v1alpha1",
+                namespace=self.settings.dpf_namespace,
+                plural="dpuserviceconfigurations",
+                name=self.settings.argus_service_name,
+            )
+            content = (
+                obj.get("spec", {})
+                .get("serviceConfiguration", {})
+                .get("helmChart", {})
+                .get("values", {})
+                .get("config", {})
+                .get("content", {})
+                .get("apsh_config", {})
+            )
+            auto_scan = content.get("auto_scan")
+            bm = (content.get("systems") or {}).get("bm") or {}
+            representor_id = bm.get("representor_id")
+            dma_device = bm.get("dma_device_name")
+        except ApiException:
+            logger.debug("argus DPUServiceConfiguration not readable", exc_info=True)
+
+        kata_runtime = self.settings.kata_runtime_class
+        return {
+            "selects_all_cluster_pods": False,
+            "scope": "DPU-attached worker via DMA — not a cluster-wide pod watch",
+            "worker_node": node,
+            "auto_scan": auto_scan,
+            "representor_id": representor_id,
+            "dma_device": dma_device,
+            "kata_runtime_class": kata_runtime,
+            "kata_pf0_only": True,
+            "guest_agent": False,
+            "demo_workloads": demo_workloads,
+            "includes": [
+                "Every process on the DPU-attached worker, including OpenShift system pods",
+                f"Kata VMs whose SR-IOV VF is on PF0 (RuntimeClass {kata_runtime})",
+                "runc pods on that same worker (no guest hypervisor)",
+            ],
+            "excludes": [
+                "Pods on other workers / control-plane VMs",
+                "Kata VFs on PF1 — Argus cannot introspect them",
+                "In-guest agents — none are installed in the Kata VM",
+            ],
+            "signals": [
+                "Process and thread lifecycle (INFO · EVENT)",
+                "TCP connections (INFO · EVENT)",
+                "File descriptors and mappings (INFO · EVENT)",
+                "Native HIGH/ALERT only when Argus emits them — not guaranteed per button",
+            ],
         }
