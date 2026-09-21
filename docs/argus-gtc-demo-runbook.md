@@ -15,20 +15,34 @@ All scenarios are **bounded and allowlisted**. They do not use malware, internet
 3. `make deploy-observability` recommended for DTS panels (Thanos metrics).
 4. Hosted cluster kubeconfig available (`doca.kubeconfig` or secret fetch).
 
-## Build the demo server image (one-time, outside this repo)
+## Build the demo images
 
-Build from `demo/argus-gtc/` on a workstation with podman/docker, push to your
-registry, then set `ARGUS_GTC_SERVER_IMAGE` in `.env`:
+The Kata workload and sink use a small UBI9 image because Argus 1.5.0's shell
+history collector requires a Bash layout it can introspect. The previous Alpine
+netshoot image was visible to Argus at the process level but did not produce
+shell-history events. Build and push the workload image for the x86 worker:
+
+```bash
+podman build --platform linux/amd64 \
+  -t quay.io/<user>/argus-gtc-demo:workload-ubi9-v1 \
+  -f demo/argus-gtc-workload/Containerfile demo/argus-gtc-workload
+podman push quay.io/<user>/argus-gtc-demo:workload-ubi9-v1
+```
+
+Build and push the demo server from the repository root, then set
+`ARGUS_GTC_SERVER_IMAGE` in `.env`:
 
 ```bash
 # example — use your registry and tag
-podman build -t quay.io/<user>/argus-gtc-demo:v1 -f Containerfile demo/argus-gtc
+podman build --platform linux/amd64 \
+  -t quay.io/<user>/argus-gtc-demo:v1 \
+  -f demo/argus-gtc/Containerfile demo/argus-gtc
 podman push quay.io/<user>/argus-gtc-demo:v1
 ```
 
-The image only needs Python 3.11, `requirements.txt`, and the `server/` + `static/`
-directories. Keep the Containerfile in your registry build workspace; this repo
-does not ship one.
+The server image contains Python 3.11, `requirements.txt`, and the `server/` +
+`static/` directories. The audit-evasion implementation uses
+`timeout --foreground` so the bounded timeout preserves the interactive PTY.
 
 ## Deploy
 
@@ -49,7 +63,7 @@ This command:
 
 | Variable | Default | Purpose |
 |----------|---------|---------|
-| `ARGUS_GTC_DEMO_IMAGE` | `nicolaka-netshoot:latest` | Kata workload + sink image |
+| `ARGUS_GTC_DEMO_IMAGE` | `quay.io/itsoiref/argus-gtc-demo:workload-ubi9-v1` | Kata workload + sink image; UBI9/glibc Bash is required for native shell-history alerts |
 | `ARGUS_GTC_SERVER_IMAGE` | *(required)* | Pre-built demo server/collector image |
 | `ARGUS_LOG_THRESHOLD_SIZE` | `50M` | Argus native log rotation threshold |
 | `ARGUS_LOG_MAX_FILES_COUNT` | `10` | Argus rotated log file cap |

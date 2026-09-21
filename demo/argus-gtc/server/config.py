@@ -30,7 +30,7 @@ class Settings(BaseSettings):
     )
     hosted_kubeconfig: str = ""
 
-    demo_image: str = "quay.io/wabouham/ecosys-nvidia/nicolaka-netshoot:latest"
+    demo_image: str = "quay.io/itsoiref/argus-gtc-demo:workload-ubi9-v1"
 
     max_events: int = 5000
     max_evidence_events: int = 500
