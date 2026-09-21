@@ -58,7 +58,7 @@ This command:
 
 1. **Baseline** — Open the Route URL. Confirm ribbon: Cluster, DPU, Argus, Kata VM, VF/link are green. Note “no agent in guest.”
 2. **Run Discovery** — Bounded recon in the Kata VM. Expect real Argus `INFO · EVENT` process/file activity correlated as Discovery. Do not expect a native HIGH alert.
-3. **Audit Evasion Attempt** — Runs bounded interactive Bash history disable/clear operations and waits up to 45 seconds. Pass only when `/api/events` and the timeline show `Shell History Disabled` or `Shell History Cleared` with `message_type=ALERT` and `severity=HIGH`. `no-native-alert` is a valid failed/indeterminate outcome; keep the underlying telemetry for troubleshooting.
+3. **Audit Evasion Attempt** — Runs a bounded interactive Bash session on a real Kubernetes exec PTY. It establishes a history baseline across one Argus scan, clears history while history remains enabled, then disables history across another scan. After the action finishes, the server waits up to 45 seconds for the native event, so the full request can take about 80 seconds. Pass only when `/api/events` and the timeline show `Shell History Disabled` or `Shell History Cleared` with `message_type=ALERT` and `severity=HIGH`. `no-native-alert` is a valid failed/indeterminate outcome; keep the underlying telemetry for troubleshooting.
 4. **Reverse Shell Simulation** — Opens a roughly 20-second `/dev/tcp` connection only to the in-namespace sink pod. This is the secondary native-HIGH path; pass only for raw `ALERT/HIGH` activity named `Reverse Shell Detected`.
 5. **Shell History Tampering** — The original non-interactive telemetry/correlation scenario. Do not use its demo label as native-alert proof.
 6. **Decoy Modification** — Modifies planted files. File-descriptor events are the typical signal.
@@ -83,6 +83,7 @@ Removes only `argus-gtc-demo` namespace resources on management and hosted clust
 | Workload Pending | Kata VF pool on PF0; NAD/injector applied |
 | UI image pull errors | Ensure `ARGUS_GTC_SERVER_IMAGE` points to a registry the cluster can pull (image pull secret if private) |
 | Collector not forwarding | Hosted→management Route reachability; server still tails Argus pods via hosted kubeconfig fallback |
+| Audit Evasion returns `no-native-alert` | Confirm the live Argus config has `shell_command.disable_scan=false`, `shell_history_cleared=true`, and `shell_history_disabled=true`; inspect `/var/log/doca_argus/` for profile or collection failures. A correlated `Executable Permissions Removed` MEDIUM alert does not satisfy this scenario. |
 
 ## Measuring detection latency
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import shlex
 import threading
 import time
 from datetime import datetime, timezone
@@ -15,6 +16,26 @@ from .models import SCENARIO_LABELS, ScenarioResult
 # Argus logs can land after exec returns; keep the scenario id long enough
 # for the hosted tailer to classify Kata guest events, not host daemons.
 _SCENARIO_LINGER_SECONDS = 50.0
+_AUDIT_REMOTE_TIMEOUT_SECONDS = 32
+_AUDIT_CONTROLLER_TIMEOUT_SECONDS = 38.0
+_AUDIT_EVASION_INPUT = "\n".join(
+    (
+        "set -o history",
+        "HISTCONTROL=",
+        "HISTIGNORE=",
+        "history -s argus-demo-before-clear",
+        "history -w",
+        "sleep 7",
+        "history -c",
+        "history -w",
+        "sleep 7",
+        "history -s argus-demo-before-disable",
+        "history -w",
+        "set +o history",
+        "sleep 10",
+        "exit",
+    )
+) + "\n"
 
 logger = logging.getLogger(__name__)
 
@@ -97,6 +118,60 @@ class ScenarioController:
             logger.warning("exec returned %s: %s", resp.returncode, output)
         return output
 
+    def _exec_interactive(
+        self,
+        command: list[str],
+        stdin_text: str,
+        timeout_seconds: float,
+    ) -> str:
+        """Run a bounded command in a real Kubernetes exec PTY."""
+        pod_name = self._workload_pod_name()
+        resp = stream(
+            self.core.connect_get_namespaced_pod_exec,
+            pod_name,
+            self.settings.namespace,
+            command=command,
+            stderr=False,
+            stdin=True,
+            stdout=True,
+            tty=True,
+            _preload_content=False,
+        )
+        output = ""
+        returncode = None
+        deadline = time.monotonic() + timeout_seconds
+        try:
+            if not resp.is_open():
+                raise RuntimeError("interactive exec stream closed before input")
+            resp.write_stdin(stdin_text)
+            while resp.is_open():
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise RuntimeError(
+                        f"interactive exec exceeded {timeout_seconds:.0f}s controller deadline"
+                    )
+                resp.update(timeout=min(1.0, remaining))
+                if resp.peek_stdout():
+                    output += resp.read_stdout()
+            returncode = getattr(resp, "returncode", None)
+        finally:
+            resp.close()
+        if returncode not in (0, None):
+            logger.warning("interactive exec returned %s: %s", returncode, output)
+        return output
+
+    @staticmethod
+    def _audit_evasion_execution(marker: str) -> tuple[list[str], str]:
+        history_file = f"/tmp/{marker}.history"
+        marked_bash = f"exec -a {shlex.quote(marker)} bash --noprofile --norc -i"
+        script = (
+            f"HISTFILE={shlex.quote(history_file)}; export HISTFILE; "
+            "trap 'rm -f -- \"$HISTFILE\"' EXIT; "
+            f"timeout -s KILL {_AUDIT_REMOTE_TIMEOUT_SECONDS} "
+            f"bash -c {shlex.quote(marked_bash)}"
+        )
+        return ["/bin/bash", "-lc", script], _AUDIT_EVASION_INPUT
+
     def _wrap(self, inner: str, marker: str) -> list[str]:
         # BusyBox applets (netshoot /bin/true) dispatch on argv[0], so
         # `exec -a <name> /bin/true` fails with "applet not found".
@@ -113,21 +188,7 @@ class ScenarioController:
 
     def _script_for(self, scenario_id: str, sink_ip: str, marker: str) -> list[str]:
         port = str(self.settings.sink_port)
-        if scenario_id == "audit-evasion":
-            inner = (
-                "HISTFILE=/tmp/argus-gtc-audit-evasion-history; export HISTFILE; "
-                f"timeout -s KILL 18 bash -c \"exec -a {marker} "
-                "bash --noprofile --norc -i\" <<'ARGUS_EVASION' || true\n"
-                "history -s argus-demo-before-clear\n"
-                "set +o history\n"
-                "sleep 2\n"
-                "history -c\n"
-                "history -w\n"
-                "sleep 10\n"
-                "ARGUS_EVASION\n"
-                "echo audit-evasion-complete"
-            )
-        elif scenario_id == "discovery":
+        if scenario_id == "discovery":
             inner = (
                 "(exec -a argus-gtc-discovery-uname bash -c 'uname -a; sleep 2'); "
                 "(exec -a argus-gtc-discovery-id bash -c 'id; sleep 1'); "
@@ -176,7 +237,17 @@ class ScenarioController:
                     if scenario_id in {"reverse-shell", "network-burst"}
                     else ""
                 )
-                output = self._exec(self._script_for(scenario_id, sink_ip, marker))
+                if scenario_id == "audit-evasion":
+                    command, stdin_text = self._audit_evasion_execution(marker)
+                    output = self._exec_interactive(
+                        command,
+                        stdin_text,
+                        _AUDIT_CONTROLLER_TIMEOUT_SECONDS,
+                    )
+                else:
+                    output = self._exec(
+                        self._script_for(scenario_id, sink_ip, marker)
+                    )
                 return ScenarioResult(
                     scenario_id=scenario_id,
                     status="started",
