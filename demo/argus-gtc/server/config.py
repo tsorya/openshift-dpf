@@ -32,7 +32,8 @@ class Settings(BaseSettings):
 
     demo_image: str = "quay.io/wabouham/ecosys-nvidia/nicolaka-netshoot:latest"
 
-    max_events: int = 500
+    max_events: int = 5000
+    max_evidence_events: int = 500
     poll_interval_seconds: float = 1.0
 
     @property

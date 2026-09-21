@@ -20,9 +20,24 @@ spec:
                 bm:
                   dma_device_name: <ARGUS_DMA_DEVICE_NAME>
                   representor_id: <ARGUS_REPRESENTOR_ID>
-              output:
-                log_threshold_size: <ARGUS_LOG_THRESHOLD_SIZE>
-                log_max_files_count: <ARGUS_LOG_MAX_FILES_COUNT>
+            collection:
+              events:
+                reverse_shell_detection:
+                  disable_scan: false
+                  scans_frequency: 2s
+                  direct_reverse_shell: true
+                  piped_reverse_shell: true
+                  unix_socket_reverse_shell: true
+                  pts_reverse_shell: true
+                shell_command:
+                  disable_scan: false
+                  scans_frequency: 5s
+                  shell_command_executed: true
+                  shell_history_cleared: true
+                  shell_history_disabled: true
+            output:
+              log_threshold_size: <ARGUS_LOG_THRESHOLD_SIZE>
+              log_max_files_count: <ARGUS_LOG_MAX_FILES_COUNT>
         containerImage: <ARGUS_IMAGE>
   upgradePolicy:
     applyNodeEffect: false

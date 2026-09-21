@@ -6,7 +6,7 @@ This demo shows a Kata workload with **no in-guest security agent** while DOCA A
 
 ## Safety note
 
-All scenarios are **bounded and allowlisted**. They do not use malware, internet C2, external scanning, privilege escalation, or attacks against shared infrastructure. Scenario labels such as “Discovery” are applied by the demo controller and are **not** native Argus ATT&CK mappings.
+All scenarios are **bounded and allowlisted**. They do not use malware, internet C2, external scanning, privilege escalation, or attacks against shared infrastructure. Scenario labels such as “Discovery” and “Reverse Shell Simulation” are applied by the demo controller for correlation. They are **not** native Argus ATT&CK mappings and do **not** mean Argus raised a HIGH/ALERT. Live feeds in this environment have been mostly `INFO · EVENT` (TCP, files, processes). Treat a native HIGH alert as confirmed only when the same raw event contains both `message_type=ALERT` and `severity=HIGH`.
 
 ## Prerequisites
 
@@ -57,12 +57,13 @@ This command:
 ## Demo flow
 
 1. **Baseline** — Open the Route URL. Confirm ribbon: Cluster, DPU, Argus, Kata VM, VF/link are green. Note “no agent in guest.”
-2. **Run Discovery** — Populates process/file timeline with real Argus events.
-3. **Reverse Shell Simulation** — Short-lived `/dev/tcp` connection to the in-namespace sink pod. Expect Argus `Reverse Shell Detected` (HIGH).
-4. **Shell History Tampering** — Triggers `Shell History Disabled` / `Shell History Cleared` alerts.
-5. **Decoy Modification** — Modifies planted files; expect file-descriptor content-change alerts.
-6. **Contain Workload** — Scales only `invisible-vm` to zero. Event stream stops; DPU/Argus remain healthy.
-7. **Restore Workload** — Brings the demo Deployment back to one replica.
+2. **Run Discovery** — Bounded recon in the Kata VM. Expect real Argus `INFO · EVENT` process/file activity correlated as Discovery. Do not expect a native HIGH alert.
+3. **Audit Evasion Attempt** — Runs bounded interactive Bash history disable/clear operations and waits up to 45 seconds. Pass only when `/api/events` and the timeline show `Shell History Disabled` or `Shell History Cleared` with `message_type=ALERT` and `severity=HIGH`. `no-native-alert` is a valid failed/indeterminate outcome; keep the underlying telemetry for troubleshooting.
+4. **Reverse Shell Simulation** — Opens a roughly 20-second `/dev/tcp` connection only to the in-namespace sink pod. This is the secondary native-HIGH path; pass only for raw `ALERT/HIGH` activity named `Reverse Shell Detected`.
+5. **Shell History Tampering** — The original non-interactive telemetry/correlation scenario. Do not use its demo label as native-alert proof.
+6. **Decoy Modification** — Modifies planted files. File-descriptor events are the typical signal.
+7. **Contain Workload** — Scales only `invisible-vm` to zero. Event stream from that VM stops; DPU/Argus remain healthy.
+8. **Restore Workload** — Brings the demo Deployment back to one replica.
 
 ## Cleanup
 
@@ -78,6 +79,7 @@ Removes only `argus-gtc-demo` namespace resources on management and hosted clust
 |---------|-------|
 | No Argus events in UI | Argus pods Running on hosted cluster; logs under `/var/log/doca_argus_activity_report/`; log-cleaner absent |
 | Argus status Pending | `KUBECONFIG=doca.kubeconfig oc get pods -n dpf-operator-system \| grep argus` |
+| DPU status Degraded | Open `/api/status` and inspect `details.dpu`. A `403` means re-apply demo RBAC (`make deploy-argus-gtc-demo`). If `ready: false` with conditions, check `oc get dpudeployment dpudeployment -n dpf-operator-system` |
 | Workload Pending | Kata VF pool on PF0; NAD/injector applied |
 | UI image pull errors | Ensure `ARGUS_GTC_SERVER_IMAGE` points to a registry the cluster can pull (image pull secret if private) |
 | Collector not forwarding | Hosted→management Route reachability; server still tails Argus pods via hosted kubeconfig fallback |

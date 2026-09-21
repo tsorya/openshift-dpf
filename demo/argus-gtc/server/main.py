@@ -22,11 +22,19 @@ from .collector import (
 from .config import Settings, get_settings
 from .k8s_adapter import K8sAdapter
 from .metrics_adapter import MetricsAdapter
-from .models import ContainResult, SCENARIO_LABELS
+from .models import (
+    ContainResult,
+    NativeAlertResult,
+    SCENARIO_LABELS,
+    SCENARIO_NATIVE_ALERTS,
+    native_alert_matches_scenario,
+)
 from .scenarios import ALLOWED_SCENARIOS, ScenarioController
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("argus-gtc")
+
+NATIVE_ALERT_TIMEOUT_SECONDS = 45.0
 
 
 class IngestBody(BaseModel):
@@ -48,9 +56,10 @@ async def lifespan(app: FastAPI):
             scenario_lookup=lambda: None,
         )
         forwarder = RemoteCollectorClient(settings, store)
-        tasks.append(asyncio.create_task(tailer.run(stop_event)))
         if settings.collector_url:
             tasks.append(asyncio.create_task(forwarder.forward_loop(stop_event, tailer)))
+        else:
+            tasks.append(asyncio.create_task(tailer.run(stop_event)))
     else:
         hosted_tailer = HostedArgusPodTailer(
             settings,
@@ -77,11 +86,19 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
     )
     app.state.settings = settings
-    app.state.store = EventStore(max_events=settings.max_events)
+    app.state.store = EventStore(
+        max_events=settings.max_events,
+        max_evidence_events=settings.max_evidence_events,
+    )
     app.state.k8s = K8sAdapter(settings)
     app.state.metrics = MetricsAdapter(settings)
     app.state.scenarios = ScenarioController(settings)
-    app.state.remote = RemoteCollectorClient(settings, app.state.store)
+    app.state.scenario_lock = asyncio.Lock()
+    app.state.remote = RemoteCollectorClient(
+        settings,
+        app.state.store,
+        scenario_lookup=lambda: app.state.scenarios.active_scenario,
+    )
 
     static_dir = Path(settings.static_dir)
     if static_dir.is_dir():
@@ -92,7 +109,10 @@ def create_app() -> FastAPI:
         index_path = static_dir / "index.html"
         if not index_path.is_file():
             raise HTTPException(status_code=404, detail="UI not found")
-        return FileResponse(index_path)
+        return FileResponse(
+            index_path,
+            headers={"Cache-Control": "no-store"},
+        )
 
     @app.get("/api/health")
     async def health() -> dict[str, str]:
@@ -109,9 +129,16 @@ def create_app() -> FastAPI:
         return ribbon.model_dump()
 
     @app.get("/api/events")
-    async def events(limit: int = 100) -> dict[str, Any]:
-        items = app.state.store.list_events(limit)
-        return {"events": [item.model_dump() for item in items]}
+    async def events(limit: int = 100, evidence_limit: int = 100) -> dict[str, Any]:
+        bounded_limit = max(1, min(limit, settings.max_events))
+        bounded_evidence_limit = max(0, min(evidence_limit, settings.max_evidence_events))
+        items = app.state.store.list_events(bounded_limit)
+        evidence = app.state.store.list_evidence(bounded_evidence_limit)
+        return {
+            "events": [item.model_dump() for item in items],
+            "evidence": [item.model_dump() for item in evidence],
+            "retention": app.state.store.stats(),
+        }
 
     @app.get("/api/events/stream")
     async def events_stream():
@@ -145,11 +172,55 @@ def create_app() -> FastAPI:
     async def run_scenario(scenario_id: str) -> dict[str, Any]:
         if scenario_id not in ALLOWED_SCENARIOS:
             raise HTTPException(status_code=400, detail="scenario not allowlisted")
-        try:
-            result = await asyncio.to_thread(app.state.scenarios.run, scenario_id)
-        except Exception as exc:
-            raise HTTPException(status_code=500, detail=str(exc)) from exc
-        return result.model_dump()
+        if app.state.scenario_lock.locked():
+            raise HTTPException(
+                status_code=409,
+                detail="another scenario is already running",
+            )
+        async with app.state.scenario_lock:
+            baseline_ids = app.state.store.event_ids()
+            subscription = (
+                app.state.store.subscribe()
+                if scenario_id in SCENARIO_NATIVE_ALERTS
+                else None
+            )
+            try:
+                try:
+                    result = await asyncio.to_thread(
+                        app.state.scenarios.run,
+                        scenario_id,
+                    )
+                except Exception as exc:
+                    raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+                if scenario_id in SCENARIO_NATIVE_ALERTS:
+                    native_alert = await app.state.store.wait_for(
+                        lambda event: native_alert_matches_scenario(
+                            event,
+                            scenario_id,
+                            result.scenario_marker,
+                        ),
+                        timeout_seconds=NATIVE_ALERT_TIMEOUT_SECONDS,
+                        exclude_ids=baseline_ids,
+                        subscription=subscription,
+                    )
+                    if native_alert:
+                        result.status = "native-alert"
+                        result.message = (
+                            "Native Argus HIGH observed: "
+                            f"{native_alert.activity_name}"
+                        )
+                        result.native_alert = NativeAlertResult.from_event(native_alert)
+                    else:
+                        result.status = "no-native-alert"
+                        result.message = (
+                            "No native alert observed within 45 seconds. "
+                            "Underlying INFO/EVENT records remain in the timeline."
+                        )
+                return result.model_dump()
+            finally:
+                if subscription is not None:
+                    app.state.store.unsubscribe(subscription)
 
     @app.post("/api/contain")
     async def contain() -> dict[str, Any]:
