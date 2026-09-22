@@ -355,6 +355,7 @@ h1 span { color: var(--accent); }
 
 .node.management-node { border-color: rgba(53,201,255,0.34); }
 .node.hosted-node { border-color: rgba(238,0,0,0.42); box-shadow: inset 0 0 24px rgba(238,0,0,0.035); }
+.node.evidence-node { border-color: rgba(53,201,255,0.46); box-shadow: inset 0 0 24px rgba(53,201,255,0.04); }
 
 .node.accent {
   border-color: rgba(118, 185, 0, 0.5);
@@ -378,20 +379,44 @@ h1 span { color: var(--accent); }
   text-transform: uppercase;
 }
 
-.arrow {
+.feed {
   display: grid;
   justify-items: center;
-  flex: 0 0 38px;
-  color: var(--accent-2);
-  font-size: 1.4rem;
+  align-content: center;
+  flex: 0 0 112px;
+  min-height: 94px;
+  text-align: center;
 }
 
-.arrow span {
-  color: var(--muted);
-  font-size: 0.52rem;
-  font-weight: 700;
-  letter-spacing: 0.08em;
+.feed strong {
+  color: var(--text);
+  font-size: 0.62rem;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
+}
+
+.feed > span {
+  width: 100%;
+  margin: 0.1rem 0;
+  color: var(--accent-2);
+  font-size: 1.4rem;
+  line-height: 1;
+}
+
+.feed > span::before {
+  content: "";
+  display: inline-block;
+  width: calc(100% - 1.25rem);
+  height: 1px;
+  margin-right: -0.2rem;
+  vertical-align: middle;
+  background: linear-gradient(90deg, rgba(53,201,255,0.18), var(--accent-2));
+}
+
+.feed small {
+  color: var(--muted);
+  font-size: 0.61rem;
+  line-height: 1.25;
 }
 
 .note {
@@ -998,6 +1023,43 @@ button.active {
     min-height: min(420px, 60vh);
     max-height: 60vh;
     position: static;
+  }
+}
+
+@media (max-width: 900px) {
+  .flow {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 0.3rem;
+    overflow-x: visible;
+  }
+
+  .node {
+    flex: none;
+    min-height: 0;
+  }
+
+  .feed {
+    flex: none;
+    min-height: 68px;
+  }
+
+  .feed > span {
+    width: auto;
+    justify-self: center;
+    font-size: 0;
+    transform: none;
+  }
+
+  .feed > span::before {
+    content: "↓";
+    width: auto;
+    height: auto;
+    margin: 0;
+    background: none;
+    color: var(--accent-2);
+    font-size: 1.35rem;
+    line-height: 1;
   }
 }
 
