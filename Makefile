@@ -543,7 +543,7 @@ help:
 	@echo "  deploy-dpu-services - Deploy DPU services to the cluster"
 	@echo "  enable-kata       - OSC (inert KataConfig) + kata-coldplug on worker-dpu (also last make all step when KATA_ENABLED=true)"
 	@echo "  enable-argus      - Install DOCA Argus DPUService (requires KATA_SRIOV_PF_INDEX=0 and ARGUS_REPRESENTOR_ID)"
-	@echo "  deploy-argus-gtc-demo - Deploy Argus GTC demo UI, workload, and collector"
+	@echo "  deploy-argus-gtc-demo - Deploy Argus GTC demo UI and workload"
 	@echo "  cleanup-argus-gtc-demo - Remove Argus GTC demo resources only"
 	@echo "  deploy-kata-test  - Deploy kata-dpu-test Deployment (KATA_TEST_REPLICAS, default 1)"
 	@echo "  cleanup-kata-vfs  - Rebind stale vfio-pci VFs to mlx5_core on worker-dpu (FORCE=true to skip running-pod check)"
