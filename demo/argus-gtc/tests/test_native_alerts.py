@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import threading
 import unittest
 from types import SimpleNamespace
@@ -192,10 +193,26 @@ class NativeAlertModelTests(unittest.TestCase):
         controller._run_lock = threading.Lock()
         controller._exec_interactive = Mock(return_value="audit-evasion-complete")
 
-        result = controller.run("audit-evasion")
+        result = controller.run("audit-evasion", "0123456789ab")
 
         self.assertEqual(result.status, "started")
+        self.assertEqual(result.scenario_run_id, "0123456789ab")
+        self.assertEqual(
+            result.scenario_marker,
+            "argus-gtc-audit_evasion-0123456789ab",
+        )
+        self.assertEqual(
+            controller.active_scenario_context,
+            ("audit-evasion", "0123456789ab"),
+        )
+        controller._last_scenario_until = 0.0
+        self.assertIsNone(controller.active_scenario_context)
         self.assertEqual(controller._exec_interactive.call_args.args[2], 38.0)
+
+    def test_scenario_run_id_rejects_untrusted_marker_text(self):
+        controller = object.__new__(ScenarioController)
+        with self.assertRaisesRegex(ValueError, "12 lowercase hexadecimal"):
+            controller.run("audit-evasion", "not-a-run-id")
 
     def test_empty_pod_context_matches_only_exact_native_high(self):
         event = shell_history_alert()
@@ -256,6 +273,22 @@ class NativeAlertModelTests(unittest.TestCase):
             native_alert_matches_scenario(unrelated, "audit-evasion", "expected-marker")
         )
 
+        stale_run = shell_history_alert()
+        stale_run.scenario_id = "audit-evasion"
+        stale_run.scenario_run_id = "aaaaaaaaaaaa"
+        stale_run.pod_name = "invisible-vm-old"
+        stale_run.process_command = (
+            "argus-gtc-audit_evasion-aaaaaaaaaaaa bash --noprofile --norc -i"
+        )
+        self.assertFalse(
+            native_alert_matches_scenario(
+                stale_run,
+                "audit-evasion",
+                "argus-gtc-audit_evasion-bbbbbbbbbbbb",
+                "bbbbbbbbbbbb",
+            )
+        )
+
         activity_only = shell_history_alert()
         activity_only.scenario_id = "audit-evasion"
         activity_only.process_command = None
@@ -265,27 +298,49 @@ class NativeAlertModelTests(unittest.TestCase):
         )
 
     def test_split_ndjson_record_is_not_dropped(self):
-        parser = ArgusLogParser(lambda: "audit-evasion")
+        parser = ArgusLogParser(lambda: ("audit-evasion", "0123456789ab"))
         record = (
             '{"message_header":{"message_id":"one","message_type":"ALERT",'
             '"severity":"HIGH"},"activity_data":{"name":'
-            '"SHELL_HISTORY_CLEARED"}}\n'
+            '"SHELL_HISTORY_CLEARED","process_details":{"process_name":'
+            '"argus-gtc-audit_evasion-0123456789ab"}}}\n'
         )
         self.assertEqual(parser.parse_chunk(record[:40], "argus.log"), [])
         events = parser.parse_chunk(record[40:], "argus.log")
         self.assertEqual(len(events), 1)
         self.assertEqual(events[0].activity_name, "Shell History Cleared")
         self.assertEqual(events[0].scenario_id, "audit-evasion")
+        self.assertEqual(events[0].scenario_run_id, "0123456789ab")
+
+    def test_old_marker_is_not_stamped_with_active_run_id(self):
+        parser = ArgusLogParser(lambda: ("audit-evasion", "0123456789ab"))
+        event = shell_history_alert()
+        event.raw["activity_data"]["process_details"][
+            "process_command_line_arguments"
+        ] = "argus-gtc-audit_evasion-aaaaaaaaaaaa bash --noprofile --norc -i"
+        events = parser.parse_lines(json.dumps(event.raw), "argus.log")
+        self.assertEqual(events[0].scenario_id, "audit-evasion")
+        self.assertIsNone(events[0].scenario_run_id)
+
+    def test_markerless_active_alert_receives_active_run_id(self):
+        parser = ArgusLogParser(lambda: ("audit-evasion", "0123456789ab"))
+        event = shell_history_alert()
+        event.raw["activity_data"]["process_details"] = {}
+        events = parser.parse_lines(json.dumps(event.raw), "argus.log")
+        self.assertEqual(events[0].scenario_id, "audit-evasion")
+        self.assertEqual(events[0].scenario_run_id, "0123456789ab")
 
     def test_scenario_marker_is_not_exposed_by_api_model(self):
         result = ScenarioResult(
             scenario_id="audit-evasion",
+            scenario_run_id="0123456789ab",
             status="started",
             message="started",
             started_at="2026-09-19T12:00:00Z",
             scenario_marker="private-correlation-marker",
         ).model_dump()
         self.assertNotIn("scenario_marker", result)
+        self.assertEqual(result["scenario_run_id"], "0123456789ab")
         self.assertIsNone(result["native_alert"])
 
 
@@ -295,13 +350,22 @@ class EventStoreTests(unittest.IsolatedAsyncioTestCase):
         client = RemoteCollectorClient(
             SimpleNamespace(),
             store,
-            scenario_lookup=lambda: "audit-evasion",
+            scenario_lookup=lambda: ("audit-evasion", "0123456789ab"),
         )
         payload = shell_history_alert().raw
-        ingested = await client.ingest_events([{"raw": payload}])
+        ingested = await client.ingest_events(
+            [
+                {
+                    "raw": payload,
+                    "scenario_id": "audit-evasion",
+                    "scenario_run_id": "0123456789ab",
+                }
+            ]
+        )
         self.assertEqual(ingested, 1)
         event = store.list_events()[0]
         self.assertEqual(event.scenario_id, "audit-evasion")
+        self.assertEqual(event.scenario_run_id, "0123456789ab")
         self.assertTrue(
             native_alert_matches_scenario(
                 event,

@@ -113,6 +113,7 @@ class NormalizedEvent(BaseModel):
     node_name: str | None = None
     workload_id: str | None = None
     scenario_id: str | None = None
+    scenario_run_id: str | None = None
     demo_label: str | None = None
     source_file: str | None = None
     raw: dict[str, Any] = Field(default_factory=dict)
@@ -124,6 +125,19 @@ def _event_signature_text(event: NormalizedEvent) -> str:
         for part in (event.process_name, event.process_command, event.activity_name)
         if part
     ).lower()
+
+
+def scenario_run_id_from_event(
+    event: NormalizedEvent,
+    scenario_id: str,
+) -> str | None:
+    scenario_marker = re.escape(scenario_id.replace("-", "_"))
+    match = re.search(
+        rf"\bargus-gtc-{scenario_marker}-([0-9a-f]{{12}})\b",
+        _event_signature_text(event),
+        re.IGNORECASE,
+    )
+    return match.group(1).lower() if match else None
 
 
 def is_hypervisor_noise(event: NormalizedEvent) -> bool:
@@ -181,6 +195,7 @@ def native_alert_matches_scenario(
     event: NormalizedEvent,
     scenario_id: str,
     scenario_marker: str | None = None,
+    scenario_run_id: str | None = None,
 ) -> bool:
     """Return true only for an exact native HIGH alert from the active run."""
     if not is_native_high_alert(event):
@@ -188,11 +203,26 @@ def native_alert_matches_scenario(
     if event.activity_name not in SCENARIO_NATIVE_ALERTS.get(scenario_id, ()):
         return False
 
+    if (
+        scenario_run_id
+        and event.scenario_run_id
+        and event.scenario_run_id != scenario_run_id
+    ):
+        return False
+
     process_text = " ".join(
         part for part in (event.process_name, event.process_command) if part
     ).lower()
+    marker_run_id = scenario_run_id_from_event(event, scenario_id)
+    if scenario_run_id and marker_run_id and marker_run_id != scenario_run_id:
+        return False
+    if scenario_run_id and event.scenario_run_id == scenario_run_id:
+        return True
     if scenario_marker and scenario_marker.lower() in process_text:
         return True
+
+    if marker_run_id:
+        return marker_run_id == scenario_run_id
 
     # Argus can omit container context for a valid native activity. In that
     # case the parser's active-scenario correlation plus the post-click event
@@ -236,6 +266,7 @@ class NativeAlertResult(BaseModel):
 
 class ScenarioResult(BaseModel):
     scenario_id: str
+    scenario_run_id: str
     status: Literal["native-alert", "no-native-alert", "started"]
     message: str
     started_at: str

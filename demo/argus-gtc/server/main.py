@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
@@ -64,7 +65,7 @@ async def lifespan(app: FastAPI):
         hosted_tailer = HostedArgusPodTailer(
             settings,
             store,
-            scenario_lookup=lambda: app.state.scenarios.active_scenario,
+            scenario_lookup=lambda: app.state.scenarios.active_scenario_context,
         )
         tasks.append(asyncio.create_task(hosted_tailer.run(stop_event)))
 
@@ -97,7 +98,7 @@ def create_app() -> FastAPI:
     app.state.remote = RemoteCollectorClient(
         settings,
         app.state.store,
-        scenario_lookup=lambda: app.state.scenarios.active_scenario,
+        scenario_lookup=lambda: app.state.scenarios.active_scenario_context,
     )
 
     static_dir = Path(settings.static_dir)
@@ -169,9 +170,14 @@ def create_app() -> FastAPI:
         }
 
     @app.post("/api/scenarios/{scenario_id}")
-    async def run_scenario(scenario_id: str) -> dict[str, Any]:
+    async def run_scenario(
+        scenario_id: str,
+        scenario_run_id: str | None = None,
+    ) -> dict[str, Any]:
         if scenario_id not in ALLOWED_SCENARIOS:
             raise HTTPException(status_code=400, detail="scenario not allowlisted")
+        if scenario_run_id and not re.fullmatch(r"[0-9a-f]{12}", scenario_run_id):
+            raise HTTPException(status_code=400, detail="invalid scenario run id")
         if app.state.scenario_lock.locked():
             raise HTTPException(
                 status_code=409,
@@ -189,6 +195,7 @@ def create_app() -> FastAPI:
                     result = await asyncio.to_thread(
                         app.state.scenarios.run,
                         scenario_id,
+                        scenario_run_id,
                     )
                 except Exception as exc:
                     raise HTTPException(status_code=500, detail=str(exc)) from exc
@@ -199,6 +206,7 @@ def create_app() -> FastAPI:
                             event,
                             scenario_id,
                             result.scenario_marker,
+                            result.scenario_run_id,
                         ),
                         timeout_seconds=NATIVE_ALERT_TIMEOUT_SECONDS,
                         exclude_ids=baseline_ids,

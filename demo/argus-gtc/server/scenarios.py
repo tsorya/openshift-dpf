@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import re
 import shlex
 import threading
 import time
@@ -61,7 +62,9 @@ class ScenarioController:
             config.load_kube_config()
         self.core = client.CoreV1Api()
         self._active_scenario: str | None = None
+        self._active_scenario_run_id: str | None = None
         self._last_scenario: str | None = None
+        self._last_scenario_run_id: str | None = None
         self._last_scenario_until: float = 0.0
         self._run_lock = threading.Lock()
 
@@ -71,6 +74,18 @@ class ScenarioController:
             return self._active_scenario
         if self._last_scenario and time.monotonic() < self._last_scenario_until:
             return self._last_scenario
+        return None
+
+    @property
+    def active_scenario_context(self) -> tuple[str, str] | None:
+        if self._active_scenario and self._active_scenario_run_id:
+            return self._active_scenario, self._active_scenario_run_id
+        if (
+            self._last_scenario
+            and self._last_scenario_run_id
+            and time.monotonic() < self._last_scenario_until
+        ):
+            return self._last_scenario, self._last_scenario_run_id
         return None
 
     def _workload_pod_name(self) -> str:
@@ -228,13 +243,23 @@ class ScenarioController:
             raise ValueError(f"unsupported scenario: {scenario_id}")
         return self._wrap(inner, marker)
 
-    def run(self, scenario_id: str) -> ScenarioResult:
+    def run(
+        self,
+        scenario_id: str,
+        scenario_run_id: str | None = None,
+    ) -> ScenarioResult:
         if scenario_id not in ALLOWED_SCENARIOS:
             raise ValueError(f"scenario {scenario_id} is not allowlisted")
+        run_id = scenario_run_id or uuid4().hex[:12]
+        if not re.fullmatch(r"[0-9a-f]{12}", run_id):
+            raise ValueError(
+                "scenario run id must be 12 lowercase hexadecimal characters"
+            )
         with self._run_lock:
             started = datetime.now(timezone.utc).isoformat()
-            marker = f"argus-gtc-{scenario_id.replace('-', '_')}-{uuid4().hex[:12]}"
+            marker = f"argus-gtc-{scenario_id.replace('-', '_')}-{run_id}"
             self._active_scenario = scenario_id
+            self._active_scenario_run_id = run_id
             try:
                 sink_ip = (
                     self._sink_ip()
@@ -254,6 +279,7 @@ class ScenarioController:
                     )
                 return ScenarioResult(
                     scenario_id=scenario_id,
+                    scenario_run_id=run_id,
                     status="started",
                     message=output.strip()
                     or SCENARIO_LABELS.get(scenario_id, scenario_id),
@@ -262,7 +288,9 @@ class ScenarioController:
                 )
             finally:
                 self._last_scenario = scenario_id
+                self._last_scenario_run_id = run_id
                 self._last_scenario_until = (
                     time.monotonic() + _SCENARIO_LINGER_SECONDS
                 )
                 self._active_scenario = None
+                self._active_scenario_run_id = None
