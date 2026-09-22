@@ -245,6 +245,10 @@ function matchesScenario(event, scenarioId) {
       return false;
     }
   }
+  const expectedNativeAlerts = SCENARIO_NATIVE_ALERTS[scenarioId] || [];
+  if (isNativeAlert(event) && expectedNativeAlerts.length) {
+    return matchesNativeScenario(event, scenarioId);
+  }
   if (matchesNativeScenario(event, scenarioId)) return true;
   if (matchesSignature(event, scenarioId)) return true;
 
@@ -526,7 +530,7 @@ function setScenarioFilter(scenarioId, scenarioRunId) {
   pinnedScenarioEventIds.set(scenarioId, new Set());
   timelineFilter.value = scenarioId;
   timelinePin.hidden = false;
-  timelinePin.textContent = `Current run: ${SCENARIO_LABELS[scenarioId] || scenarioId} · ${scenarioRunId} · retained alerts from earlier runs hidden`;
+  timelinePin.textContent = `Current run: ${SCENARIO_LABELS[scenarioId] || scenarioId} · ${scenarioRunId} · earlier-run and unrelated alerts hidden`;
   renderTimeline();
 }
 
