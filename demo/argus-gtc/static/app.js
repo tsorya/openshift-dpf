@@ -84,6 +84,8 @@ let flushTimer = null;
 let timelinePaused = false;
 let lastClickAt = 0;
 let lastClickScenario = null;
+let activeScenarioRunId = null;
+let scenarioRunBaselineIds = new Set();
 
 function pillClass(value) {
   if (!value) return "";
@@ -231,6 +233,18 @@ function isDemoRelevant(event) {
 function matchesScenario(event, scenarioId) {
   if (!scenarioId) return true;
   if (scenarioId === "demo") return isDemoRelevant(event);
+  if (
+    lastClickScenario === scenarioId &&
+    activeScenarioRunId
+  ) {
+    if (scenarioRunBaselineIds.has(event.id)) return false;
+    if (event.scenario_run_id) {
+      if (event.scenario_run_id !== activeScenarioRunId) return false;
+    } else if (eventTimestamp(event) < lastClickAt - 2000) {
+      // Compatibility fallback while an older server is still rolling out.
+      return false;
+    }
+  }
   if (matchesNativeScenario(event, scenarioId)) return true;
   if (matchesSignature(event, scenarioId)) return true;
 
@@ -495,12 +509,24 @@ function queueEvent(event) {
   else scheduleFlush();
 }
 
-function setScenarioFilter(scenarioId) {
+function createScenarioRunId() {
+  const bytes = new Uint8Array(6);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+function setScenarioFilter(scenarioId, scenarioRunId) {
   lastClickScenario = scenarioId;
   lastClickAt = Date.now();
+  activeScenarioRunId = scenarioRunId;
+  scenarioRunBaselineIds = new Set([
+    ...knownEventIds,
+    ...eventQueue.map((event) => event?.id).filter(Boolean),
+  ]);
+  pinnedScenarioEventIds.set(scenarioId, new Set());
   timelineFilter.value = scenarioId;
   timelinePin.hidden = false;
-  timelinePin.textContent = `Pinned scenario: ${SCENARIO_LABELS[scenarioId] || scenarioId} · new-event correlation window 60s · matched evidence remains visible`;
+  timelinePin.textContent = `Current run: ${SCENARIO_LABELS[scenarioId] || scenarioId} · ${scenarioRunId} · retained alerts from earlier runs hidden`;
   renderTimeline();
 }
 
@@ -546,7 +572,8 @@ async function refreshStatus() {
 }
 
 async function runScenario(id) {
-  setScenarioFilter(id);
+  const scenarioRunId = createScenarioRunId();
+  setScenarioFilter(id, scenarioRunId);
   const scenarioButtons = document.querySelectorAll("button[data-scenario]");
   scenarioButtons.forEach((button) => { button.disabled = true; });
   actionLog.className = "result-running";
@@ -554,8 +581,14 @@ async function runScenario(id) {
     ? `Running ${id}. Waiting up to 45 seconds for a native Argus ALERT/HIGH.`
     : `Running ${id}. Timeline filtered for correlation. Demo labels are not native Argus alerts.`;
   try {
-    const res = await fetch(`/api/scenarios/${id}`, { method: "POST" });
+    const res = await fetch(
+      `/api/scenarios/${id}?scenario_run_id=${encodeURIComponent(scenarioRunId)}`,
+      { method: "POST" }
+    );
     const data = await parseJsonResponse(res);
+    if (data.scenario_run_id && data.scenario_run_id !== scenarioRunId) {
+      throw new Error("scenario run correlation mismatch");
+    }
     actionLog.className = data.status === "native-alert"
       ? "result-success"
       : data.status === "no-native-alert"
