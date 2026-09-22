@@ -77,6 +77,17 @@ function remove_argus_log_cleaner() {
     KUBECONFIG="${HOSTED_KUBECONFIG}" oc delete daemonset argus-log-cleaner -n dpf-operator-system --ignore-not-found
 }
 
+function remove_legacy_hosted_collector() {
+    # Event collection now happens from the demo server through the hosted
+    # kubeconfig and pod exec. Remove the old hostPath-based forwarder if a
+    # previous deployment left it behind.
+    log "INFO" "Removing legacy hosted Argus collector"
+    KUBECONFIG="${HOSTED_KUBECONFIG}" oc delete daemonset argus-gtc-collector \
+        -n "${DEMO_NAMESPACE}" --ignore-not-found
+    KUBECONFIG="${HOSTED_KUBECONFIG}" oc delete serviceaccount argus-gtc-collector \
+        -n "${DEMO_NAMESPACE}" --ignore-not-found
+}
+
 function render_demo_manifests() {
     local worker_role ingest_token server_url
     worker_role=$(kata_worker_role)
@@ -118,6 +129,7 @@ function deploy_argus_gtc_demo() {
     log "INFO" "Management cluster: KUBECONFIG=${KUBECONFIG} context=$(oc config current-context 2>/dev/null || echo unknown)"
     require_demo_prereqs
     remove_argus_log_cleaner
+    remove_legacy_hosted_collector
 
     log "INFO" "Using pre-built demo server image ${ARGUS_GTC_SERVER_IMAGE}"
     render_demo_manifests
@@ -142,30 +154,15 @@ function deploy_argus_gtc_demo() {
 
     wait_for_demo_ready
 
-    local route server_url
+    local route
     route=$(oc -n "${DEMO_NAMESPACE}" get route argus-gtc-demo -o jsonpath='{.spec.host}' 2>/dev/null || true)
     if [ -n "${route}" ]; then
-        server_url="https://${route}"
         log "INFO" "Demo UI: https://${route}"
     else
-        server_url="http://argus-gtc-demo.${DEMO_NAMESPACE}.svc:8080"
-        log "INFO" "Demo UI service: ${server_url}"
+        log "INFO" "Demo UI service: http://argus-gtc-demo.${DEMO_NAMESPACE}.svc:8080"
     fi
 
-    log "INFO" "Applying hosted-cluster collector (optional ingest forward path)"
-    KUBECONFIG="${HOSTED_KUBECONFIG}" oc create namespace "${DEMO_NAMESPACE}" --dry-run=client -o yaml | KUBECONFIG="${HOSTED_KUBECONFIG}" oc apply -f -
-    update_file_multi_replace \
-        "${DEMO_MANIFESTS_DIR}/06-collector-hosted.yaml" \
-        "${GENERATED_DEMO_DIR}/06-collector-hosted.yaml" \
-        "<ARGUS_GTC_SERVER_IMAGE>" "${ARGUS_GTC_SERVER_IMAGE}" \
-        "<ARGUS_GTC_INGEST_TOKEN>" "${ingest_token}" \
-        "<ARGUS_GTC_SERVER_URL>" "${server_url}"
-    KUBECONFIG="${HOSTED_KUBECONFIG}" oc apply -f "${GENERATED_DEMO_DIR}/07-collector-rbac-hosted.yaml"
-    KUBECONFIG="${HOSTED_KUBECONFIG}" oc apply -f "${GENERATED_DEMO_DIR}/06-collector-hosted.yaml"
-    KUBECONFIG="${HOSTED_KUBECONFIG}" oc -n "${DEMO_NAMESPACE}" set image daemonset/argus-gtc-collector \
-        collector="${ARGUS_GTC_SERVER_IMAGE}" || true
-
-    log "INFO" "Argus GTC demo deployed. See docs/argus-gtc-demo-runbook.md"
+    log "INFO" "Argus GTC demo deployed. The server reads Argus reports through the hosted kubeconfig. See docs/argus-gtc-demo-runbook.md"
 }
 
 function cleanup_argus_gtc_demo() {
@@ -177,7 +174,7 @@ function cleanup_argus_gtc_demo() {
     oc delete namespace "${DEMO_NAMESPACE}" --ignore-not-found --wait=false
 
     if ensure_hosted_kubeconfig; then
-        log "INFO" "Removing hosted-cluster collector"
+        log "INFO" "Removing legacy hosted collector namespace"
         KUBECONFIG="${HOSTED_KUBECONFIG}" oc delete namespace "${DEMO_NAMESPACE}" --ignore-not-found --wait=false
     fi
 

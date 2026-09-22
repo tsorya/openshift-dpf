@@ -56,7 +56,7 @@ This command:
 
 - Removes the legacy Argus log-cleaner DaemonSet (if present).
 - Deploys the Kata workload, scenario sink, NetworkPolicy, and UI on the management cluster.
-- Deploys a read-only log collector DaemonSet on the hosted cluster.
+- Configures the demo server to read native Argus reports from the hosted Argus pod through the hosted kubeconfig.
 - Prints the OpenShift Route URL for the UI.
 
 ### Useful variables
@@ -64,7 +64,7 @@ This command:
 | Variable | Default | Purpose |
 |----------|---------|---------|
 | `ARGUS_GTC_DEMO_IMAGE` | `quay.io/itsoiref/argus-gtc-demo:workload-ubi9-v1` | Kata workload + sink image; UBI9/glibc Bash is required for native shell-history alerts |
-| `ARGUS_GTC_SERVER_IMAGE` | *(required)* | Pre-built demo server/collector image |
+| `ARGUS_GTC_SERVER_IMAGE` | *(required)* | Pre-built demo server image |
 | `ARGUS_LOG_THRESHOLD_SIZE` | `50M` | Argus native log rotation threshold |
 | `ARGUS_LOG_MAX_FILES_COUNT` | `10` | Argus rotated log file cap |
 
@@ -85,18 +85,20 @@ This command:
 make cleanup-argus-gtc-demo
 ```
 
-Removes only `argus-gtc-demo` namespace resources on management and hosted clusters. Argus, DPU services, and Kata infrastructure are untouched.
+Removes only the demo resources on the management cluster and any legacy
+`argus-gtc-demo` namespace left on the hosted cluster. Argus, DPU services,
+and Kata infrastructure are untouched.
 
 ## Troubleshooting
 
 | Symptom | Check |
 |---------|-------|
-| No Argus events in UI | Argus pods Running on hosted cluster; logs under `/var/log/doca_argus_activity_report/`; log-cleaner absent |
+| No Argus events in UI | Argus pods Running on hosted cluster; the demo server's hosted kubeconfig can list/exec into `doca-argus-*`; logs under `/var/log/doca_argus_activity_report/`; log-cleaner absent |
 | Argus status Pending | `KUBECONFIG=doca.kubeconfig oc get pods -n dpf-operator-system \| grep argus` |
 | DPU status Degraded | Open `/api/status` and inspect `details.dpu`. A `403` means re-apply demo RBAC (`make deploy-argus-gtc-demo`). If `ready: false` with conditions, check `oc get dpudeployment dpudeployment -n dpf-operator-system` |
 | Workload Pending | Kata VF pool on PF0; NAD/injector applied |
 | UI image pull errors | Ensure `ARGUS_GTC_SERVER_IMAGE` points to a registry the cluster can pull (image pull secret if private) |
-| Collector not forwarding | Hosted→management Route reachability; server still tails Argus pods via hosted kubeconfig fallback |
+| Argus report tailing fails | Check the demo server logs and verify the hosted kubeconfig has `get/list` access to Argus pods and `create` access to `pods/exec` in `dpf-operator-system` |
 | Audit Evasion returns `no-native-alert` | Confirm the live Argus config has `shell_command.disable_scan=false`, `shell_history_cleared=true`, and `shell_history_disabled=true`; inspect `/var/log/doca_argus/` for profile or collection failures. A correlated `Executable Permissions Removed` MEDIUM alert does not satisfy this scenario. |
 
 ## Measuring detection latency
@@ -119,5 +121,7 @@ Management cluster                Hosted/DPU cluster
 invisible-vm (Kata)              doca-argus pods
        │                                │
        └──────── VF / BlueField ────────┘
-argus-gtc-demo (UI + scenarios)  argus-gtc-collector (read-only hostPath)
+argus-gtc-demo (UI + scenarios)
+       │
+       └── hosted kubeconfig + pod exec → Argus activity reports
 ```

@@ -701,7 +701,7 @@ help:
 	@echo "  scale-in-zt-dpus - Remove one host's Zero Trust DPUNode and DPUs (usage: make scale-in-zt-dpus DPU_NODE=dpu-node-worker-<N>)"
 	@echo "  enable-kata       - OSC (inert KataConfig) + kata-coldplug on worker-dpu (also last make all step when KATA_ENABLED=true)"
 	@echo "  enable-argus      - Install the DOCA Argus DPU service (ARGUS_ENABLED=true; Kata demo requires PF0 and ARGUS_REPRESENTOR_ID)"
-	@echo "  deploy-argus-gtc-demo - Deploy Argus GTC demo UI, workload, and collector"
+	@echo "  deploy-argus-gtc-demo - Deploy Argus GTC demo UI and workload"
 	@echo "  cleanup-argus-gtc-demo - Remove Argus GTC demo resources only"
 	@echo "  deploy-kata-test  - Deploy kata-dpu-test Deployment (KATA_TEST_REPLICAS, default 1)"
 	@echo "  cleanup-kata-vfs  - Rebind stale vfio-pci VFs to mlx5_core on worker-dpu (FORCE=true to skip running-pod check)"

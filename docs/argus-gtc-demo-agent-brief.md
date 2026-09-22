@@ -21,36 +21,34 @@ escalation, or attacks against shared infrastructure.
 - Argus output currently lands on the DPU host under:
   - `/var/log/doca_argus_activity_report/`
   - `/var/log/doca_argus/`
-- There is currently no Argus HTTP API, ServiceMonitor, event collector, or
-  dashboard in this repository.
+- There is no Argus HTTP API or ServiceMonitor in this repository. The demo
+  server reads Argus activity reports by execing into the native `doca-argus`
+  pod through the hosted-cluster kubeconfig.
 - The current `manifests/argus/04-log-cleaner.yaml` deletes Argus logs every
   five minutes. This must be removed or replaced with bounded retention before
   the demo; it would erase evidence during a presentation.
 
 ## Recommended architecture
 
-Create a small read-only demo stack:
+The demo server is the read-only event reader. It uses the hosted kubeconfig to
+list the native `doca-argus` pod, exec `find`/`tail` inside that container, and
+parse the documented common fields: `message_type`, `severity`,
+`occurred_message_time_iso_8601_ns`, `workload_information`,
+`container_context`, and `activity_data`. It publishes normalized events over
+SSE for the UI. No hostPath collector DaemonSet is required.
 
-1. **Argus collector**
-   - Run on the hosted/DPU cluster with read-only access to Argus report files,
-     or consume Argus JSON telemetry through Vector/Fluent Bit.
-   - Parse the documented common fields:
-     `message_type`, `severity`, `occurred_message_time_iso_8601_ns`,
-     `workload_information`, `container_context`, and `activity_data`.
-   - Publish normalized events over SSE or WebSocket for the UI.
-
-2. **Kubernetes status adapter**
+1. **Kubernetes status adapter**
    - Watch DPUDeployment/DPUService readiness.
    - Watch the demo Pod's Kata runtime, DPU connection annotations, node, and
      VF/resource identity.
    - Expose a read-only status endpoint to the UI.
 
-3. **DPU health adapter**
+2. **DPU health adapter**
    - Query the existing Thanos/Prometheus DTS metrics for link speed/width,
      packets, bytes, errors, and drops.
    - Keep infrastructure health visible while the workload is contained.
 
-4. **Static UI**
+3. **Static UI**
    - Top status ribbon: Cluster, DPU, Argus, Kata VM, VF/link.
    - Center topology: `Pod → Kata VM → VF → BlueField → Argus`.
    - Live event timeline with severity, activity, process, pod, node, and
@@ -113,7 +111,8 @@ generated a native Argus alert.
   initialization before showing a green status.
 - Use a pinned demo image; do not use `latest`.
 - Keep all routes private/authenticated for the demo cluster.
-- Use read-only mounts and least-privilege RBAC for the collector.
+- Keep the hosted kubeconfig read-only and limited to listing Argus pods and
+  reading their activity reports through `pods/exec`.
 - Add a reset action or documented cleanup that removes only demo resources.
 - Capture real Argus report samples and measure detection latency before
   finalizing the UI. Do not fabricate event fields or detection semantics.
