@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Invisible VM, Visible Threat — Argus GTC Demo</title>
-  <link rel="stylesheet" href="/assets/style.css?v=23" />
+  <link rel="stylesheet" href="/assets/style.css?v=24" />
 </head>
 <body>
   <header class="hero">
@@ -70,18 +70,18 @@
         </div>
         <span class="architecture-badge">No in-guest agent</span>
       </div>
-      <div class="flow">
+      <div class="flow" aria-label="Telemetry flow from the Kata workload to the demo UI">
         <div class="node management-node"><span class="node-label">Management OpenShift cluster</span>Kata workload<div class="sub" id="pod-name">—</div><div class="sub" id="runtime-class">—</div></div>
-        <div class="arrow"><span>PF0</span>→</div>
-        <div class="node"><span class="node-label">Data plane</span>SR-IOV VF<div class="sub" id="vf-state">—</div></div>
-        <div class="arrow"><span>DMA</span>→</div>
+        <div class="feed"><strong>Workload I/O</strong><span aria-hidden="true">→</span><small>uses PF0</small></div>
+        <div class="node"><span class="node-label">PF0 data path</span>SR-IOV VF<div class="sub" id="vf-state">—</div></div>
+        <div class="feed"><strong>VF traffic</strong><span aria-hidden="true">→</span><small>lands on DPU</small></div>
         <div class="node"><span class="node-label">Infrastructure</span>BlueField DPU<div class="sub" id="dpu-node">—</div></div>
-        <div class="arrow"><span>HyperShift</span>→</div>
-        <div class="node hosted-node"><span class="node-label">Hosted DPU cluster</span>DOCA Platform<div class="sub">DPF services + service chain</div></div>
-        <div class="arrow"><span>DPUService</span>→</div>
-        <div class="node accent"><span class="node-label">Security plane</span>DOCA Argus<div class="sub" id="argus-pods">—</div></div>
+        <div class="feed"><strong>DMA visibility</strong><span aria-hidden="true">→</span><small>inspected out of band</small></div>
+        <div class="node hosted-node accent"><span class="node-label">HyperShift-hosted DPU cluster</span>DOCA Argus<div class="sub">DPF DPUService</div><div class="sub" id="argus-pods">—</div></div>
+        <div class="feed"><strong>Activity reports</strong><span aria-hidden="true">→</span><small>streamed as evidence</small></div>
+        <div class="node evidence-node"><span class="node-label">Management cluster</span>Demo UI<div class="sub">Argus events + OpenShift context</div></div>
       </div>
-      <p class="note topology-note">The Kata workload runs on the management cluster's DPU-attached worker. HyperShift hosts the DPU service plane, where DOCA Argus observes process, network, and file activity independently from the guest.</p>
+      <p class="note topology-note">Each connector names what the component on its left feeds to the component on its right. HyperShift hosts DOCA Platform and Argus as a DPF DPUService; it is hosting context, not an in-band hop.</p>
     </section>
 
     <section class="panel coverage">
@@ -281,6 +281,6 @@
     </section>
   </main>
 
-  <script src="/assets/app.js?v=23"></script>
+  <script src="/assets/app.js?v=24"></script>
 </body>
 </html>
