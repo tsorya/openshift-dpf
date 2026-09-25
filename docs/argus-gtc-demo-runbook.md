@@ -113,6 +113,18 @@ Before presenting, run two scenarios and note timestamps:
 
 Do not fabricate Argus fields; use captured samples to tune UI refresh intervals.
 
+## Git branches
+
+Development uses **`argus-gtc-demo`** as the canonical branch. **`argus-gtc-demo-v20`** is kept at the same commit (for CI or naming that expects the v20 branch).
+
+After commits on `argus-gtc-demo`:
+
+```bash
+make sync-argus-gtc-branches
+```
+
+That updates `argus-gtc-demo-v20` locally to match HEAD and pushes both branches to `origin`.
+
 ## Architecture
 
 ```text
