@@ -262,6 +262,10 @@ deploy-argus-gtc-demo:
 cleanup-argus-gtc-demo:
 	@scripts/argus-gtc-demo.sh cleanup
 
+.PHONY: watch-argus-gtc-acl
+watch-argus-gtc-acl:
+	@bash scripts/argus-gtc-acl-watch.sh
+
 .PHONY: cleanup-kata-vfs
 cleanup-kata-vfs:
 	@scripts/enable-kata.sh cleanup-vfs
@@ -545,6 +549,7 @@ help:
 	@echo "  enable-argus      - Install DOCA Argus DPUService (requires KATA_SRIOV_PF_INDEX=0 and ARGUS_REPRESENTOR_ID)"
 	@echo "  deploy-argus-gtc-demo - Deploy Argus GTC demo UI and workload"
 	@echo "  cleanup-argus-gtc-demo - Remove Argus GTC demo resources only"
+	@echo "  watch-argus-gtc-acl - Stream the demo agent's OVN ACL drop evidence to the UI"
 	@echo "  deploy-kata-test  - Deploy kata-dpu-test Deployment (KATA_TEST_REPLICAS, default 1)"
 	@echo "  cleanup-kata-vfs  - Rebind stale vfio-pci VFs to mlx5_core on worker-dpu (FORCE=true to skip running-pod check)"
 	@echo "  configure-flannel - Deploy flannel IPAM controller for automatic podCIDR assignment"

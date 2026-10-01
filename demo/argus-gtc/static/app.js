@@ -45,6 +45,8 @@ const SCENARIO_SIGNATURES = {
   "decoy-modify": ["argus-gtc-decoy_modify", "argus-gtc-decoy-modify", "tampered-by-demo"],
   "network-burst": ["argus-gtc-network_burst", "argus-gtc-network-burst", "/dev/zero", "nc -w"],
   "compute-simulation": ["argus-gtc-compute_simulation", "argus-gtc-compute-simulation", "compute-done"],
+  "agent-baseline": [],
+  "host-access-attempt": ["check_host_access"],
 };
 
 const SCENARIO_LABELS = {
@@ -55,6 +57,8 @@ const SCENARIO_LABELS = {
   "decoy-modify": "Decoy File Modification (demo classification)",
   "network-burst": "Network Burst (demo classification)",
   "compute-simulation": "Compute Simulation (demo classification)",
+  "agent-baseline": "AI Agent Baseline (demo correlation)",
+  "host-access-attempt": "Prompt Injection Host-Access Attempt (demo correlation)",
 };
 
 const SCENARIO_POD_PREFIXES = {
@@ -65,8 +69,10 @@ const SCENARIO_POD_PREFIXES = {
   "decoy-modify": ["invisible-vm"],
   "reverse-shell": ["invisible-vm", "scenario-sink"],
   "network-burst": ["invisible-vm", "scenario-sink"],
+  "agent-baseline": ["argus-gtc-agent"],
+  "host-access-attempt": ["argus-gtc-agent"],
 };
-const DEMO_POD_PREFIXES = ["invisible-vm", "scenario-sink"];
+const DEMO_POD_PREFIXES = ["invisible-vm", "scenario-sink", "argus-gtc-agent"];
 const SCENARIO_NATIVE_ALERTS = {
   "audit-evasion": ["Shell History Disabled", "Shell History Cleared"],
   "reverse-shell": ["Reverse Shell Detected"],
@@ -86,6 +92,7 @@ let lastClickAt = 0;
 let lastClickScenario = null;
 let activeScenarioRunId = null;
 let scenarioRunBaselineIds = new Set();
+let demoActionInProgress = false;
 
 function pillClass(value) {
   if (!value) return "";
@@ -141,7 +148,7 @@ function updateCoverage(coverage) {
   const kataBits = [];
   if (coverage.kata_runtime_class) kataBits.push(coverage.kata_runtime_class);
   kataBits.push(coverage.kata_pf0_only ? "PF0 VFs only" : "PF unknown");
-  kataBits.push(coverage.guest_agent ? "guest agent" : "no in-guest agent");
+  kataBits.push(coverage.guest_agent ? "guest agent" : "no in-guest security agent");
   setText("coverage-kata", kataBits.join(" · "));
 
   const demoItems = (coverage.demo_workloads || []).map((w) => {
@@ -361,6 +368,8 @@ function createEventElement(event) {
     ? "native Argus ALERT/HIGH"
     : nativeAlert
       ? `native Argus ALERT/${severity || "UNKNOWN"} (not native HIGH)`
+      : event.evidence_source === "ovn-acl-audit"
+      ? "OVN-Kubernetes ACL audit (not Argus telemetry)"
       : event.demo_label
       ? "demo classification (not a native alert)"
       : "Argus EVENT";
@@ -575,10 +584,35 @@ async function refreshStatus() {
   updateRibbon(data);
 }
 
+async function refreshAgentStatus() {
+  const badge = document.getElementById("agent-readiness");
+  const buttons = document.querySelectorAll("button[data-agent-profile]");
+  try {
+    const res = await fetch("/api/agent/status");
+    const data = await parseJsonResponse(res);
+    const ready = Boolean(data.ready && data.model_configured);
+    badge.textContent = ready
+      ? `Ready · ${data.model_name}`
+      : !data.model_configured
+        ? "Model not configured"
+        : "Agent pod not ready";
+    badge.className = `agent-state ${ready ? "ok" : "warn"}`;
+    buttons.forEach((button) => { button.disabled = !ready || demoActionInProgress; });
+    if (!ready) {
+      document.getElementById("agent-log").textContent = data.message;
+    }
+  } catch (error) {
+    badge.textContent = "Agent status unavailable";
+    badge.className = "agent-state warn";
+    buttons.forEach((button) => { button.disabled = true; });
+  }
+}
+
 async function runScenario(id) {
   const scenarioRunId = createScenarioRunId();
   setScenarioFilter(id, scenarioRunId);
-  const scenarioButtons = document.querySelectorAll("button[data-scenario]");
+  const scenarioButtons = document.querySelectorAll("button[data-scenario], button[data-agent-profile]");
+  demoActionInProgress = true;
   scenarioButtons.forEach((button) => { button.disabled = true; });
   actionLog.className = "result-running";
   actionLog.textContent = SCENARIO_NATIVE_ALERTS[id]
@@ -603,7 +637,63 @@ async function runScenario(id) {
     actionLog.className = "result-failed";
     actionLog.textContent = `Scenario failed: ${error.message}`;
   } finally {
-    scenarioButtons.forEach((button) => { button.disabled = false; });
+    demoActionInProgress = false;
+    document.querySelectorAll("button[data-scenario]").forEach((button) => { button.disabled = false; });
+    await refreshAgentStatus();
+  }
+}
+
+async function runAgentProfile(profile) {
+  const scenarioId = profile === "baseline" ? "agent-baseline" : "host-access-attempt";
+  const scenarioRunId = createScenarioRunId();
+  setScenarioFilter(scenarioId, scenarioRunId);
+  const buttons = document.querySelectorAll("button[data-scenario], button[data-agent-profile]");
+  const result = document.getElementById("agent-log");
+  demoActionInProgress = true;
+  buttons.forEach((button) => { button.disabled = true; });
+  result.className = "result-running";
+  result.textContent = profile === "baseline"
+    ? "Running benign prompt through the NeMo agent; no host-connect tool is requested."
+    : "Submitting an untrusted prompt-injection sample. The model may call the single bounded host-access tool or decline.";
+  try {
+    const res = await fetch("/api/agent-runs", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ profile, scenario_run_id: scenarioRunId }),
+    });
+    const data = await parseJsonResponse(res);
+    if (data.scenario_run_id !== scenarioRunId) {
+      throw new Error("agent run correlation mismatch");
+    }
+    const toolOutcome = data.tool_result?.outcome;
+    const confirmedBlock = Boolean(data.policy_drop_observed);
+    const expectedBaseline = profile === "baseline" && data.status === "no-tool-call";
+    const serverGuardedTool = data.status === "tool-not-authorized";
+    const unexpectedlyConnected = toolOutcome === "connected" && !confirmedBlock;
+    result.className = confirmedBlock || expectedBaseline || serverGuardedTool
+      ? "result-success"
+      : unexpectedlyConnected
+        ? "result-failed"
+        : "result-inconclusive";
+    const attemptSummary = toolOutcome === "not-authorized-for-this-profile"
+      ? "The model selected the tool, but the server profile gate prevented any connection attempt."
+      : data.tool_result?.destination_ip
+        ? `Tool outcome: ${toolOutcome}; destination ${data.tool_result.destination_ip}:${data.tool_result.destination_port}. A timeout is not, by itself, proof of policy enforcement.`
+        : "No host-access connection was made; the agent may have declined, or the server profile gate may have blocked the tool.";
+    result.textContent = [
+      `Run ${scenarioRunId} · ${data.status}`,
+      attemptSummary,
+      `Argus-correlated records on the agent pod: ${data.argus_events_observed}. These are reported only if Argus emitted them.`,
+      `OVN policy drop observed: ${data.policy_drop_observed ? "yes" : "no"}. ${data.message}`,
+      `Agent response: ${typeof data.agent_response === "string" ? data.agent_response : JSON.stringify(data.agent_response)}`,
+    ].join("\n\n");
+  } catch (error) {
+    result.className = "result-failed";
+    result.textContent = `Agent run failed: ${error.message}`;
+  } finally {
+    demoActionInProgress = false;
+    document.querySelectorAll("button[data-scenario]").forEach((button) => { button.disabled = false; });
+    await refreshAgentStatus();
   }
 }
 
@@ -611,6 +701,13 @@ document.querySelectorAll("button[data-scenario]").forEach((btn) => {
   btn.addEventListener("click", () => {
     closeScenarioInfo();
     runScenario(btn.dataset.scenario);
+  });
+});
+
+document.querySelectorAll("button[data-agent-profile]").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    closeScenarioInfo();
+    runAgentProfile(btn.dataset.agentProfile);
   });
 });
 
@@ -712,8 +809,10 @@ function connectStream() {
 }
 
 refreshStatus();
+refreshAgentStatus();
 refreshMetrics();
 connectStream();
 loadTimelineHistory();
 setInterval(refreshStatus, 5000);
+setInterval(refreshAgentStatus, 15000);
 setInterval(refreshMetrics, 15000);

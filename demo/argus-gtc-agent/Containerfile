@@ -1,0 +1,16 @@
+FROM python:3.11-slim
+
+WORKDIR /app
+
+COPY requirements.txt pyproject.toml ./
+COPY argus_gtc_agent ./argus_gtc_agent
+COPY workflow.yml ./workflow.yml
+RUN pip install --no-cache-dir -r requirements.txt \
+    && pip install --no-cache-dir --no-deps .
+
+ENV PYTHONUNBUFFERED=1 \
+    HOME=/tmp \
+    NAT_CONFIG_FILE=/app/workflow.yml
+EXPOSE 8000
+
+CMD ["nat", "serve", "--config_file", "/app/workflow.yml", "--host", "0.0.0.0", "--port", "8000"]

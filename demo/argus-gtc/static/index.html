@@ -21,7 +21,7 @@
       </div>
       <p class="eyebrow">DOCA Argus · DOCA Platform · OpenShift DPF · HyperShift · Kata Containers</p>
       <h1>Invisible VM. <span>Visible Threat.</span></h1>
-      <p class="subtitle"><strong>No agent inside the guest.</strong> NVIDIA BlueField observes the Kata workload out-of-band. Red Hat OpenShift supplies workload context, while HyperShift hosts the DPU service plane running DOCA Argus.</p>
+      <p class="subtitle"><strong>No security agent inside the Kata guest.</strong> A separate demo AI agent runs in its own pod. NVIDIA BlueField and DOCA Argus observe worker activity out of band; OpenShift supplies the workload and policy context.</p>
       <div class="deployment-context" aria-label="Demo deployment architecture">
         <div class="context-card management">
           <span>Control + workload</span>
@@ -68,7 +68,7 @@
           <span class="section-kicker">End-to-end data path</span>
           <h2>HyperShift workload visibility</h2>
         </div>
-        <span class="architecture-badge">No in-guest agent</span>
+        <span class="architecture-badge">No in-guest security agent</span>
       </div>
       <div class="flow" aria-label="Telemetry flow from the Kata workload to the demo UI">
         <div class="node management-node"><span class="node-label">Management OpenShift cluster</span>Kata workload<div class="sub" id="pod-name">—</div><div class="sub" id="runtime-class">—</div></div>
@@ -98,12 +98,13 @@
         <div><dt>Worker</dt><dd id="coverage-node">—</dd></div>
         <div><dt>Auto-scan</dt><dd id="coverage-scan">—</dd></div>
         <div><dt>Representor</dt><dd id="coverage-representor">—</dd></div>
-        <div><dt>Kata</dt><dd id="coverage-kata">PF0 VFs only, no in-guest agent</dd></div>
+        <div><dt>Kata</dt><dd id="coverage-kata">PF0 VFs only, no in-guest security agent</dd></div>
       </dl>
       <h3>In this demo</h3>
       <ul class="coverage-list" id="coverage-demo">
-        <li>invisible-vm · Kata (no in-guest agent)</li>
+        <li>invisible-vm · Kata (no in-guest security agent)</li>
         <li>scenario-sink · runc TCP sink on the same worker</li>
+        <li>argus-gtc-agent · separate runc AI agent pod</li>
       </ul>
       <details class="coverage-detail">
         <summary>Includes</summary>
@@ -118,7 +119,8 @@
         <ul class="coverage-list exclude" id="coverage-excludes">
           <li>Pods on other workers / control-plane VMs</li>
           <li>Kata VFs on PF1 — Argus cannot introspect them</li>
-          <li>In-guest agents — none are installed in the Kata VM</li>
+          <li>In-guest security agents — none are installed in the Kata VM</li>
+          <li>OVN policy verdicts — these are separate from native Argus telemetry</li>
         </ul>
       </details>
       <details class="coverage-detail">
@@ -213,14 +215,44 @@
       <pre id="action-log"></pre>
     </section>
 
+    <section class="panel agent-demo">
+      <div class="panel-heading">
+        <div>
+          <span class="section-kicker">Separate AI agent pod · NeMo Agent Toolkit</span>
+          <h2>Prompt injection: host-access attempt</h2>
+        </div>
+        <span class="agent-state" id="agent-readiness">Checking agent…</span>
+      </div>
+      <p class="note agent-note">The agent is outside the Kata guest and colocated with it on the DPU worker. The injected note can request one fixed TCP connect to the node on port <code>31999</code>; the tool sends no payload and runs no command. Existing Kata scenarios remain available above.</p>
+      <div class="agent-flow" aria-label="AI agent and security evidence flow">
+        <div class="agent-flow-node"><span>Untrusted input</span>Maintenance note</div>
+        <div class="agent-flow-link" aria-hidden="true">→</div>
+        <div class="agent-flow-node"><span>New pod · runc</span>NeMo tool-calling agent</div>
+        <div class="agent-flow-link" aria-hidden="true">→</div>
+        <div class="agent-flow-node"><span>Allowlisted tool</span>TCP connect · host:31999</div>
+        <div class="agent-flow-link" aria-hidden="true">→</div>
+        <div class="agent-flow-node deny"><span>Enforcement</span>AdminNetworkPolicy deny</div>
+      </div>
+      <div class="agent-evidence-paths">
+        <span>Agent process / TCP activity → Argus timeline (if emitted)</span>
+        <span>OVN ACL verdict=drop → separately labeled policy evidence</span>
+      </div>
+      <div class="agent-controls">
+        <button class="secondary" data-agent-profile="baseline">Run benign baseline</button>
+        <button class="danger" data-agent-profile="prompt-injection">Run prompt-injection simulation</button>
+      </div>
+      <p class="note agent-footnote">A TCP timeout alone does not prove a policy drop. The UI shows a confirmed drop only after the OVN ACL audit watcher posts the matching record; Argus reports process/network activity, not OVN policy verdicts.</p>
+      <pre id="agent-log" aria-live="polite">Configure ARGUS_GTC_MODEL_BASE_URL and ARGUS_GTC_MODEL_NAME, then wait for the AI agent pod.</pre>
+    </section>
+
     <section class="panel timeline">
       <div class="timeline-header">
         <div>
           <span class="section-kicker">Out-of-band security telemetry</span>
-          <h2>Live Argus evidence</h2>
+          <h2>Live security evidence</h2>
         </div>
         <span class="evidence-live"><span class="live-dot" aria-hidden="true"></span> Streaming</span>
-        <p class="note timeline-note">Evidence view keeps native alerts and scenario-correlated records separate from the noisy raw host feed. Newest records appear first; changing views never deletes events.</p>
+        <p class="note timeline-note">Argus telemetry and OVN ACL drops are labeled as distinct sources. Scenario filters keep unrelated host alerts out of the current run; changing views never deletes events.</p>
         <div class="timeline-controls">
           <select id="timeline-filter" aria-label="Filter timeline">
             <option value="evidence" selected>Relevant evidence</option>
@@ -232,7 +264,9 @@
             <option value="shell-history">Shell History</option>
             <option value="decoy-modify">Decoy Modification</option>
             <option value="network-burst">Network Burst</option>
-            <option value="raw">All Argus events (raw host feed)</option>
+            <option value="agent-baseline">AI Agent Baseline</option>
+            <option value="host-access-attempt">Prompt Injection / Host Access</option>
+            <option value="raw">All retained events + raw Argus feed</option>
           </select>
           <select id="severity-filter" aria-label="Filter by severity">
             <option value="" selected>All severities</option>
@@ -241,12 +275,14 @@
             <option value="MEDIUM">MEDIUM</option>
             <option value="HIGH">HIGH</option>
             <option value="CRITICAL">CRITICAL</option>
+            <option value="DENY">DENY</option>
           </select>
           <select id="message-type-filter" aria-label="Filter by message type">
             <option value="" selected>All message types</option>
             <option value="EVENT">EVENT · operation observed</option>
             <option value="ALERT">ALERT · detection triggered</option>
             <option value="SYSTEM_ACTIVITY">SYSTEM_ACTIVITY</option>
+            <option value="POLICY">POLICY · OVN enforcement evidence</option>
           </select>
           <button type="button" class="secondary compact" id="pause-timeline">Pause</button>
           <span class="event-count" id="event-count">0 shown</span>

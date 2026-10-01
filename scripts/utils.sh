@@ -335,8 +335,10 @@ update_file_multi_replace() {
     while [ $i -lt ${#pairs[@]} ]; do
         local placeholder="${pairs[$i]}"
         local value="${pairs[$((i+1))]}"
-	# check for api keys or secrets e.g. NGC_API_KEY or PULL_SECRET_BASE64, and ensure we don't output their values in log files
-	if [[ "${placeholder^^}" == *API_KEY* || "${placeholder^^}" == *SECRET* ]]; then
+        local upper_placeholder="${placeholder^^}"
+        # Avoid logging credentials, tokens, or model URLs with embedded auth.
+        if [[ "${upper_placeholder}" == *API_KEY* || "${upper_placeholder}" == *SECRET* \
+            || "${upper_placeholder}" == *TOKEN* || "${upper_placeholder}" == *MODEL_BASE_URL* ]]; then
             log [INFO] "Replacing ${placeholder} with [REDACTED] in ${target_file}"
         else
             log [INFO] "Replacing ${placeholder} with ${value} in ${target_file}"

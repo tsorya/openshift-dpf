@@ -107,6 +107,21 @@ class K8sAdapter:
             "available": status.available_replicas or 0 if status else 0,
         }
 
+    def get_agent_deployment_status(self) -> dict[str, Any]:
+        try:
+            deploy = self.apps.read_namespaced_deployment(
+                name="argus-gtc-agent",
+                namespace=self.settings.namespace,
+            )
+        except ApiException:
+            return {"ready": False, "replicas": 0, "available": 0}
+        status = deploy.status
+        return {
+            "ready": bool(status and (status.ready_replicas or 0) > 0),
+            "replicas": deploy.spec.replicas or 0,
+            "available": status.available_replicas or 0 if status else 0,
+        }
+
     def get_sink_pod_ip(self) -> str | None:
         pods = self.core.list_namespaced_pod(
             namespace=self.settings.namespace,
@@ -289,16 +304,19 @@ class K8sAdapter:
             "kata_runtime_class": kata_runtime,
             "kata_pf0_only": True,
             "guest_agent": False,
+            "ai_agent_pod": "argus-gtc-agent",
             "demo_workloads": demo_workloads,
             "includes": [
                 "Every process on the DPU-attached worker, including OpenShift system pods",
                 f"Kata VMs whose SR-IOV VF is on PF0 (RuntimeClass {kata_runtime})",
                 "runc pods on that same worker (no guest hypervisor)",
+                "Separate AI agent runc pod when deployed; it is not installed in the Kata VM",
             ],
             "excludes": [
                 "Pods on other workers / control-plane VMs",
                 "Kata VFs on PF1 — Argus cannot introspect them",
                 "In-guest agents — none are installed in the Kata VM",
+                "OVN policy verdicts — those come from OVN ACL audit logs, not Argus",
             ],
             "signals": [
                 "Process and thread lifecycle (INFO · EVENT)",
