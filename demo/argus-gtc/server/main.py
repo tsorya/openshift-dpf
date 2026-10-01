@@ -427,6 +427,11 @@ def create_app() -> FastAPI:
         )
         run_id = body.scenario_run_id
         baseline_ids = app.state.store.event_ids()
+        policy_subscription = (
+            app.state.store.subscribe()
+            if scenario_id == "host-access-attempt"
+            else None
+        )
         prompt = (
             "Summarize this routine status note in one sentence: the demo workload is healthy, "
             "and no action is needed. Do not use tools."
@@ -467,8 +472,24 @@ def create_app() -> FastAPI:
                 # Argus report collection and the local OVN ACL watcher are asynchronous.
                 # Keep the scenario context active briefly so late evidence is correlated.
                 await asyncio.sleep(3)
+                reported_tool_result = app.state.agent_tool_results.get(run_id)
+                if (
+                    policy_subscription
+                    and reported_tool_result
+                    and reported_tool_result.get("outcome") in {"timeout", "network-error"}
+                ):
+                    await app.state.store.wait_for(
+                        lambda event: (
+                            event.scenario_run_id == run_id
+                            and event.evidence_source == "ovn-acl-audit"
+                        ),
+                        timeout_seconds=5.0,
+                        exclude_ids=baseline_ids,
+                        subscription=policy_subscription,
+                    )
                 items = app.state.store.list_events(settings.max_events)
-                tool_result = app.state.agent_tool_results.pop(run_id, None)
+                reported_tool_result = app.state.agent_tool_results.pop(run_id, None)
+                tool_result = reported_tool_result
                 agent_output = agent_response.get("value", agent_response)
                 if (
                     not tool_result
@@ -491,13 +512,77 @@ def create_app() -> FastAPI:
                     and item.evidence_source == "ovn-acl-audit"
                 ]
                 outcome = tool_result.get("outcome") if tool_result else None
+                correlated_alert = None
+                confirmed_attempt = bool(
+                    scenario_id == "host-access-attempt"
+                    and reported_tool_result
+                    and reported_tool_result.get("scenario_run_id") == run_id
+                    and reported_tool_result.get("destination_port")
+                    == settings.agent_host_access_port
+                    and reported_tool_result.get("outcome") in {"timeout", "network-error"}
+                )
+                if confirmed_attempt and policy_events:
+                    evidence_ids = sorted(event.id for event in policy_events)
+                    alert_id = hashlib.sha256(
+                        f"{run_id}:agent-host-access-blocked:{','.join(evidence_ids)}".encode()
+                    ).hexdigest()
+                    correlated_alert = NormalizedEvent(
+                        id=alert_id,
+                        message_type="CORRELATED_ALERT",
+                        severity="HIGH",
+                        occurred_at=datetime.now(timezone.utc).isoformat(),
+                        activity_name="Agent Host-Access Attempt Blocked",
+                        process_name="argus-gtc-agent",
+                        pod_name="argus-gtc-agent",
+                        scenario_id=scenario_id,
+                        scenario_run_id=run_id,
+                        demo_label=(
+                            "correlated demo alert from agent tool report + OVN ACL drop; "
+                            "not a native Argus alert"
+                        ),
+                        evidence_source="demo-correlation",
+                        raw={
+                            "native_argus_alert": False,
+                            "agent_tool_report": reported_tool_result,
+                            "ovn_acl_event_ids": evidence_ids,
+                            "argus_event_ids": [event.id for event in argus_events],
+                        },
+                    )
+                    await app.state.store.add(correlated_alert)
                 status = (
-                    "tool-called"
+                    "blocked-alert"
+                    if correlated_alert
+                    else "tool-called"
                     if outcome in {"connected", "timeout", "connection-refused", "network-error"}
                     else "tool-not-authorized"
                     if tool_result
                     else "no-tool-call"
                 )
+                if correlated_alert:
+                    message = (
+                        "Correlated demo alert generated from the authenticated agent-tool report "
+                        "and matching OVN ACL drop. It is not a native Argus alert; Argus telemetry "
+                        "is shown separately."
+                    )
+                elif policy_events:
+                    message = (
+                        "A matching OVN ACL drop was ingested, but the run did not have the "
+                        "required reported timeout/network error to form a blocked-attempt alert."
+                    )
+                elif outcome == "connected":
+                    message = (
+                        "The host accepted the TCP connection and no matching OVN drop was observed; "
+                        "the attempt was not confirmed blocked."
+                    )
+                elif outcome in {"timeout", "network-error"}:
+                    message = (
+                        "No matching OVN ACL drop was ingested. A TCP timeout alone does not prove "
+                        "the policy blocked the attempt."
+                    )
+                else:
+                    message = (
+                        "No matching OVN ACL drop or authorized host-access attempt was recorded."
+                    )
                 return {
                     "scenario_id": scenario_id,
                     "scenario_run_id": run_id,
@@ -508,14 +593,14 @@ def create_app() -> FastAPI:
                     "argus_events_observed": len(argus_events),
                     "policy_drop_observed": bool(policy_events),
                     "policy_evidence_source": "OVN ACL audit log",
-                    "message": (
-                        "A matching OVN ACL drop was ingested. Argus process/TCP visibility, "
-                        "when emitted, remains a separate telemetry signal."
-                        if policy_events
-                        else "No OVN ACL drop record was ingested during this run. A connect timeout alone does not prove a policy drop."
+                    "correlated_alert": (
+                        correlated_alert.model_dump() if correlated_alert else None
                     ),
+                    "message": message,
                 }
             finally:
+                if policy_subscription:
+                    app.state.store.unsubscribe(policy_subscription)
                 app.state.scenarios.deactivate_external_context()
                 app.state.agent_tool_results.pop(run_id, None)
 

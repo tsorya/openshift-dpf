@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Invisible VM, Visible Threat — Argus GTC Demo</title>
-  <link rel="stylesheet" href="/assets/style.css?v=24" />
+  <link rel="stylesheet" href="/assets/style.css?v=25" />
 </head>
 <body>
   <header class="hero">
@@ -241,7 +241,7 @@
         <button class="secondary" data-agent-profile="baseline">Run benign baseline</button>
         <button class="danger" data-agent-profile="prompt-injection">Run prompt-injection simulation</button>
       </div>
-      <p class="note agent-footnote">A TCP timeout alone does not prove a policy drop. The UI shows a confirmed drop only after the OVN ACL audit watcher posts the matching record; Argus reports process/network activity, not OVN policy verdicts.</p>
+      <p class="note agent-footnote">A TCP timeout alone does not prove a policy drop. With both the agent’s authenticated tool report and a matching OVN ACL audit record, the UI raises a correlated demo alert—not a native Argus alert. Argus process/network activity remains separate telemetry.</p>
       <pre id="agent-log" aria-live="polite">Configure ARGUS_GTC_MODEL_BASE_URL and ARGUS_GTC_MODEL_NAME, then wait for the AI agent pod.</pre>
     </section>
 
@@ -283,6 +283,7 @@
             <option value="ALERT">ALERT · detection triggered</option>
             <option value="SYSTEM_ACTIVITY">SYSTEM_ACTIVITY</option>
             <option value="POLICY">POLICY · OVN enforcement evidence</option>
+            <option value="CORRELATED_ALERT">CORRELATED_ALERT · joined evidence</option>
           </select>
           <button type="button" class="secondary compact" id="pause-timeline">Pause</button>
           <span class="event-count" id="event-count">0 shown</span>
@@ -317,6 +318,6 @@
     </section>
   </main>
 
-  <script src="/assets/app.js?v=26"></script>
+  <script src="/assets/app.js?v=27"></script>
 </body>
 </html>

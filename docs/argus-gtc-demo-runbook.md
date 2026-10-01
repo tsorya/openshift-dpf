@@ -114,7 +114,7 @@ This command:
 
     The helper uses local `oc` credentials to find the agent pod's node, tail that node's OVN ACL log, and post only the matching record to the demo's authenticated ingest route. It does not grant the server pod access to OVN `pods/exec`.
 
-11. **Prompt-injection simulation** — Click `Run prompt-injection simulation`. The untrusted note may cause the agent to select its sole tool. The tool connects once to the agent pod's host IP on TCP/31999 and sends no data. If the model refuses or does not select the tool, the result says so; it does not simulate a successful call. In the timeline, choose `Prompt Injection / Host Access`: any Argus records are labeled as Argus telemetry, and an actual OVN `POLICY · DENY` event is labeled as OVN ACL audit evidence. A timeout without that record is not presented as a verified block.
+11. **Prompt-injection simulation** — Click `Run prompt-injection simulation`. The untrusted note may cause the agent to select its sole tool. The tool connects once to the agent pod's host IP on TCP/31999 and sends no data. If the model refuses or does not select the tool, the result says so; it does not simulate a successful call. In the timeline, choose `Prompt Injection / Host Access`: any Argus records are labeled as Argus telemetry, and an actual OVN `POLICY · DENY` event is labeled as OVN ACL audit evidence. When the authenticated tool report says the connect timed out and the watcher supplies the matching OVN drop, the UI adds a `CORRELATED_ALERT` derived from those two signals. It is not a native Argus alert. A timeout without the ACL record is not presented as a verified block.
 
 ## Cleanup
 

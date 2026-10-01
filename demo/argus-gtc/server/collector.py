@@ -167,7 +167,7 @@ class EventStore:
                     self._evicted_evidence += 1
                 self._evidence.append(event)
                 self._evidence_ids.add(event.id)
-            if event.evidence_source != "ovn-acl-audit":
+            if event.evidence_source not in {"ovn-acl-audit", "demo-correlation"}:
                 self._last_event_at = datetime.now(timezone.utc)
             for queue in list(self._subscribers):
                 await queue.put(event)
