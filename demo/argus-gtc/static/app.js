@@ -363,11 +363,14 @@ function createEventElement(event) {
   const type = (event.message_type || "").toUpperCase();
   const nativeAlert = type === "ALERT";
   const nativeHigh = nativeAlert && severity === "HIGH";
-  el.className = `event ${nativeAlert ? "alert" : ""} ${nativeHigh ? "high" : ""}`;
+  const correlatedAlert = type === "CORRELATED_ALERT";
+  el.className = `event ${nativeAlert ? "alert" : ""} ${nativeHigh ? "high" : ""} ${correlatedAlert ? "correlated-alert" : ""}`;
   const origin = nativeHigh
     ? "native Argus ALERT/HIGH"
     : nativeAlert
       ? `native Argus ALERT/${severity || "UNKNOWN"} (not native HIGH)`
+      : correlatedAlert
+      ? "correlated demo alert (agent report + OVN policy; not native Argus)"
       : event.evidence_source === "ovn-acl-audit"
       ? "OVN-Kubernetes ACL audit (not Argus telemetry)"
       : event.demo_label
@@ -470,12 +473,15 @@ function renderTimeline() {
   ).length;
   const nativeAlerts = filtered.filter(isNativeAlert).length;
   const nativeHigh = filtered.filter(isNativeHighAlert).length;
+  const correlatedAlerts = filtered.filter(
+    (event) => (event.message_type || "").toUpperCase() === "CORRELATED_ALERT"
+  ).length;
   const demoCorrelated = filtered.filter((event) => Boolean(event.demo_label)).length;
   timelineStory.textContent =
     `Current view: ${operationEvents} operation event${operationEvents === 1 ? "" : "s"} observed · ` +
     `${nativeAlerts} native alert${nativeAlerts === 1 ? "" : "s"} triggered · ` +
-    `${nativeHigh} native HIGH · ${demoCorrelated} demo-correlated. ` +
-    `EVENT means observed activity; ALERT means Argus policy detection.`;
+    `${nativeHigh} native HIGH · ${correlatedAlerts} correlated demo alert${correlatedAlerts === 1 ? "" : "s"} · ` +
+    `${demoCorrelated} demo-correlated. ALERT means native Argus detection; CORRELATED_ALERT joins demo evidence sources.`;
 
   updateTimelineState();
 }
@@ -666,7 +672,7 @@ async function runAgentProfile(profile) {
       throw new Error("agent run correlation mismatch");
     }
     const toolOutcome = data.tool_result?.outcome;
-    const confirmedBlock = Boolean(data.policy_drop_observed);
+    const confirmedBlock = Boolean(data.correlated_alert);
     const expectedBaseline = profile === "baseline" && data.status === "no-tool-call";
     const serverGuardedTool = data.status === "tool-not-authorized";
     const unexpectedlyConnected = toolOutcome === "connected" && !confirmedBlock;
@@ -685,6 +691,7 @@ async function runAgentProfile(profile) {
       attemptSummary,
       `Argus-correlated records on the agent pod: ${data.argus_events_observed}. These are reported only if Argus emitted them.`,
       `OVN policy drop observed: ${data.policy_drop_observed ? "yes" : "no"}. ${data.message}`,
+      `Correlated demo alert: ${data.correlated_alert ? "triggered" : "not triggered"}.`,
       `Agent response: ${typeof data.agent_response === "string" ? data.agent_response : JSON.stringify(data.agent_response)}`,
     ].join("\n\n");
   } catch (error) {

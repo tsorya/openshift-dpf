@@ -44,6 +44,9 @@ SSE for the UI. No hostPath collector DaemonSet is required.
 - Argus may report process/TCP activity from the agent pod, but it does not
   report OVN policy verdicts. A local ACL watcher forwards the matching OVN
   `verdict=drop` record separately and labels it as OVN evidence.
+- The UI can raise a `CORRELATED_ALERT` only when the authenticated agent tool
+  report confirms a timed-out connection and the matching OVN ACL drop is
+  present. This derived demo alert is not presented as a native Argus alert.
 
 1. **Kubernetes status adapter**
    - Watch DPUDeployment/DPUService readiness.
