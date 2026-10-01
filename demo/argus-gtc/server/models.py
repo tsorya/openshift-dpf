@@ -16,6 +16,8 @@ SCENARIO_LABELS: dict[str, str] = {
     "decoy-modify": "Decoy File Modification (demo classification)",
     "network-burst": "Network Burst (demo classification)",
     "compute-simulation": "Compute Simulation (demo classification)",
+    "agent-baseline": "AI Agent Baseline (demo correlation)",
+    "host-access-attempt": "Prompt Injection Host-Access Attempt (demo correlation)",
 }
 
 # Distinctive process names / command fragments Argus may emit for each button.
@@ -65,10 +67,16 @@ SCENARIO_SIGNATURES: dict[str, tuple[str, ...]] = {
         "argus-gtc-compute-simulation",
         "compute-done",
     ),
+    "agent-baseline": (),
+    "host-access-attempt": ("check_host_access",),
 }
 
 # Pod name prefixes for the Kata workload and the scenario TCP sink.
-DEMO_POD_PREFIXES: tuple[str, ...] = ("invisible-vm", "scenario-sink")
+DEMO_POD_PREFIXES: tuple[str, ...] = (
+    "invisible-vm",
+    "scenario-sink",
+    "argus-gtc-agent",
+)
 SCENARIO_POD_PREFIXES: dict[str, tuple[str, ...]] = {
     "audit-evasion": ("invisible-vm",),
     "discovery": ("invisible-vm",),
@@ -77,6 +85,8 @@ SCENARIO_POD_PREFIXES: dict[str, tuple[str, ...]] = {
     "decoy-modify": ("invisible-vm",),
     "reverse-shell": ("invisible-vm", "scenario-sink"),
     "network-burst": ("invisible-vm", "scenario-sink"),
+    "agent-baseline": ("argus-gtc-agent",),
+    "host-access-attempt": ("argus-gtc-agent",),
 }
 
 # Exact native activity names emitted by Argus. These are deliberately kept
@@ -116,6 +126,7 @@ class NormalizedEvent(BaseModel):
     scenario_run_id: str | None = None
     demo_label: str | None = None
     source_file: str | None = None
+    evidence_source: str | None = None
     raw: dict[str, Any] = Field(default_factory=dict)
 
 

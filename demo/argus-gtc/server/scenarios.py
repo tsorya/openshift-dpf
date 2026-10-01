@@ -88,6 +88,27 @@ class ScenarioController:
             return self._last_scenario, self._last_scenario_run_id
         return None
 
+    @property
+    def current_scenario_context(self) -> tuple[str, str] | None:
+        """Return only the in-flight run, without the late-telemetry linger."""
+        if self._active_scenario and self._active_scenario_run_id:
+            return self._active_scenario, self._active_scenario_run_id
+        return None
+
+    def activate_external_context(self, scenario_id: str, run_id: str) -> None:
+        """Correlate telemetry while a separately hosted demo agent runs."""
+        self._active_scenario = scenario_id
+        self._active_scenario_run_id = run_id
+
+    def deactivate_external_context(self) -> None:
+        """Retain a short correlation window for Argus reports delivered late."""
+        if self._active_scenario and self._active_scenario_run_id:
+            self._last_scenario = self._active_scenario
+            self._last_scenario_run_id = self._active_scenario_run_id
+            self._last_scenario_until = time.monotonic() + _SCENARIO_LINGER_SECONDS
+        self._active_scenario = None
+        self._active_scenario_run_id = None
+
     def _workload_pod_name(self) -> str:
         pods = self.core.list_namespaced_pod(
             namespace=self.settings.namespace,

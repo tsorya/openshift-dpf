@@ -3,9 +3,10 @@
 ## Objective
 
 Build a polished GTC demonstration titled **“Invisible VM, Visible Threat.”**
-The story is that a Kata workload has no in-guest security agent, but the
-BlueField DPU observes it out-of-band through DOCA Argus and OpenShift/DPF
-provides the workload and infrastructure context.
+The story is that a Kata workload has no in-guest security agent, while a
+separate AI agent runs in its own management-cluster pod. The BlueField DPU
+observes worker activity out of band through DOCA Argus; OpenShift/DPF provides
+workload and policy context.
 
 The demo must be safe, deterministic, repeatable, and visually compelling.
 Do not use real malware, internet C2, external scanning, privilege
@@ -36,6 +37,13 @@ parse the documented common fields: `message_type`, `severity`,
 `occurred_message_time_iso_8601_ns`, `workload_information`,
 `container_context`, and `activity_data`. It publishes normalized events over
 SSE for the UI. No hostPath collector DaemonSet is required.
+- The prompt-injection demo uses a separate runc pod with NeMo Agent Toolkit.
+  Its only tool is a fixed TCP connect to the hosting node's `status.hostIP` on
+  TCP/31999; it accepts no model-supplied destination, sends no application
+  data, and runs no commands. A scoped AdminNetworkPolicy denies that flow.
+- Argus may report process/TCP activity from the agent pod, but it does not
+  report OVN policy verdicts. A local ACL watcher forwards the matching OVN
+  `verdict=drop` record separately and labels it as OVN evidence.
 
 1. **Kubernetes status adapter**
    - Watch DPUDeployment/DPUService readiness.
@@ -56,6 +64,23 @@ SSE for the UI. No hostPath collector DaemonSet is required.
    - DTS sparklines for traffic/errors.
    - Allowlisted scenario buttons plus `Contain Workload` and `Restore Workload`;
      the API never accepts arbitrary commands.
+   - Separate agent-baseline and prompt-injection buttons; existing Kata
+     scenarios remain available.
+
+4. **AI agent simulation**
+   - Schedule a new runc pod on the same DPU-attached worker as the Kata
+     workload; keep the agent outside the guest.
+   - Run NeMo Agent Toolkit's tool-calling agent against an operator-provided
+     OpenAI-compatible model endpoint. Keep any model credential in a Secret.
+   - Expose exactly one tool, `check_host_access`, with a fixed host IP/port
+     configured by the pod. The agent pod's normal egress is limited to the
+     demo server and cluster DNS.
+   - Use an AdminNetworkPolicy scoped to the agent pod to deny TCP/31999 to
+     node peers and enable OVN ACL logging. Preflight the API and priority
+     collision before deployment.
+   - Correlate Argus records during the run by agent pod and run id. A blocked
+     result is confirmed only by the matching OVN ACL `verdict=drop`; a TCP
+     timeout alone is not proof.
 
 ## Demo flow
 
@@ -98,6 +123,7 @@ generated a native Argus alert.
 ### 3. Correlation and containment
 
 - Correlate Argus events with Pod/VF identity and DTS traffic.
+- Keep Argus telemetry distinct from OVN ACL policy evidence in the timeline.
 - Click `Contain Workload` to scale only the demo Deployment to zero.
 - Show the process/event stream stop, the VF return to the pool, and DPU
   services/link health remain green.
@@ -128,6 +154,11 @@ generated a native Argus alert.
 - Audit-evasion success requires both raw `message_type=ALERT` and
   `severity=HIGH`; a timeout is shown as `no-native-alert` without synthesis.
 - The UI and runbook do not claim every scenario generated a native Argus alert.
+- The AI agent is a separate pod; the Kata guest still has no security agent.
+- The agent tool accepts no destination from the model and attempts only one
+  connection to the configured reserved node port.
+- The UI does not present a timeout as proof of an OVN deny or an Argus alert;
+  confirmed policy evidence requires a matching OVN ACL drop record.
 - Containment scales down only the demo workload and leaves DPU services
   healthy.
 - No event deletion occurs during the demo window.

@@ -19,6 +19,13 @@ class Settings(BaseSettings):
     dpu_deployment_name: str = "dpudeployment"
     argus_service_name: str = "argus"
 
+    agent_url: str = "http://argus-gtc-agent.argus-gtc-demo.svc:8081"
+    agent_token: str = ""
+    model_base_url: str = ""
+    model_name: str = ""
+    model_api_key: str = ""
+    agent_host_access_port: int = 31999
+
     activity_log_dir: str = "/var/log/doca_argus_activity_report"
     service_log_dir: str = "/var/log/doca_argus"
 
