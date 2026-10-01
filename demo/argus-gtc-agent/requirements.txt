@@ -1,1 +1,1 @@
-nvidia-nat[langchain]==1.8.0
+nvidia-nat[langchain,async-endpoints]==1.8.0
