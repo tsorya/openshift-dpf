@@ -17,7 +17,7 @@ SCENARIO_LABELS: dict[str, str] = {
     "network-burst": "Network Burst (demo classification)",
     "compute-simulation": "Compute Simulation (demo classification)",
     "agent-baseline": "AI Agent Baseline (demo correlation)",
-    "host-access-attempt": "Prompt Injection Host-Access Attempt (demo correlation)",
+    "host-access-attempt": "Kata Agent Host-Boundary Attempt (demo correlation)",
 }
 
 # Distinctive process names / command fragments Argus may emit for each button.

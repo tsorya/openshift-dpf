@@ -58,7 +58,7 @@ const SCENARIO_LABELS = {
   "network-burst": "Network Burst (demo classification)",
   "compute-simulation": "Compute Simulation (demo classification)",
   "agent-baseline": "AI Agent Baseline (demo correlation)",
-  "host-access-attempt": "Prompt Injection Host-Access Attempt (demo correlation)",
+  "host-access-attempt": "Kata Agent Host-Boundary Attempt (demo correlation)",
 };
 
 const SCENARIO_POD_PREFIXES = {
@@ -693,16 +693,25 @@ async function runAgentProfile(profile) {
         : "result-inconclusive";
     const attemptSummary = toolOutcome === "not-authorized-for-this-profile"
       ? "The model selected the tool, but the server profile gate prevented any connection attempt."
-      : data.tool_result?.destination_ip
+      : data.authenticated_tool_report_observed && data.tool_result?.destination_ip
         ? `Tool outcome: ${toolOutcome}; destination ${data.tool_result.destination_ip}:${data.tool_result.destination_port}. A timeout is not, by itself, proof of policy enforcement.`
-        : "No host-access connection was made; the agent may have declined, or the server profile gate may have blocked the tool.";
+        : "No authenticated host-access report was received; the agent may have declined or its tool/report call may have failed.";
     const argusEvent = data.argus_host_attempt_event;
     const argusSummary = argusEvent
       ? `${argusEvent.activity_name} · ${argusEvent.connection_state || "state unknown"} · ${argusEvent.source_ip}:${argusEvent.source_port} → ${argusEvent.destination_ip}:${argusEvent.destination_port} · process=${argusEvent.process_name || argusEvent.process_command} · pod=${argusEvent.pod_name || "not enriched"} · event=${argusEvent.id}`
       : "No matching native Argus TCP event was observed during this run.";
+    const scenarioChecks = profile === "baseline"
+      ? [`Baseline: ${expectedBaseline ? "PASS — no host-access tool call" : "INCONCLUSIVE — inspect agent response"}`]
+      : [
+          `1. Kata RuntimeClass: ${data.kata_runtime_ready ? "PASS — Ready pod" : "NOT PROVEN"} · pod=${data.agent_pod || "unknown"} · node=${data.agent_node || "unknown"} · RuntimeClass=${data.agent_runtime_class || "unknown"}`,
+          `2. Agent attempt: ${data.authenticated_tool_report_observed && data.tool_result?.source_port ? "PASS" : "NOT PROVEN"} · ${data.tool_result?.source_ip || "?"}:${data.tool_result?.source_port || "?"} → ${data.tool_result?.destination_ip || "?"}:${data.tool_result?.destination_port || "?"} · outcome=${toolOutcome || "no tool report"}`,
+          `3. OVN enforcement: ${data.policy_drop_observed ? "PASS — matching ACL drop" : "NOT PROVEN — no matching ACL drop"}`,
+          `4. Argus visibility: ${data.argus_host_attempt_observed ? "PASS — native TCP event" : "NOT PROVEN — no matching native event"}`,
+          `Verdict: ${confirmedBlock ? "PASS — attempted, observed by Argus, and blocked by OVN" : unexpectedlyConnected ? "FAIL — node connection succeeded" : "INCONCLUSIVE — inspect missing evidence above"}`,
+        ];
     result.textContent = [
       `Run ${scenarioRunId} · ${data.status}`,
-      `Agent pod: ${data.agent_pod || "unknown"} · runtime=${data.agent_runtime_class || "unknown"}`,
+      ...scenarioChecks,
       attemptSummary,
       `Native Argus evidence: ${argusSummary}`,
       `OVN policy drop observed: ${data.policy_drop_observed ? "yes" : "no"}. ${data.message}`,
