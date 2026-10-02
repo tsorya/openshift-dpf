@@ -17,6 +17,7 @@ from server.models import (
     NormalizedEvent,
     ScenarioResult,
     classify_scenario,
+    native_agent_host_attempt_matches,
     native_alert_matches_scenario,
 )
 from server.scenarios import ALLOWED_SCENARIOS, ScenarioController
@@ -46,6 +47,63 @@ def shell_history_alert(*, message_type: str = "ALERT", severity: str = "HIGH"):
 
 
 class NativeAlertModelTests(unittest.TestCase):
+    def test_kata_agent_tcp_event_matches_only_the_reported_socket(self):
+        run_id = "0123456789ab"
+        payload = {
+            "vendor_name": "NVIDIA",
+            "product_name": "DOCA_ARGUS",
+            "message_type": "EVENT",
+            "severity": "INFO",
+            "activity_data": {
+                "name": "TCP_NETWORK_CONNECTION_STATE_CHANGE",
+                "process_details": {
+                    "process_name": "python",
+                    "process_command_line_arguments": "nat serve --config_file /app/workflow.yml",
+                },
+                "network_connection_details": {
+                    "protocol": "TCP",
+                    "connection_state": "SYN_SENT",
+                    "local_address": "10.129.0.42",
+                    "local_port": 41001,
+                    "peer_address": "10.6.135.3",
+                    "peer_port": 31999,
+                },
+            },
+            "workload_information": {
+                "container_context": {
+                    "pod_name": "argus-gtc-agent-abc",
+                    "pod_uid": "agent-pod-uid",
+                }
+            },
+        }
+        parser = ArgusLogParser(lambda: ("host-access-attempt", run_id))
+        event = parser.parse_lines(json.dumps(payload), "argus.log")[0]
+        report = {
+            "source_ip": "10.129.0.42",
+            "source_port": 41001,
+            "destination_ip": "10.6.135.3",
+            "destination_port": 31999,
+        }
+        self.assertEqual(event.scenario_run_id, run_id)
+        self.assertEqual(event.connection_state, "SYN_SENT")
+        self.assertTrue(
+            native_agent_host_attempt_matches(
+                event, report, "argus-gtc-agent-abc", "agent-pod-uid", run_id
+            )
+        )
+        for changed_event in (
+            event.model_copy(update={"activity_name": "Process Created"}),
+            event.model_copy(update={"source_port": 41002}),
+            event.model_copy(update={"destination_ip": "10.6.135.4"}),
+            event.model_copy(update={"pod_uid": "another-pod"}),
+            event.model_copy(update={"evidence_source": "ovn-acl-audit"}),
+        ):
+            self.assertFalse(
+                native_agent_host_attempt_matches(
+                    changed_event, report, "argus-gtc-agent-abc", "agent-pod-uid", run_id
+                )
+            )
+
     def test_audit_evasion_is_allowlisted_and_bounded(self):
         self.assertIn("audit-evasion", ALLOWED_SCENARIOS)
         controller = object.__new__(ScenarioController)

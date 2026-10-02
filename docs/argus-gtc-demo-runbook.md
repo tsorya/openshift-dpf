@@ -2,15 +2,16 @@
 
 **Title:** Invisible VM, Visible Threat
 
-This demo shows a Kata workload with **no in-guest security agent** while DOCA Argus on the BlueField DPU observes activity out-of-band. An additional AI agent runs in its own runc pod on the same DPU-attached worker. OpenShift DPF supplies Kubernetes workload context (Pod, VF, node); OVN-Kubernetes supplies separate policy-deny evidence.
+This demo shows a Kata workload with **no in-guest security agent** while DOCA Argus on the BlueField DPU observes activity out-of-band. The AI agent runs in a second Kata VM on the same DPU-attached worker. OpenShift DPF supplies Kubernetes workload context (Pod, VF, node); OVN-Kubernetes supplies separate policy-deny evidence.
 
 ## Safety note
 
-All scenarios are **bounded and allowlisted**. They do not use malware, internet C2, external scanning, privilege escalation, or attacks against shared infrastructure. The new agent tool makes at most one fixed TCP connect to the local worker's reserved port `31999`; it sends no payload and accepts no model-selected IP, port, or command. Scenario labels such as “Discovery” and “Reverse Shell Simulation” are applied by the demo controller for correlation. They are **not** native Argus ATT&CK mappings and do **not** mean Argus raised a HIGH/ALERT. Argus may show the agent's process/TCP activity as `INFO · EVENT`; it does not emit the OVN policy verdict. The timeline labels an OVN ACL `verdict=drop` separately. Treat a native HIGH alert as confirmed only when the same raw event contains both `message_type=ALERT` and `severity=HIGH`.
+All scenarios are **bounded and allowlisted**. They do not use malware, internet C2, external scanning, privilege escalation, or attacks against shared infrastructure. The agent tool makes at most one fixed TCP connect to the local worker's reserved port `31999`; it sends no payload and accepts no model-selected IP, port, or command. Scenario labels such as “Discovery” and “Reverse Shell Simulation” are applied by the demo controller for correlation. They are **not** native Argus ATT&CK mappings and do **not** mean Argus raised a HIGH/ALERT. The agent run succeeds only when a native Argus TCP `INFO · EVENT` matches its reported socket and an OVN ACL `verdict=drop` confirms the block. Treat a native HIGH alert as confirmed only when the same raw event contains both `message_type=ALERT` and `severity=HIGH`.
 
 ## Prerequisites
 
 1. `KATA_ENABLED=true` and `KATA_SRIOV_PF_INDEX=0` (Argus requires PF0 VFs).
+   The worker needs two free PF0 Kata VFs: one for `invisible-vm` and one for `argus-gtc-agent`.
 2. `make enable-ovn-injector`, `make enable-kata`, `make enable-argus` with `ARGUS_REPRESENTOR_ID` set.
 3. `make deploy-observability` recommended for DTS panels (Thanos metrics).
 4. Hosted cluster kubeconfig available (`doca.kubeconfig` or secret fetch).
@@ -33,11 +34,10 @@ Build and push the demo server from the repository root, then set
 `ARGUS_GTC_SERVER_IMAGE` in `.env`:
 
 ```bash
-# example — use your registry and tag
 docker build --platform linux/amd64 \
-  -t quay.io/<user>/argus-gtc-demo:v1 \
+  -t quay.io/itsoiref/argus-gtc-demo:v26-kata-agent \
   -f demo/argus-gtc/Containerfile demo/argus-gtc
-docker push quay.io/<user>/argus-gtc-demo:v1
+docker push quay.io/itsoiref/argus-gtc-demo:v26-kata-agent
 ```
 
 The server image contains Python 3.11, `requirements.txt`, and the `server/` +
@@ -48,21 +48,23 @@ Build and push the separate NeMo Agent Toolkit pod image:
 
 ```bash
 docker build --platform linux/amd64 \
-  -t quay.io/<user>/argus-gtc-agent:nat-1.8.0-v5 \
+  -t quay.io/itsoiref/argus-gtc-agent:nat-1.8.0-v8-kata \
   -f demo/argus-gtc-agent/Containerfile demo/argus-gtc-agent
-docker push quay.io/<user>/argus-gtc-agent:nat-1.8.0-v5
+docker push quay.io/itsoiref/argus-gtc-agent:nat-1.8.0-v8-kata
 ```
 
 Configure these values in the generated `.env` before deployment. The model
-must expose OpenAI-compatible chat completions and support tool calling. The
-server pod must be able to reach its base URL; the agent pod itself can reach
-only the demo server and cluster DNS.
+must expose OpenAI-compatible chat completions and support tool calling. For
+direct OpenAI API access, use `https://api.openai.com/v1`, an API model ID, and
+an OpenAI API key. The agent pod receives the key from a Kubernetes Secret and
+needs outbound TCP/443; its host-access attempt remains separately denied by
+the AdminNetworkPolicy.
 
 ```text
-ARGUS_GTC_AGENT_IMAGE=quay.io/<user>/argus-gtc-agent:nat-1.8.0-v5
-ARGUS_GTC_MODEL_BASE_URL=http://<model-host>:8080/v1
-ARGUS_GTC_MODEL_NAME=<tool-capable-model-name>
-ARGUS_GTC_MODEL_API_KEY=<optional-key>
+ARGUS_GTC_AGENT_IMAGE=quay.io/itsoiref/argus-gtc-agent:nat-1.8.0-v8-kata
+ARGUS_GTC_MODEL_BASE_URL=https://api.openai.com/v1
+ARGUS_GTC_MODEL_NAME=gpt-6-luna
+ARGUS_GTC_MODEL_API_KEY=<OpenAI-API-key>
 ```
 
 ## Deploy
@@ -70,7 +72,9 @@ ARGUS_GTC_MODEL_API_KEY=<optional-key>
 Set the image in `.env` (or export it), then deploy:
 
 ```bash
-ARGUS_GTC_SERVER_IMAGE=quay.io/<user>/argus-gtc-demo:v1 make deploy-argus-gtc-demo
+ARGUS_GTC_SERVER_IMAGE=quay.io/itsoiref/argus-gtc-demo:v26-kata-agent \
+ARGUS_GTC_AGENT_IMAGE=quay.io/itsoiref/argus-gtc-agent:nat-1.8.0-v8-kata \
+make deploy-argus-gtc-demo
 ```
 
 This command:
@@ -78,8 +82,9 @@ This command:
 - Removes the legacy Argus log-cleaner DaemonSet (if present).
 - Deploys the Kata workload, scenario sink, NetworkPolicy, and UI on the management cluster.
 - Configures the demo server to read native Argus reports from the hosted Argus pod through the hosted kubeconfig.
-- Deploys the separate NeMo Agent Toolkit pod on the same worker as `invisible-vm`.
-- Applies a cluster-scoped AdminNetworkPolicy selecting only the agent pod and denying its TCP/31999 egress to cluster nodes. Deployment requires the AdminNetworkPolicy API, OVN-Kubernetes, cluster-admin permissions, and a free priority 0.
+- Deploys the NeMo Agent Toolkit pod in its own Kata VM on the same worker as `invisible-vm`.
+- Applies a cluster-scoped AdminNetworkPolicy selecting only the agent pod and denying its egress to cluster nodes. The demo probe uses TCP/31999 so its deny record can be identified. Deployment requires the AdminNetworkPolicy API, OVN-Kubernetes, cluster-admin permissions, and a free priority 0.
+- Allows the agent pod outbound TCP/443 for direct model API calls. The Kubernetes NetworkPolicy destination is any IPv4 address; the OpenAI hostname is selected by `ARGUS_GTC_MODEL_BASE_URL`, while the host-access attempt remains denied by the AdminNetworkPolicy.
 - Prints the OpenShift Route URL for the UI.
 
 ### Useful variables
@@ -87,17 +92,17 @@ This command:
 | Variable | Default | Purpose |
 |----------|---------|---------|
 | `ARGUS_GTC_DEMO_IMAGE` | `quay.io/itsoiref/argus-gtc-demo:workload-ubi9-v1` | Kata workload + sink image; UBI9/glibc Bash is required for native shell-history alerts |
-| `ARGUS_GTC_SERVER_IMAGE` | *(required)* | Pre-built demo server image |
-| `ARGUS_GTC_AGENT_IMAGE` | `quay.io/itsoiref/argus-gtc-agent:nat-1.8.0-v5` | Pre-built NeMo Agent Toolkit image |
-| `ARGUS_GTC_MODEL_BASE_URL` | *(empty)* | OpenAI-compatible API base URL, such as `http://model-host:8080/v1` |
-| `ARGUS_GTC_MODEL_NAME` | *(empty)* | Tool-calling model name served by the endpoint |
-| `ARGUS_GTC_MODEL_API_KEY` | *(empty)* | Optional model API key; stored in a Kubernetes Secret |
+| `ARGUS_GTC_SERVER_IMAGE` | `quay.io/itsoiref/argus-gtc-demo:v26-kata-agent` | Demo server and UI image |
+| `ARGUS_GTC_AGENT_IMAGE` | `quay.io/itsoiref/argus-gtc-agent:nat-1.8.0-v8-kata` | Pre-built NeMo Agent Toolkit image |
+| `ARGUS_GTC_MODEL_BASE_URL` | *(empty)* | OpenAI-compatible API base URL; for OpenAI use `https://api.openai.com/v1` |
+| `ARGUS_GTC_MODEL_NAME` | `gpt-6-luna` | OpenAI API model ID; must be enabled for your API account |
+| `ARGUS_GTC_MODEL_API_KEY` | *(empty)* | Model API key; stored in a Kubernetes Secret and injected into the agent pod |
 | `ARGUS_LOG_THRESHOLD_SIZE` | `50M` | Argus native log rotation threshold |
 | `ARGUS_LOG_MAX_FILES_COUNT` | `10` | Argus rotated log file cap |
 
 ## Demo flow
 
-1. **Baseline** — Open the Route URL. Confirm ribbon: Cluster, DPU, Argus, Kata VM, VF/link are green. Note “no security agent in the Kata guest”; the AI agent is a separate pod.
+1. **Baseline** — Open the Route URL. Confirm ribbon: Cluster, DPU, Argus, Kata VM, VF/link are green. Both the workload and AI agent use Kata; no security agent runs inside either guest.
 2. **Run Discovery** — Bounded recon in the Kata VM. Expect real Argus `INFO · EVENT` process/file activity correlated as Discovery. Do not expect a native HIGH alert.
 3. **Audit Evasion Attempt** — Runs a bounded interactive Bash session on a real Kubernetes exec PTY. It establishes a history baseline across one Argus scan, clears history while history remains enabled, then disables history across another scan. After the action finishes, the server waits up to 45 seconds for the native event, so the full request can take about 80 seconds. Pass only when `/api/events` and the timeline show `Shell History Disabled` or `Shell History Cleared` with `message_type=ALERT` and `severity=HIGH`. `no-native-alert` is a valid failed/indeterminate outcome; keep the underlying telemetry for troubleshooting.
 4. **Reverse Shell Simulation** — Opens a roughly 20-second `/dev/tcp` connection only to the in-namespace sink pod. This is the secondary native-HIGH path; pass only for raw `ALERT/HIGH` activity named `Reverse Shell Detected`.
@@ -114,7 +119,17 @@ This command:
 
     The helper uses local `oc` credentials to find the agent pod's node, tail that node's OVN ACL log, and post only the matching record to the demo's authenticated ingest route. It does not grant the server pod access to OVN `pods/exec`.
 
-11. **Prompt-injection simulation** — Click `Run prompt-injection simulation`. The untrusted note may cause the agent to select its sole tool. The tool connects once to the agent pod's host IP on TCP/31999 and sends no data. If the model refuses or does not select the tool, the result says so; it does not simulate a successful call. In the timeline, choose `Prompt Injection / Host Access`: any Argus records are labeled as Argus telemetry, and an actual OVN `POLICY · DENY` event is labeled as OVN ACL audit evidence. When the authenticated tool report says the connect timed out and the watcher supplies the matching OVN drop, the UI adds a `CORRELATED_ALERT` derived from those two signals. It is not a native Argus alert. A timeout without the ACL record is not presented as a verified block.
+11. **Agent host-reachability task** — Click `Ask agent to test host access`. The model is directly asked to use its sole tool once; the server authorizes only the active run. The tool connects once to the agent pod's host IP on TCP/31999, sends no data, and reports its local source IP and port. If the model does not select the tool, the result says so. In the timeline, choose `Prompt Injection / Host Access`. A native Argus `INFO · EVENT` must show the agent's TCP connection or state change with the same source and destination tuple; a separate OVN `POLICY · DENY` event must show the matching drop. Only then does the UI add a `CORRELATED_ALERT` from the three records. This derived alert is not a native Argus alert. To demonstrate prompt injection separately, click `Run prompt-injection simulation`; because its instruction is untrusted, the model may decline it.
+
+    Verify the live agent runtime before clicking:
+
+    ```bash
+    oc -n argus-gtc-demo get pods -l app=argus-gtc-agent \
+      -o jsonpath='{range .items[*]}{.metadata.name}{" runtime="}{.spec.runtimeClassName}{" node="}{.spec.nodeName}{"\n"}{end}'
+    curl -sS http://127.0.0.1:18080/api/agent/status
+    ```
+
+    The API should report `deployment.kata_runtime: true`. A `timeout` is only the agent's socket result; `policy_drop_observed: true` proves OVN blocked it, and `argus_host_attempt_observed: true` proves Argus reported the same TCP socket.
 
 ## Cleanup
 
@@ -137,8 +152,10 @@ and Kata infrastructure are untouched. It also deletes only the named
 | Workload Pending | Kata VF pool on PF0; NAD/injector applied |
 | UI image pull errors | Ensure `ARGUS_GTC_SERVER_IMAGE` points to a registry the cluster can pull (image pull secret if private) |
 | Agent actions disabled | Check `ARGUS_GTC_MODEL_BASE_URL`, `ARGUS_GTC_MODEL_NAME`, and `oc -n argus-gtc-demo rollout status deploy/argus-gtc-agent` |
+| Kata agent Pending | Confirm a second PF0 Kata VF is free on the same worker as `invisible-vm`; inspect `oc -n argus-gtc-demo describe pod -l app=argus-gtc-agent` |
 | Agent does not call the tool | Use a tool-calling-compatible model and inspect its response. The UI reports a refusal/no tool call; do not claim an attempted connection. |
 | Agent timed out but no policy evidence appears | Start `make watch-argus-gtc-acl` before clicking. Check the AdminNetworkPolicy status and OVN ACL audit logging. A timeout alone is inconclusive. |
+| OVN denied but Argus did not show the attempt | Inspect native Argus logs for `TCP Network Connection State Change` or `Network Connection Created` with the agent pod and TCP/31999. Check that Argus is scanning the agent's Kata VF on PF0 and that its network event collection is enabled. The UI does not mark this run as Argus observed without a matching native event. |
 | Argus report tailing fails | Check the demo server logs and verify the hosted kubeconfig has `get/list` access to Argus pods and `create` access to `pods/exec` in `dpf-operator-system` |
 | Audit Evasion returns `no-native-alert` | Confirm the live Argus config has `shell_command.disable_scan=false`, `shell_history_cleared=true`, and `shell_history_disabled=true`; inspect `/var/log/doca_argus/` for profile or collection failures. A correlated `Executable Permissions Removed` MEDIUM alert does not satisfy this scenario. |
 
@@ -160,13 +177,12 @@ Do not fabricate Argus fields; use captured samples to tune UI refresh intervals
 Management cluster                Hosted/DPU cluster
 ─────────────────────            ───────────────────
 invisible-vm (Kata) ── VF ──> BlueField DPU <── DMA ── doca-argus pods
-       │                            │                         │
-       └── same worker ──> Argus activity reports ────────────┤
-argus-gtc-agent (runc) ── TCP/31999 ──> node                  │
-       │                            │                         │
-       │                    AdminNetworkPolicy                │
-       │                            │                         │
-       └── model proxy <── argus-gtc-demo UI/server <──────────┘
-                                ↑
-                     local OVN ACL audit watcher
+argus-gtc-agent (Kata) ── VF ────────┘                    │
+       ├── HTTPS/443 ──> OpenAI API                       │
+       ├── TCP/31999 ──> node (ANP deny)                 │
+       └── auth/report ──> demo server                    │
+argus-gtc-demo UI/server ── /generate ──> agent          │
+       ↑                    native TCP event <───────────┘
+       ↑
+local OVN ACL audit watcher
 ```

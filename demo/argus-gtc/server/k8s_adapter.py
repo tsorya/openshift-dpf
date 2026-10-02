@@ -113,13 +113,43 @@ class K8sAdapter:
                 name="argus-gtc-agent",
                 namespace=self.settings.namespace,
             )
+            pods = self.core.list_namespaced_pod(
+                namespace=self.settings.namespace,
+                label_selector="app=argus-gtc-agent",
+            ).items
         except ApiException:
-            return {"ready": False, "replicas": 0, "available": 0}
+            return {"ready": False, "replicas": 0, "available": 0, "kata_runtime": False}
         status = deploy.status
+        ready_pods = [
+            pod
+            for pod in pods
+            if pod.status
+            and pod.status.phase == "Running"
+            and any(
+                condition.type == "Ready" and condition.status == "True"
+                for condition in (pod.status.conditions or [])
+            )
+        ]
+        agent_pod = next(
+            (
+                pod for pod in ready_pods
+                if pod.spec.runtime_class_name == self.settings.kata_runtime_class
+            ),
+            ready_pods[0] if ready_pods else None,
+        )
+        kata_runtime = bool(
+            agent_pod
+            and agent_pod.spec.runtime_class_name == self.settings.kata_runtime_class
+        )
         return {
-            "ready": bool(status and (status.ready_replicas or 0) > 0),
+            "ready": bool(status and (status.ready_replicas or 0) > 0 and agent_pod),
             "replicas": deploy.spec.replicas or 0,
             "available": status.available_replicas or 0 if status else 0,
+            "runtime_class": agent_pod.spec.runtime_class_name if agent_pod else None,
+            "kata_runtime": kata_runtime,
+            "pod_name": agent_pod.metadata.name if agent_pod else None,
+            "pod_uid": agent_pod.metadata.uid if agent_pod else None,
+            "node_name": agent_pod.spec.node_name if agent_pod else None,
         }
 
     def get_sink_pod_ip(self) -> str | None:
@@ -310,12 +340,12 @@ class K8sAdapter:
                 "Every process on the DPU-attached worker, including OpenShift system pods",
                 f"Kata VMs whose SR-IOV VF is on PF0 (RuntimeClass {kata_runtime})",
                 "runc pods on that same worker (no guest hypervisor)",
-                "Separate AI agent runc pod when deployed; it is not installed in the Kata VM",
+                "Separate AI agent Kata VM on the DPU-attached worker",
             ],
             "excludes": [
                 "Pods on other workers / control-plane VMs",
                 "Kata VFs on PF1 — Argus cannot introspect them",
-                "In-guest agents — none are installed in the Kata VM",
+                "In-guest security agents — Argus runs on the DPU instead",
                 "OVN policy verdicts — those come from OVN ACL audit logs, not Argus",
             ],
             "signals": [

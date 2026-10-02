@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import re
 from datetime import datetime, timezone
-from typing import Any, Literal
+from typing import Any, Literal, Mapping
 from uuid import uuid4
 
 from pydantic import BaseModel, Field
@@ -117,6 +117,12 @@ class NormalizedEvent(BaseModel):
     activity_name: str | None = None
     process_name: str | None = None
     process_command: str | None = None
+    protocol: str | None = None
+    connection_state: str | None = None
+    source_ip: str | None = None
+    source_port: int | None = None
+    destination_ip: str | None = None
+    destination_port: int | None = None
     pod_name: str | None = None
     pod_uid: str | None = None
     container_name: str | None = None
@@ -128,6 +134,49 @@ class NormalizedEvent(BaseModel):
     source_file: str | None = None
     evidence_source: str | None = None
     raw: dict[str, Any] = Field(default_factory=dict)
+
+
+AGENT_TCP_ACTIVITIES = frozenset(
+    {
+        "network connection created",
+        "network connection terminated",
+        "tcp network connection state change",
+    }
+)
+
+
+def native_agent_host_attempt_matches(
+    event: NormalizedEvent,
+    report: Mapping[str, Any],
+    pod_name: str | None,
+    pod_uid: str | None,
+    run_id: str,
+) -> bool:
+    """Require an Argus TCP event for the socket opened by this Kata agent run."""
+    if (event.message_type or "").upper() != "EVENT":
+        return False
+    if (event.activity_name or "").casefold() not in AGENT_TCP_ACTIVITIES:
+        return False
+    if event.evidence_source in {"ovn-acl-audit", "demo-correlation"}:
+        return False
+    if event.scenario_run_id and event.scenario_run_id != run_id:
+        return False
+    if pod_uid and event.pod_uid and event.pod_uid != pod_uid:
+        return False
+    if pod_name and event.pod_name and event.pod_name != pod_name:
+        return False
+    if not (event.process_name or event.process_command):
+        return False
+    if event.protocol and event.protocol.upper() not in {"TCP", "6"}:
+        return False
+    source_port = report.get("source_port")
+    if not source_port or event.source_port != source_port:
+        return False
+    return bool(
+        event.source_ip == report.get("source_ip")
+        and event.destination_ip == report.get("destination_ip")
+        and event.destination_port == report.get("destination_port")
+    )
 
 
 def _event_signature_text(event: NormalizedEvent) -> str:
