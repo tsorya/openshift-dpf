@@ -370,12 +370,12 @@ function createEventElement(event) {
     : nativeAlert
       ? `native Argus ALERT/${severity || "UNKNOWN"} (not native HIGH)`
       : correlatedAlert
-      ? "correlated demo alert (agent report + OVN policy; not native Argus)"
+      ? "correlated demo alert (Argus TCP event + agent report + OVN policy)"
       : event.evidence_source === "ovn-acl-audit"
       ? "OVN-Kubernetes ACL audit (not Argus telemetry)"
       : event.demo_label
-      ? "demo classification (not a native alert)"
-      : "Argus EVENT";
+      ? "native Argus EVENT (demo correlated)"
+      : "native Argus EVENT";
   const extra = event.demo_label ? ` · ${event.demo_label}` : "";
   const meta = document.createElement("div");
   meta.className = "meta";
@@ -394,6 +394,11 @@ function createEventElement(event) {
   const context = document.createElement("div");
   context.className = "detail";
   context.textContent = `pod=${event.pod_name || "—"} · node=${event.node_name || "—"} · ${origin}${extra}`;
+  const connection = document.createElement("div");
+  connection.className = "detail";
+  if (event.destination_ip && event.destination_port) {
+    connection.textContent = `${event.protocol || "TCP"} ${event.connection_state || "connection"} · ${event.source_ip || "?"}:${event.source_port || "?"} → ${event.destination_ip}:${event.destination_port}`;
+  }
   const actions = document.createElement("div");
   actions.className = "event-actions";
   const viewButton = document.createElement("button");
@@ -408,7 +413,9 @@ function createEventElement(event) {
     openEventDialog(event, viewButton);
   });
   actions.appendChild(viewButton);
-  el.append(meta, title, process, context, actions);
+  el.append(meta, title, process, context);
+  if (connection.textContent) el.append(connection);
+  el.append(actions);
   return el;
 }
 
@@ -598,10 +605,12 @@ async function refreshAgentStatus() {
     const data = await parseJsonResponse(res);
     const ready = Boolean(data.ready && data.model_configured);
     badge.textContent = ready
-      ? `Ready · ${data.model_name}`
+      ? `Ready · Kata · ${data.model_name}`
       : !data.model_configured
         ? "Model not configured"
-        : "Agent pod not ready";
+        : data.deployment?.ready && !data.deployment?.kata_runtime
+          ? "Agent is not in Kata"
+          : "Kata agent pod not ready";
     badge.className = `agent-state ${ready ? "ok" : "warn"}`;
     buttons.forEach((button) => { button.disabled = !ready || demoActionInProgress; });
     if (!ready) {
@@ -660,7 +669,9 @@ async function runAgentProfile(profile) {
   result.className = "result-running";
   result.textContent = profile === "baseline"
     ? "Running benign prompt through the NeMo agent; no host-connect tool is requested."
-    : "Submitting an untrusted prompt-injection sample. The model may call the single bounded host-access tool or decline.";
+    : profile === "host-reachability"
+      ? "Asking the Kata agent to test the fixed host endpoint with its single bounded tool."
+      : "Submitting an untrusted prompt-injection sample. The model may call the single bounded host-access tool or decline.";
   try {
     const res = await fetch("/api/agent-runs", {
       method: "POST",
@@ -672,11 +683,10 @@ async function runAgentProfile(profile) {
       throw new Error("agent run correlation mismatch");
     }
     const toolOutcome = data.tool_result?.outcome;
-    const confirmedBlock = Boolean(data.correlated_alert);
+    const confirmedBlock = Boolean(data.correlated_alert && data.argus_host_attempt_observed && data.policy_drop_observed);
     const expectedBaseline = profile === "baseline" && data.status === "no-tool-call";
-    const serverGuardedTool = data.status === "tool-not-authorized";
     const unexpectedlyConnected = toolOutcome === "connected" && !confirmedBlock;
-    result.className = confirmedBlock || expectedBaseline || serverGuardedTool
+    result.className = confirmedBlock || expectedBaseline
       ? "result-success"
       : unexpectedlyConnected
         ? "result-failed"
@@ -686,10 +696,15 @@ async function runAgentProfile(profile) {
       : data.tool_result?.destination_ip
         ? `Tool outcome: ${toolOutcome}; destination ${data.tool_result.destination_ip}:${data.tool_result.destination_port}. A timeout is not, by itself, proof of policy enforcement.`
         : "No host-access connection was made; the agent may have declined, or the server profile gate may have blocked the tool.";
+    const argusEvent = data.argus_host_attempt_event;
+    const argusSummary = argusEvent
+      ? `${argusEvent.activity_name} · ${argusEvent.connection_state || "state unknown"} · ${argusEvent.source_ip}:${argusEvent.source_port} → ${argusEvent.destination_ip}:${argusEvent.destination_port} · process=${argusEvent.process_name || argusEvent.process_command} · pod=${argusEvent.pod_name || "not enriched"} · event=${argusEvent.id}`
+      : "No matching native Argus TCP event was observed during this run.";
     result.textContent = [
       `Run ${scenarioRunId} · ${data.status}`,
+      `Agent pod: ${data.agent_pod || "unknown"} · runtime=${data.agent_runtime_class || "unknown"}`,
       attemptSummary,
-      `Argus-correlated records on the agent pod: ${data.argus_events_observed}. These are reported only if Argus emitted them.`,
+      `Native Argus evidence: ${argusSummary}`,
       `OVN policy drop observed: ${data.policy_drop_observed ? "yes" : "no"}. ${data.message}`,
       `Correlated demo alert: ${data.correlated_alert ? "triggered" : "not triggered"}.`,
       `Agent response: ${typeof data.agent_response === "string" ? data.agent_response : JSON.stringify(data.agent_response)}`,

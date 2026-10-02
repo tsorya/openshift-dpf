@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import errno
+import ipaddress
 import socket
 import time
 from collections import OrderedDict
@@ -22,7 +23,7 @@ class HostAccessConfig(FunctionGroupBaseConfig, name="argus_gtc_host_access"):
 
     host_ip: str
     host_port: int = 31999
-    connect_timeout_seconds: float = 3.0
+    connect_timeout_seconds: float = 8.0
     authorization_url: str
     report_url: str
     agent_token: SecretStr
@@ -83,25 +84,18 @@ async def build_host_access_group(config: HostAccessConfig, _builder: Builder):
             }
 
         started = time.monotonic()
-        outcome: Literal[
-            "connected", "timeout", "connection-refused", "network-error"
-        ]
+        outcome: Literal["connected", "timeout", "connection-refused", "network-error"]
+        source_ip: str | None = None
+        source_port: int | None = None
         try:
-            await asyncio.to_thread(
+            outcome, source_ip, source_port = await asyncio.to_thread(
                 _connect_once,
                 config.host_ip,
                 config.host_port,
                 config.connect_timeout_seconds,
             )
-            outcome = "connected"
-        except TimeoutError:
-            outcome = "timeout"
-        except OSError as error:
-            outcome = (
-                "connection-refused"
-                if error.errno == errno.ECONNREFUSED
-                else "network-error"
-            )
+        except OSError:
+            outcome = "network-error"
 
         report: dict[str, str | int] = {
             "tool_name": "check_host_access",
@@ -111,6 +105,9 @@ async def build_host_access_group(config: HostAccessConfig, _builder: Builder):
             "destination_port": config.host_port,
             "duration_ms": int((time.monotonic() - started) * 1000),
         }
+        if source_ip and source_port:
+            report["source_ip"] = source_ip
+            report["source_port"] = source_port
         try:
             async with httpx.AsyncClient(timeout=5.0) as client:
                 response = await client.post(
@@ -137,7 +134,21 @@ async def build_host_access_group(config: HostAccessConfig, _builder: Builder):
     yield group
 
 
-def _connect_once(host: str, port: int, timeout: float) -> None:
-    """Open one bounded TCP connection, send no application data, close it."""
-    with socket.create_connection((host, port), timeout=timeout):
-        return
+def _connect_once(host: str, port: int, timeout: float) -> tuple[str, str | None, int | None]:
+    """Try one TCP connection and retain the local socket tuple for Argus correlation."""
+    family = socket.AF_INET6 if ipaddress.ip_address(host).version == 6 else socket.AF_INET
+    with socket.socket(family, socket.SOCK_STREAM) as connection:
+        connection.settimeout(timeout)
+        try:
+            connection.connect((host, port))
+            outcome = "connected"
+        except TimeoutError:
+            outcome = "timeout"
+        except OSError as error:
+            outcome = (
+                "connection-refused"
+                if error.errno == errno.ECONNREFUSED
+                else "network-error"
+            )
+        source_ip, source_port = connection.getsockname()[:2]
+        return outcome, source_ip if source_port else None, source_port or None

@@ -26,6 +26,14 @@ spec:
       ports:
         - protocol: TCP
           port: 8080
+    # Direct OpenAI API access. The separate AdminNetworkPolicy still denies
+    # any destination that is a cluster node.
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+      ports:
+        - protocol: TCP
+          port: 443
     - to:
         - namespaceSelector: {}
           podSelector:
@@ -42,3 +50,8 @@ spec:
           port: 53
         - protocol: TCP
           port: 53
+        # OpenShift DNS Service port 53 forwards to the DNS pod's port 5353.
+        - protocol: UDP
+          port: 5353
+        - protocol: TCP
+          port: 5353

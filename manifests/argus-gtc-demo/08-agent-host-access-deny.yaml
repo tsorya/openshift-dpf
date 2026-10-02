@@ -1,5 +1,5 @@
-# The only host-connect attempt from the AI agent targets TCP/31999. This
-# cluster-scoped ANP denies that one flow only for the agent pod label.
+# Block the Kata agent pod from reaching any cluster node. Its bounded demo
+# probe uses TCP/31999 so the ACL watcher can identify that attempt precisely.
 apiVersion: policy.networking.k8s.io/v1alpha1
 kind: AdminNetworkPolicy
 metadata:
@@ -17,11 +17,7 @@ spec:
         matchLabels:
           app: argus-gtc-agent
   egress:
-    - name: deny-agent-demo-host-port
+    - name: deny-agent-to-cluster-nodes
       action: Deny
       to:
         - nodes: {}
-      ports:
-        - portNumber:
-            protocol: TCP
-            port: 31999

@@ -1,10 +1,10 @@
 llms:
   demo_model:
     _type: openai
-    api_key: ${ARGUS_GTC_AGENT_TOKEN}
-    base_url: http://argus-gtc-demo.argus-gtc-demo.svc:8080/api/agent-model/v1
+    api_key: ${ARGUS_GTC_MODEL_API_KEY}
+    base_url: ${ARGUS_GTC_MODEL_BASE_URL}
     model_name: ${ARGUS_GTC_MODEL_NAME}
-    temperature: 0
+    reasoning_effort: none
     max_retries: 0
     request_timeout: 55
 
@@ -13,7 +13,7 @@ function_groups:
     _type: argus_gtc_host_access
     host_ip: ${ARGUS_GTC_HOST_IP}
     host_port: 31999
-    connect_timeout_seconds: 3
+    connect_timeout_seconds: 8
     authorization_url: http://argus-gtc-demo.argus-gtc-demo.svc:8080/api/agent-runs/authorize-tool
     report_url: http://argus-gtc-demo.argus-gtc-demo.svc:8080/api/agent-runs/tool-result
     agent_token: ${ARGUS_GTC_AGENT_TOKEN}

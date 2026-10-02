@@ -47,6 +47,24 @@ def normalize_argus_message(
     workload = header.get("workload_information", payload.get("workload_information", {}))
     container = workload.get("container_context", {}) or {}
 
+    network = activity.get("network_connection_details") or {}
+    if not isinstance(network, dict):
+        network = {}
+    if not network:
+        for value in activity.values():
+            if isinstance(value, dict) and isinstance(
+                value.get("network_connection_details"), dict
+            ):
+                network = value["network_connection_details"]
+                break
+
+    def port(value: Any) -> int | None:
+        try:
+            parsed = int(value)
+        except (TypeError, ValueError):
+            return None
+        return parsed if 0 < parsed < 65536 else None
+
     process = (
         activity.get("process_details")
         or activity.get("process")
@@ -67,7 +85,7 @@ def normalize_argus_message(
     )
     activity_name = activity.get("name")
     if activity_name:
-        activity_name = activity_name.replace("_", " ").title()
+        activity_name = activity_name.replace("_", " ").title().replace("Tcp ", "TCP ")
 
     message_id = header.get("message_id") or payload.get("message_id")
     event_data: dict[str, Any] = {
@@ -78,6 +96,12 @@ def normalize_argus_message(
         "activity_name": activity_name,
         "process_name": process.get("process_name") or process.get("name"),
         "process_command": command,
+        "protocol": network.get("protocol"),
+        "connection_state": network.get("connection_state"),
+        "source_ip": network.get("local_address") or network.get("source_ip_address"),
+        "source_port": port(network.get("local_port") or network.get("source_port")),
+        "destination_ip": network.get("peer_address") or network.get("destination_ip_address"),
+        "destination_port": port(network.get("peer_port") or network.get("destination_port")),
         "pod_name": container.get("pod_name"),
         "pod_uid": container.get("pod_uid"),
         "container_name": container.get("container_name"),

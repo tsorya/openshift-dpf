@@ -21,7 +21,7 @@
       </div>
       <p class="eyebrow">DOCA Argus · DOCA Platform · OpenShift DPF · HyperShift · Kata Containers</p>
       <h1>Invisible VM. <span>Visible Threat.</span></h1>
-      <p class="subtitle"><strong>No security agent inside the Kata guest.</strong> A separate demo AI agent runs in its own pod. NVIDIA BlueField and DOCA Argus observe worker activity out of band; OpenShift supplies the workload and policy context.</p>
+      <p class="subtitle"><strong>No security agent inside either Kata guest.</strong> The demo AI agent runs in its own Kata VM. NVIDIA BlueField and DOCA Argus observe its activity out of band; OpenShift supplies workload and policy context.</p>
       <div class="deployment-context" aria-label="Demo deployment architecture">
         <div class="context-card management">
           <span>Control + workload</span>
@@ -104,7 +104,7 @@
       <ul class="coverage-list" id="coverage-demo">
         <li>invisible-vm · Kata (no in-guest security agent)</li>
         <li>scenario-sink · runc TCP sink on the same worker</li>
-        <li>argus-gtc-agent · separate runc AI agent pod</li>
+        <li>argus-gtc-agent · separate Kata AI agent pod</li>
       </ul>
       <details class="coverage-detail">
         <summary>Includes</summary>
@@ -119,7 +119,7 @@
         <ul class="coverage-list exclude" id="coverage-excludes">
           <li>Pods on other workers / control-plane VMs</li>
           <li>Kata VFs on PF1 — Argus cannot introspect them</li>
-          <li>In-guest security agents — none are installed in the Kata VM</li>
+          <li>In-guest security agents — Argus runs on the DPU</li>
           <li>OVN policy verdicts — these are separate from native Argus telemetry</li>
         </ul>
       </details>
@@ -218,30 +218,31 @@
     <section class="panel agent-demo">
       <div class="panel-heading">
         <div>
-          <span class="section-kicker">Separate AI agent pod · NeMo Agent Toolkit</span>
-          <h2>Prompt injection: host-access attempt</h2>
+          <span class="section-kicker">AI agent in Kata VM · NeMo Agent Toolkit</span>
+          <h2>Kata agent: host-access attempt</h2>
         </div>
         <span class="agent-state" id="agent-readiness">Checking agent…</span>
       </div>
-      <p class="note agent-note">The agent is outside the Kata guest and colocated with it on the DPU worker. The injected note can request one fixed TCP connect to the node on port <code>31999</code>; the tool sends no payload and runs no command. Existing Kata scenarios remain available above.</p>
+      <p class="note agent-note">The agent runs inside its own Kata VM on the DPU worker. Give it a direct reachability task or an untrusted maintenance note. Its only tool can make one fixed TCP connect to the node on port <code>31999</code>; it sends no payload and runs no command. Argus can observe the TCP socket from the DPU, while OpenShift policy blocks the packet.</p>
       <div class="agent-flow" aria-label="AI agent and security evidence flow">
-        <div class="agent-flow-node"><span>Untrusted input</span>Maintenance note</div>
+        <div class="agent-flow-node"><span>Input</span>Operator task / untrusted note</div>
         <div class="agent-flow-link" aria-hidden="true">→</div>
-        <div class="agent-flow-node"><span>New pod · runc</span>NeMo tool-calling agent</div>
+        <div class="agent-flow-node"><span>New pod · Kata VM</span>NeMo tool-calling agent</div>
         <div class="agent-flow-link" aria-hidden="true">→</div>
         <div class="agent-flow-node"><span>Allowlisted tool</span>TCP connect · host:31999</div>
         <div class="agent-flow-link" aria-hidden="true">→</div>
         <div class="agent-flow-node deny"><span>Enforcement</span>AdminNetworkPolicy deny</div>
       </div>
       <div class="agent-evidence-paths">
-        <span>Agent process / TCP activity → Argus timeline (if emitted)</span>
+        <span>Kata agent TCP state → native Argus INFO · EVENT</span>
         <span>OVN ACL verdict=drop → separately labeled policy evidence</span>
       </div>
       <div class="agent-controls">
         <button class="secondary" data-agent-profile="baseline">Run benign baseline</button>
+        <button class="danger" data-agent-profile="host-reachability">Ask agent to test host access</button>
         <button class="danger" data-agent-profile="prompt-injection">Run prompt-injection simulation</button>
       </div>
-      <p class="note agent-footnote">A TCP timeout alone does not prove a policy drop. With both the agent’s authenticated tool report and a matching OVN ACL audit record, the UI raises a correlated demo alert—not a native Argus alert. Argus process/network activity remains separate telemetry.</p>
+      <p class="note agent-footnote">The run is confirmed only when the agent's socket report, a matching native Argus TCP event, and an OVN ACL drop agree on the connection. Argus reports an <code>INFO · EVENT</code> for the TCP state; the joined demo alert is labeled separately.</p>
       <pre id="agent-log" aria-live="polite">Configure ARGUS_GTC_MODEL_BASE_URL and ARGUS_GTC_MODEL_NAME, then wait for the AI agent pod.</pre>
     </section>
 

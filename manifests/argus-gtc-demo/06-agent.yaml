@@ -1,5 +1,5 @@
-# Separate runc pod for the prompt-injection demo; the existing Kata workload
-# remains unchanged and still has no in-guest security agent.
+# The AI agent runs in its own Kata VM so Argus can observe its host-connect
+# attempt from the DPU. The existing Kata workload remains unchanged.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -12,13 +12,20 @@ spec:
   selector:
     matchLabels:
       app: argus-gtc-agent
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 0
+      maxUnavailable: 1
   template:
     metadata:
       labels:
         app: argus-gtc-agent
       annotations:
         demo.argus.nvidia.com/agent-auth-hash: <ARGUS_GTC_AGENT_TOKEN_SHA256>
+        demo.argus.nvidia.com/model-key-hash: <ARGUS_GTC_MODEL_API_KEY_SHA256>
     spec:
+      runtimeClassName: <KATA_RUNTIME_CLASS>
       automountServiceAccountToken: false
       nodeSelector:
         node-role.kubernetes.io/<WORKER_ROLE>: ""
@@ -46,6 +53,13 @@ spec:
                   key: token
             - name: ARGUS_GTC_MODEL_NAME
               value: <ARGUS_GTC_AGENT_MODEL_NAME>
+            - name: ARGUS_GTC_MODEL_BASE_URL
+              value: "<ARGUS_GTC_MODEL_BASE_URL>"
+            - name: ARGUS_GTC_MODEL_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: argus-gtc-model-auth
+                  key: api-key
             - name: ARGUS_GTC_HOST_IP
               valueFrom:
                 fieldRef:
