@@ -35,9 +35,9 @@ Build and push the demo server from the repository root, then set
 
 ```bash
 docker build --platform linux/amd64 \
-  -t quay.io/itsoiref/argus-gtc-demo:v26-kata-agent \
+  -t quay.io/itsoiref/argus-gtc-demo:v27-host-boundary \
   -f demo/argus-gtc/Containerfile demo/argus-gtc
-docker push quay.io/itsoiref/argus-gtc-demo:v26-kata-agent
+docker push quay.io/itsoiref/argus-gtc-demo:v27-host-boundary
 ```
 
 The server image contains Python 3.11, `requirements.txt`, and the `server/` +
@@ -72,7 +72,7 @@ ARGUS_GTC_MODEL_API_KEY=<OpenAI-API-key>
 Set the image in `.env` (or export it), then deploy:
 
 ```bash
-ARGUS_GTC_SERVER_IMAGE=quay.io/itsoiref/argus-gtc-demo:v26-kata-agent \
+ARGUS_GTC_SERVER_IMAGE=quay.io/itsoiref/argus-gtc-demo:v27-host-boundary \
 ARGUS_GTC_AGENT_IMAGE=quay.io/itsoiref/argus-gtc-agent:nat-1.8.0-v8-kata \
 make deploy-argus-gtc-demo
 ```
@@ -92,7 +92,7 @@ This command:
 | Variable | Default | Purpose |
 |----------|---------|---------|
 | `ARGUS_GTC_DEMO_IMAGE` | `quay.io/itsoiref/argus-gtc-demo:workload-ubi9-v1` | Kata workload + sink image; UBI9/glibc Bash is required for native shell-history alerts |
-| `ARGUS_GTC_SERVER_IMAGE` | `quay.io/itsoiref/argus-gtc-demo:v26-kata-agent` | Demo server and UI image |
+| `ARGUS_GTC_SERVER_IMAGE` | `quay.io/itsoiref/argus-gtc-demo:v27-host-boundary` | Demo server and UI image |
 | `ARGUS_GTC_AGENT_IMAGE` | `quay.io/itsoiref/argus-gtc-agent:nat-1.8.0-v8-kata` | Pre-built NeMo Agent Toolkit image |
 | `ARGUS_GTC_MODEL_BASE_URL` | *(empty)* | OpenAI-compatible API base URL; for OpenAI use `https://api.openai.com/v1` |
 | `ARGUS_GTC_MODEL_NAME` | `gpt-6-luna` | OpenAI API model ID; must be enabled for your API account |
@@ -101,6 +101,36 @@ This command:
 | `ARGUS_LOG_MAX_FILES_COUNT` | `10` | Argus rotated log file cap |
 
 ## Demo flow
+
+### Kata agent host-boundary scenario
+
+**Question:** When the AI agent runs in its own Kata VM and the model is asked to
+test the node, can it connect, and does Argus independently see the attempt?
+
+The direct operator task is the primary controlled scenario. The optional
+prompt-injection button exercises the same bounded tool but may be declined by
+the model; a refusal is not evidence of a blocked network connection.
+
+| Gate | Evidence required | If missing |
+|------|-------------------|------------|
+| Kata placement | Ready agent Pod has the configured Kata `RuntimeClass` | Do not claim the agent ran under Kata |
+| Agent action | Authenticated tool report has a source IP/port and the fixed node IP/TCP/31999 destination | The model may not have made a connection attempt |
+| Network block | OVN ACL audit `verdict=drop` for the agent ANP and the same TCP four-tuple | A timeout alone does not prove enforcement |
+| Argus observation | Native Argus `EVENT` reports the same TCP four-tuple and process attribution; Pod identity must match if enriched | Do not claim Argus saw this attempt |
+
+Only all four gates make the UI verdict **PASS**. The policy blocks node
+network access; this does **not** prove that Kata itself blocks networking, that
+the agent attempted a container escape, or that Argus emitted a native HIGH
+alert. Preserve the raw Argus event and OVN ACL line from one rehearsal run so
+their fields can be checked against the agent report rather than relying on
+the derived demo alert alone. During rehearsal, also verify that the agent's
+Kata VF is covered by Argus on the DPU worker; the UI does not check VF
+allocation directly.
+
+For a live run, use the final server and agent images above, confirm the model
+key is available to the agent, start the OVN watcher in a second terminal,
+then click `Run host-boundary scenario`. Keep `Run benign baseline` as the
+negative control: the model should answer without any host-access tool call.
 
 1. **Baseline** — Open the Route URL. Confirm ribbon: Cluster, DPU, Argus, Kata VM, VF/link are green. Both the workload and AI agent use Kata; no security agent runs inside either guest.
 2. **Run Discovery** — Bounded recon in the Kata VM. Expect real Argus `INFO · EVENT` process/file activity correlated as Discovery. Do not expect a native HIGH alert.
@@ -111,7 +141,7 @@ This command:
 7. **Contain Workload** — Scales only `invisible-vm` to zero. Event stream from that VM stops; DPU/Argus remain healthy.
 8. **Restore Workload** — Brings the demo Deployment back to one replica.
 9. **AI agent baseline** — Click `Run benign baseline`. The NeMo agent should summarize the harmless note without calling its tool.
-10. **Start the OVN evidence watcher** in a second terminal before the prompt-injection action:
+10. **Start the OVN evidence watcher** in a second terminal before the agent host-boundary action:
 
     ```bash
     ARGUS_GTC_DEMO_URL=https://<demo-route-host> make watch-argus-gtc-acl
@@ -119,7 +149,7 @@ This command:
 
     The helper uses local `oc` credentials to find the agent pod's node, tail that node's OVN ACL log, and post only the matching record to the demo's authenticated ingest route. It does not grant the server pod access to OVN `pods/exec`.
 
-11. **Agent host-reachability task** — Click `Ask agent to test host access`. The model is directly asked to use its sole tool once; the server authorizes only the active run. The tool connects once to the agent pod's host IP on TCP/31999, sends no data, and reports its local source IP and port. If the model does not select the tool, the result says so. In the timeline, choose `Prompt Injection / Host Access`. A native Argus `INFO · EVENT` must show the agent's TCP connection or state change with the same source and destination tuple; a separate OVN `POLICY · DENY` event must show the matching drop. Only then does the UI add a `CORRELATED_ALERT` from the three records. This derived alert is not a native Argus alert. To demonstrate prompt injection separately, click `Run prompt-injection simulation`; because its instruction is untrusted, the model may decline it.
+11. **Agent host-reachability task** — Click `Run host-boundary scenario`. The model is directly asked to use its sole tool once; the server authorizes only the active run. The tool connects once to the agent pod's host IP on TCP/31999, sends no data, and reports its local source IP and port. If the model does not select the tool, the result says so. In the timeline, choose `Kata Agent / Host Boundary`. A native Argus `INFO · EVENT` must show the agent's TCP connection or state change with the same source and destination tuple; a separate OVN `POLICY · DENY` event must show the matching drop. Only then does the UI add a `CORRELATED_ALERT` from the three records. This derived alert is not a native Argus alert. To demonstrate prompt injection separately, click `Run prompt-injection simulation`; because its instruction is untrusted, the model may decline it.
 
     Verify the live agent runtime before clicking:
 

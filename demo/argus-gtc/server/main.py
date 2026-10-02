@@ -662,9 +662,12 @@ def create_app() -> FastAPI:
                     "status": status,
                     "agent_pod": agent_status.get("pod_name"),
                     "agent_pod_uid": agent_status.get("pod_uid"),
+                    "agent_node": agent_status.get("node_name"),
                     "agent_runtime_class": agent_status.get("runtime_class"),
+                    "kata_runtime_ready": bool(agent_status.get("kata_runtime")),
                     "agent_response": agent_output,
                     "tool_result": tool_result,
+                    "authenticated_tool_report_observed": bool(reported_tool_result),
                     "argus_events_observed": len(argus_events),
                     "argus_host_attempt_observed": bool(argus_events),
                     "argus_host_attempt_event": (

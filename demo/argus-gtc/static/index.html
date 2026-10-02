@@ -219,11 +219,11 @@
       <div class="panel-heading">
         <div>
           <span class="section-kicker">AI agent in Kata VM · NeMo Agent Toolkit</span>
-          <h2>Kata agent: host-access attempt</h2>
+          <h2>Scenario: Kata agent tests the host boundary</h2>
         </div>
         <span class="agent-state" id="agent-readiness">Checking agent…</span>
       </div>
-      <p class="note agent-note">The agent runs inside its own Kata VM on the DPU worker. Give it a direct reachability task or an untrusted maintenance note. Its only tool can make one fixed TCP connect to the node on port <code>31999</code>; it sends no payload and runs no command. Argus can observe the TCP socket from the DPU, while OpenShift policy blocks the packet.</p>
+      <p class="note agent-note">Ask the Kata-hosted agent to test one fixed node endpoint on TCP/31999. Its tool sends no payload and runs no command. The scenario checks separately whether the agent tried, OVN denied the packet, and DPU Argus reported the same socket. Kata hosts the agent; the network policy enforces this particular block.</p>
       <div class="agent-flow" aria-label="AI agent and security evidence flow">
         <div class="agent-flow-node"><span>Input</span>Operator task / untrusted note</div>
         <div class="agent-flow-link" aria-hidden="true">→</div>
@@ -239,10 +239,10 @@
       </div>
       <div class="agent-controls">
         <button class="secondary" data-agent-profile="baseline">Run benign baseline</button>
-        <button class="danger" data-agent-profile="host-reachability">Ask agent to test host access</button>
+        <button class="danger" data-agent-profile="host-reachability">Run host-boundary scenario</button>
         <button class="danger" data-agent-profile="prompt-injection">Run prompt-injection simulation</button>
       </div>
-      <p class="note agent-footnote">The run is confirmed only when the agent's socket report, a matching native Argus TCP event, and an OVN ACL drop agree on the connection. Argus reports an <code>INFO · EVENT</code> for the TCP state; the joined demo alert is labeled separately.</p>
+      <p class="note agent-footnote">Before running, start the OVN ACL watcher described in the runbook. PASS requires a ready Kata agent, its authenticated socket report, a matching OVN ACL drop, and a matching native Argus TCP <code>INFO · EVENT</code>. A timeout alone is inconclusive. This does not test container escape or claim Kata itself blocked network traffic.</p>
       <pre id="agent-log" aria-live="polite">Configure ARGUS_GTC_MODEL_BASE_URL and ARGUS_GTC_MODEL_NAME, then wait for the AI agent pod.</pre>
     </section>
 
@@ -266,7 +266,7 @@
             <option value="decoy-modify">Decoy Modification</option>
             <option value="network-burst">Network Burst</option>
             <option value="agent-baseline">AI Agent Baseline</option>
-            <option value="host-access-attempt">Prompt Injection / Host Access</option>
+            <option value="host-access-attempt">Kata Agent / Host Boundary</option>
             <option value="raw">All retained events + raw Argus feed</option>
           </select>
           <select id="severity-filter" aria-label="Filter by severity">
