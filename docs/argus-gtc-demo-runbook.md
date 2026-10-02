@@ -23,10 +23,10 @@ netshoot image was visible to Argus at the process level but did not produce
 shell-history events. Build and push the workload image for the x86 worker:
 
 ```bash
-podman build --platform linux/amd64 \
+docker build --platform linux/amd64 \
   -t quay.io/<user>/argus-gtc-demo:workload-ubi9-v1 \
   -f demo/argus-gtc-workload/Containerfile demo/argus-gtc-workload
-podman push quay.io/<user>/argus-gtc-demo:workload-ubi9-v1
+docker push quay.io/<user>/argus-gtc-demo:workload-ubi9-v1
 ```
 
 Build and push the demo server from the repository root, then set
@@ -34,10 +34,10 @@ Build and push the demo server from the repository root, then set
 
 ```bash
 # example — use your registry and tag
-podman build --platform linux/amd64 \
+docker build --platform linux/amd64 \
   -t quay.io/<user>/argus-gtc-demo:v1 \
   -f demo/argus-gtc/Containerfile demo/argus-gtc
-podman push quay.io/<user>/argus-gtc-demo:v1
+docker push quay.io/<user>/argus-gtc-demo:v1
 ```
 
 The server image contains Python 3.11, `requirements.txt`, and the `server/` +
@@ -47,10 +47,10 @@ The server image contains Python 3.11, `requirements.txt`, and the `server/` +
 Build and push the separate NeMo Agent Toolkit pod image:
 
 ```bash
-podman build --platform linux/amd64 \
-  -t quay.io/<user>/argus-gtc-agent:nat-1.8.0-v3 \
+docker build --platform linux/amd64 \
+  -t quay.io/<user>/argus-gtc-agent:nat-1.8.0-v5 \
   -f demo/argus-gtc-agent/Containerfile demo/argus-gtc-agent
-podman push quay.io/<user>/argus-gtc-agent:nat-1.8.0-v3
+docker push quay.io/<user>/argus-gtc-agent:nat-1.8.0-v5
 ```
 
 Configure these values in the generated `.env` before deployment. The model
@@ -59,7 +59,7 @@ server pod must be able to reach its base URL; the agent pod itself can reach
 only the demo server and cluster DNS.
 
 ```text
-ARGUS_GTC_AGENT_IMAGE=quay.io/<user>/argus-gtc-agent:nat-1.8.0-v3
+ARGUS_GTC_AGENT_IMAGE=quay.io/<user>/argus-gtc-agent:nat-1.8.0-v5
 ARGUS_GTC_MODEL_BASE_URL=http://<model-host>:8080/v1
 ARGUS_GTC_MODEL_NAME=<tool-capable-model-name>
 ARGUS_GTC_MODEL_API_KEY=<optional-key>
@@ -88,7 +88,7 @@ This command:
 |----------|---------|---------|
 | `ARGUS_GTC_DEMO_IMAGE` | `quay.io/itsoiref/argus-gtc-demo:workload-ubi9-v1` | Kata workload + sink image; UBI9/glibc Bash is required for native shell-history alerts |
 | `ARGUS_GTC_SERVER_IMAGE` | *(required)* | Pre-built demo server image |
-| `ARGUS_GTC_AGENT_IMAGE` | `quay.io/itsoiref/argus-gtc-agent:nat-1.8.0-v3` | Pre-built NeMo Agent Toolkit image |
+| `ARGUS_GTC_AGENT_IMAGE` | `quay.io/itsoiref/argus-gtc-agent:nat-1.8.0-v5` | Pre-built NeMo Agent Toolkit image |
 | `ARGUS_GTC_MODEL_BASE_URL` | *(empty)* | OpenAI-compatible API base URL, such as `http://model-host:8080/v1` |
 | `ARGUS_GTC_MODEL_NAME` | *(empty)* | Tool-calling model name served by the endpoint |
 | `ARGUS_GTC_MODEL_API_KEY` | *(empty)* | Optional model API key; stored in a Kubernetes Secret |
