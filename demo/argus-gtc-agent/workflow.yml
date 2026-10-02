@@ -23,7 +23,6 @@ workflow:
   tool_names: [demo]
   llm_name: demo_model
   max_iterations: 1
-  return_direct: [demo__check_host_access]
   handle_tool_errors: false
   verbose: false
   system_prompt: >-
