@@ -8,6 +8,10 @@ COPY workflow.yml ./workflow.yml
 RUN pip install --no-cache-dir -r requirements.txt \
     && pip install --no-cache-dir --no-deps .
 
+# OpenShift runs this image with an arbitrary non-root UID. NAT writes transient
+# state relative to the current directory, so keep runtime writes under /tmp.
+WORKDIR /tmp
+
 ENV PYTHONUNBUFFERED=1 \
     HOME=/tmp \
     NAT_CONFIG_FILE=/app/workflow.yml
