@@ -27,13 +27,25 @@ spec:
         - protocol: TCP
           port: 8080
     # Direct OpenAI API access. The separate AdminNetworkPolicy still denies
-    # any destination that is a cluster node.
+    # any node destination except the demo canary port.
     - to:
         - ipBlock:
             cidr: 0.0.0.0/0
       ports:
         - protocol: TCP
           port: 443
+    - to:
+<ARGUS_GTC_CANARY_EGRESS_TO>
+      ports:
+        - protocol: TCP
+          port: 31999
+    - to:
+        - podSelector:
+            matchLabels:
+              app: argus-gtc-canary
+      ports:
+        - protocol: TCP
+          port: 31999
     - to:
         - namespaceSelector: {}
           podSelector:

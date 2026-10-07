@@ -1,0 +1,85 @@
+# Canary listener on the worker NodePort. The Kata agent connects to
+# status.hostIP:31999; the shell still runs inside the agent pod.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: argus-gtc-canary
+  namespace: argus-gtc-demo
+  labels:
+    app: argus-gtc-canary
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: argus-gtc-canary
+  template:
+    metadata:
+      labels:
+        app: argus-gtc-canary
+    spec:
+      nodeSelector:
+        node-role.kubernetes.io/<WORKER_ROLE>: ""
+      affinity:
+        podAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchLabels:
+                  app: invisible-vm
+              namespaces:
+                - argus-gtc-demo
+              topologyKey: kubernetes.io/hostname
+      containers:
+        - name: canary
+          image: <ARGUS_GTC_SERVER_IMAGE>
+          imagePullPolicy: IfNotPresent
+          command: ["python", "-m", "server.canary"]
+          ports:
+            - name: shell
+              containerPort: 31999
+          env:
+            - name: ARGUS_GTC_CANARY_BIND
+              value: "0.0.0.0"
+            - name: ARGUS_GTC_CANARY_PORT
+              value: "31999"
+            - name: ARGUS_GTC_CANARY_COMMAND
+              value: id
+            - name: ARGUS_GTC_SHELL_SECONDS
+              value: "20"
+            - name: ARGUS_GTC_CANARY_REPORT_URL
+              value: http://argus-gtc-demo.argus-gtc-demo.svc:8080/api/agent-runs/shell-session
+            - name: ARGUS_GTC_AGENT_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: argus-gtc-agent-auth
+                  key: token
+          readinessProbe:
+            tcpSocket:
+              port: shell
+            initialDelaySeconds: 2
+            timeoutSeconds: 2
+            periodSeconds: 5
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: argus-gtc-canary
+  namespace: argus-gtc-demo
+  labels:
+    app: argus-gtc-canary
+spec:
+  type: NodePort
+  selector:
+    app: argus-gtc-canary
+  ports:
+    - name: shell
+      port: 31999
+      targetPort: shell
+      nodePort: 31999
+      protocol: TCP

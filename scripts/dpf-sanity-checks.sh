@@ -151,6 +151,93 @@ failed_testcase_count=0
 # counter to track total testcases
 total_testcases_executed=0
 
+SANITY_DUMP_DIVIDER='================================================================================'
+
+_sanity_dump_section() {
+  local title="$1"
+  shift
+  echo -e "\n--- ${title} ---"
+  "$@" 2>&1 || echo "WARN: Failed to collect: ${title}"
+}
+
+# Best-effort cluster snapshot (never aborts the sanity script).
+sanity_dump_system_status() {
+  local reason="${1:-unspecified}"
+
+  echo -e "\n${SANITY_DUMP_DIVIDER}"
+  echo "SYSTEM STATUS DUMP (${reason})"
+  echo "${SANITY_DUMP_DIVIDER}"
+
+  (
+    set +e
+
+    _sanity_dump_section "Management cluster: nodes" \
+      oc get nodes --kubeconfig="${mgmt_kubecfg}" -o wide
+
+    _sanity_dump_section "Management cluster: cluster operators (non-healthy)" \
+      bash -c "oc get co --kubeconfig='${mgmt_kubecfg}' --no-headers 2>/dev/null | awk '\$3!=\"True\" || \$4!=\"False\" || \$5!=\"False\" {print}'"
+
+    _sanity_dump_section "Management cluster: pending CSRs" \
+      bash -c "oc get csr --kubeconfig='${mgmt_kubecfg}' 2>/dev/null | grep -i pending || echo '(none pending)'"
+
+    _sanity_dump_section "Management cluster: BareMetalHosts (all namespaces)" \
+      oc get bmh -A -o wide --kubeconfig="${mgmt_kubecfg}"
+
+    _sanity_dump_section "Management cluster: machines" \
+      oc get machines -n openshift-machine-api --kubeconfig="${mgmt_kubecfg}"
+
+    if [[ -n "${CLUSTERS_NAMESPACE:-}" && -n "${HOSTED_CLUSTER_NAME:-}" ]]; then
+      _sanity_dump_section "Hosted cluster: HostedCluster / DPFHCPProvisioner" \
+        bash -c "oc get hostedcluster -n '${CLUSTERS_NAMESPACE}' '${HOSTED_CLUSTER_NAME}' -o wide --kubeconfig='${mgmt_kubecfg}' 2>/dev/null; oc get dpfhcpprovisioner -n '${CLUSTERS_NAMESPACE}' '${HOSTED_CLUSTER_NAME}' -o wide --kubeconfig='${mgmt_kubecfg}' 2>/dev/null"
+    fi
+
+    _sanity_dump_section "DPF: DPU / DPUDeployment / DPUService" \
+      oc get dpu,dpudeployment,dpuservice -A --kubeconfig="${mgmt_kubecfg}" 2>/dev/null
+
+    _sanity_dump_section "DPF operator pods (management)" \
+      oc get pods -n "${dpf_operator_namespace}" --kubeconfig="${mgmt_kubecfg}" -o wide
+
+    _sanity_dump_section "Machine API pods" \
+      oc get pods -n openshift-machine-api --kubeconfig="${mgmt_kubecfg}" -o wide
+
+    _sanity_dump_section "Hosted cluster: nodes" \
+      oc get nodes --kubeconfig="${hosted_kubecfg}" -o wide
+
+    _sanity_dump_section "Hosted cluster: cluster operators (non-healthy)" \
+      bash -c "oc get co --kubeconfig='${hosted_kubecfg}' --no-headers 2>/dev/null | awk '\$3!=\"True\" || \$4!=\"False\" || \$5!=\"False\" {print}'"
+
+    _sanity_dump_section "Hosted cluster: OVN-Kubernetes pods" \
+      oc get pods -n "${dpf_operator_namespace}" \
+        -l app.kubernetes.io/component=ovnkube-node \
+        --kubeconfig="${hosted_kubecfg}" -o wide 2>/dev/null
+
+    _sanity_dump_section "Hosted cluster: DPF operator pods" \
+      oc get pods -n "${dpf_operator_namespace}" --kubeconfig="${hosted_kubecfg}" -o wide
+
+    if [[ -n "${SANITY_TESTS_OVN_NAMESPACE:-}" ]] \
+      && oc get namespace "${SANITY_TESTS_OVN_NAMESPACE}" --kubeconfig="${mgmt_kubecfg}" &>/dev/null; then
+      _sanity_dump_section "OVN sanity test namespace: pods" \
+        oc get pods -n "${SANITY_TESTS_OVN_NAMESPACE}" -o wide --kubeconfig="${mgmt_kubecfg}"
+    fi
+
+    if [[ -n "${SANITY_TESTS_WORKLOAD_NAMESPACE:-}" ]] \
+      && oc get namespace "${SANITY_TESTS_WORKLOAD_NAMESPACE}" --kubeconfig="${mgmt_kubecfg}" &>/dev/null; then
+      _sanity_dump_section "Workload sanity namespace: pods" \
+        oc get pods -n "${SANITY_TESTS_WORKLOAD_NAMESPACE}" -o wide --kubeconfig="${mgmt_kubecfg}"
+    fi
+  )
+
+  echo "${SANITY_DUMP_DIVIDER}"
+  echo "END SYSTEM STATUS DUMP"
+  echo "${SANITY_DUMP_DIVIDER}"
+}
+
+sanity_record_failure() {
+  local reason="$1"
+  ((failed_testcase_count++))
+  sanity_dump_system_status "${reason}"
+}
+
 # variable to store test_results summary
 test_results_summary="Test Results Summary:
 ---------------------"
@@ -161,7 +248,8 @@ error_handler() {
     echo "❌ Error on command:  '${BASH_COMMAND}' exited with status $?"
     echo -e "Test results so far: \n${test_results_summary}"
     echo -e "\nTotal of testcases executed: ${total_testcases_executed}"
-    echo -e "Number of failed tests: ${failed_testcase_count}" 
+    echo -e "Number of failed tests: ${failed_testcase_count}"
+    sanity_dump_system_status "unexpected script error: ${BASH_COMMAND}"
 }
 
 # Trap ERR signal
@@ -223,7 +311,7 @@ check_ping_packet_loss() {
     echo "❌ Failed to extract packet loss from ping output. Raw output:"
     echo "${output}"
     echo "Fail"
-    ((failed_testcase_count++))
+    sanity_record_failure "ping: failed to parse packet loss from output"
     return 1
   fi
 
@@ -234,8 +322,7 @@ check_ping_packet_loss() {
   else
       echo "Packet loss percent is: ${PACKET_LOSS}, not 0"
       echo -e "${RED}Fail${NC}"
-      # increment the failed testcase counter
-      ((failed_testcase_count++))
+      sanity_record_failure "ping: ${PACKET_LOSS}% packet loss (expected 0%)"
       return 1
   fi
 }
@@ -271,7 +358,6 @@ check_cluster_operators() {
     echo "✅ No operators are Degraded or Progressing."
     return 0
   else
-    ((failed_testcase_count++))
     # Header
     printf "%-25s %-12s %-s\n" "OPERATOR" "STATUS" "MESSAGE"
     printf "%-25s %-12s %-s\n" "--------" "------" "-------"
@@ -285,6 +371,7 @@ check_cluster_operators() {
     ' | while IFS=$'\t' read -r name type msg; do
       printf "%-25s %-12s %-s\n" "$name" "$type" "$msg"
       done
+    sanity_record_failure "cluster operators degraded or progressing (kubeconfig=${kubeconfig})"
     return 1
   fi
 }
@@ -347,7 +434,7 @@ check_dpuservices_ready() {
     return 0
   else
     echo -e "${RED}Fail${NC} DPUServices not ready: ${bad_dpusvc[*]}"
-    ((failed_testcase_count++))
+    sanity_record_failure "DPUServices not ready: ${bad_dpusvc[*]}"
     return 1
   fi
 }
@@ -362,7 +449,7 @@ check_doca_ovn_pods() {
 
   if [ -z "$ovn_pods" ]; then
     echo -e "${RED}Fail${NC} No DOCA OVN pods found in hosted cluster"
-    ((failed_testcase_count++))
+    sanity_record_failure "no DOCA OVN pods found in hosted cluster"
     return 1
   fi
 
@@ -382,7 +469,7 @@ check_doca_ovn_pods() {
     return 0
   else
     echo -e "${RED}Fail${NC} DOCA OVN pods not healthy: ${bad_ovn[*]}"
-    ((failed_testcase_count++))
+    sanity_record_failure "DOCA OVN pods not healthy: ${bad_ovn[*]}"
     return 1
   fi
 }
@@ -397,7 +484,7 @@ check_hbn_bgp_neighbors() {
 
   if [ -z "$hbn_pods" ]; then
     echo -e "${RED}Fail${NC} No HBN pods found in hosted cluster"
-    ((failed_testcase_count++))
+    sanity_record_failure "no HBN pods found in hosted cluster"
     return 1
   fi
 
@@ -434,7 +521,7 @@ check_hbn_bgp_neighbors() {
   done <<<"$hbn_pods"
 
   if [ "$bgp_result" -ne 0 ]; then
-    ((failed_testcase_count++))
+    sanity_record_failure "HBN BGP neighbors not established on all pods"
   fi
   return $bgp_result
 }
@@ -461,7 +548,7 @@ ovn_curl_test() {
   else
     echo -e "HTTP status: ${code:-no-response}"
     echo -e "${RED}Fail${NC}"
-    ((failed_testcase_count++))
+    sanity_record_failure "${tc_title} (HTTP ${code:-no-response})"
     testcase_result=1
   fi
 
@@ -548,6 +635,9 @@ echo -e "\n${testcase_title}, otherwise exit script..."
 
 check_deployments_ready "${SANITY_TESTS_WORKLOAD_NAMESPACE}" "${mgmt_kubecfg}"
 result_check_deployments_ready=$?
+if [ "${result_check_deployments_ready}" -ne 0 ]; then
+  sanity_record_failure "${testcase_title}"
+fi
 test_results_summary+="\n${testcase_title}: $(format_result "${result_check_deployments_ready}")"
 
 echo -e "\noc get nodes --kubeconfig=${mgmt_kubecfg} output:"
@@ -833,7 +923,7 @@ else
   if [ -z "${ovn_node1_mp0}" ]; then
     echo "❌ Failed to extract mp0 IP for ${dpu_host_workers[0]}. Node annotations:"
     oc get node "${dpu_host_workers[0]}" --kubeconfig="${mgmt_kubecfg}" -o jsonpath='{.metadata.annotations}'
-    ((failed_testcase_count++))
+    sanity_record_failure "failed to extract mp0 IP for ${dpu_host_workers[0]}"
   fi
 
   if [ "${dpu_host_worker_count}" -ge 2 ]; then
@@ -846,7 +936,7 @@ else
     
     if [ -z "${ovn_node2_mp0}" ]; then
       echo "❌ Failed to extract mp0 IP for ${dpu_host_workers[1]}"
-      ((failed_testcase_count++))
+      sanity_record_failure "failed to extract mp0 IP for ${dpu_host_workers[1]}"
     fi
   fi
 

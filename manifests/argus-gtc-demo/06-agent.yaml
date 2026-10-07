@@ -61,9 +61,7 @@ spec:
                   name: argus-gtc-model-auth
                   key: api-key
             - name: ARGUS_GTC_HOST_IP
-              valueFrom:
-                fieldRef:
-                  fieldPath: status.hostIP
+              value: argus-gtc-canary.argus-gtc-demo.svc
           securityContext:
             allowPrivilegeEscalation: false
             capabilities:

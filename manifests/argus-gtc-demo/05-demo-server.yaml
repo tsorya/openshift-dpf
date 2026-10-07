@@ -59,6 +59,8 @@ spec:
                   key: api-key
             - name: ARGUS_GTC_AGENT_HOST_ACCESS_PORT
               value: "31999"
+            - name: ARGUS_GTC_SHELL_SECONDS
+              value: "20"
             - name: ARGUS_GTC_DEMO_IMAGE
               value: <ARGUS_GTC_DEMO_IMAGE>
             - name: ARGUS_GTC_MAX_EVENTS
@@ -118,7 +120,7 @@ metadata:
   name: argus-gtc-demo
   namespace: argus-gtc-demo
   annotations:
-    haproxy.router.openshift.io/timeout: 90s
+    haproxy.router.openshift.io/timeout: 180s
   labels:
     app: argus-gtc-demo
 spec:

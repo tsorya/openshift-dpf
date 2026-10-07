@@ -3,10 +3,14 @@ FROM python:3.11-slim
 WORKDIR /app
 
 COPY requirements.txt pyproject.toml ./
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends bash \
+    && rm -rf /var/lib/apt/lists/* \
+    && pip install --no-cache-dir -r requirements.txt
+
 COPY argus_gtc_agent ./argus_gtc_agent
 COPY workflow.yml ./workflow.yml
-RUN pip install --no-cache-dir -r requirements.txt \
-    && pip install --no-cache-dir --no-deps .
+RUN pip install --no-cache-dir --no-deps .
 
 # OpenShift runs this image with an arbitrary non-root UID. NAT writes transient
 # state relative to the current directory, so keep runtime writes under /tmp.

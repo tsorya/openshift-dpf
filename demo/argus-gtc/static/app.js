@@ -48,7 +48,7 @@ const SCENARIO_SIGNATURES = {
   "network-burst": ["argus-gtc-network_burst", "argus-gtc-network-burst", "/dev/zero", "nc -w"],
   "compute-simulation": ["argus-gtc-compute_simulation", "argus-gtc-compute-simulation", "compute-done"],
   "agent-baseline": [],
-  "host-access-attempt": ["check_host_access"],
+  "host-access-attempt": ["open_demo_shell", "argus-gtc-agent-shell-", "bash --noprofile --norc -i", "/dev/tcp/"],
 };
 
 const SCENARIO_LABELS = {
@@ -62,7 +62,7 @@ const SCENARIO_LABELS = {
   "network-burst": "Network Burst (demo classification)",
   "compute-simulation": "Compute Simulation (demo classification)",
   "agent-baseline": "AI Agent Baseline (demo correlation)",
-  "host-access-attempt": "Kata Agent Host-Boundary Attempt (demo correlation)",
+  "host-access-attempt": "Kata Agent Demo Shell (demo correlation)",
 };
 
 const SCENARIO_POD_PREFIXES = {
@@ -82,6 +82,7 @@ const DEMO_POD_PREFIXES = ["invisible-vm", "scenario-sink", "argus-gtc-agent"];
 const SCENARIO_NATIVE_ALERTS = {
   "audit-evasion": ["Shell History Disabled", "Shell History Cleared"],
   "reverse-shell": ["Reverse Shell Detected"],
+  "host-access-attempt": ["Reverse Shell Detected"],
 };
 const SCENARIO_NATIVE_EVENTS = {
   "exec-memory": "New Executable Anonymous Memory Mapped",
@@ -202,8 +203,19 @@ function isHypervisorNoise(event) {
   return /(?:^|\/)(kata-agent|virtiofsd|qemu-system|cloud-hypervisor)(?:\s|$)/.test(hay);
 }
 
+function isRuntimeNoise(event) {
+  if (isHypervisorNoise(event)) return true;
+  const hay = [event.process_name, event.process_command].filter(Boolean).join(" ").toLowerCase();
+  if (/multiprocessing[.-]fork|multiprocessing\.spawn|spawn_main\(|resource_tracker/.test(hay)) return true;
+  if ((event.activity_name || "") === "Reverse Shell Detected") {
+    if (/argus-gtc-agent-shell-|\/dev\/tcp\//.test(hay)) return false;
+    if (/nat serve|\/usr\/bin\/pod(?:\s|$)/.test(hay)) return true;
+  }
+  return false;
+}
+
 function isDemoWorkload(event, scenarioId) {
-  if (isHypervisorNoise(event)) return false;
+  if (isRuntimeNoise(event)) return false;
   const prefixes = scenarioId
     ? SCENARIO_POD_PREFIXES[scenarioId] || DEMO_POD_PREFIXES
     : DEMO_POD_PREFIXES;
@@ -265,6 +277,7 @@ function matchesNativeEventScenario(event, scenarioId) {
 }
 
 function isDemoRelevant(event) {
+  if (isRuntimeNoise(event)) return false;
   if (event.scenario_id || event.demo_label) return true;
   if (!isDemoWorkload(event)) return false;
   if (isNativeAlert(event)) return true;
@@ -276,6 +289,7 @@ function isDemoRelevant(event) {
 }
 
 function matchesScenario(event, scenarioId) {
+  if (isRuntimeNoise(event)) return false;
   if (!scenarioId) return true;
   if (scenarioId === "demo") return isDemoRelevant(event);
   if (
@@ -347,6 +361,7 @@ function eventTimestamp(event) {
 }
 
 function isPersistentEvidence(event) {
+  if (isRuntimeNoise(event)) return false;
   return Boolean(
     event.scenario_id ||
     event.demo_label ||
@@ -732,9 +747,45 @@ async function runScenario(id) {
     actionLog.textContent = `Scenario failed: ${error.message}`;
   } finally {
     demoActionInProgress = false;
-    document.querySelectorAll("button[data-scenario]").forEach((button) => { button.disabled = false; });
+    document.querySelectorAll("button[data-scenario], button[data-agent-profile]").forEach((button) => { button.disabled = false; });
     await refreshAgentStatus();
   }
+}
+
+function renderAgentChain(chain) {
+  const list = document.getElementById("agent-chain");
+  if (!list) return;
+  list.replaceChildren();
+  (chain || []).forEach((item) => {
+    const row = document.createElement("li");
+    row.className = item.ok ? "ok" : "miss";
+    if (item.step === "instruction") row.classList.add("chain-instruction");
+    const step = document.createElement("span");
+    step.className = "chain-step";
+    step.textContent = String(item.step || "").replaceAll("_", " ");
+    const detail = document.createElement("span");
+    detail.className = "chain-detail";
+    const label = item.detail || "";
+    const prompt = typeof item.value === "string" ? item.value.trim() : "";
+    if (item.step === "instruction" && prompt) {
+      const caption = document.createElement("span");
+      caption.className = "chain-caption";
+      caption.textContent = label ? `${label} — exact text sent to the model` : "exact text sent to the model";
+      const promptBlock = document.createElement("pre");
+      promptBlock.className = "chain-prompt";
+      promptBlock.textContent = prompt;
+      detail.append(caption, promptBlock);
+    } else {
+      detail.textContent = label;
+    }
+    row.append(step, detail);
+    list.appendChild(row);
+  });
+}
+
+function setAgentPrompt(text) {
+  const box = document.getElementById("agent-prompt");
+  if (box) box.textContent = text;
 }
 
 async function runAgentProfile(profile) {
@@ -746,11 +797,13 @@ async function runAgentProfile(profile) {
   demoActionInProgress = true;
   buttons.forEach((button) => { button.disabled = true; });
   result.className = "result-running";
+  renderAgentChain([]);
+  setAgentPrompt("Sending this run to the Kata agent. The exact prompt will appear here.");
   result.textContent = profile === "baseline"
-    ? "Running benign prompt through the NeMo agent; no host-connect tool is requested."
+    ? "Baseline: asking the Kata agent for a status summary. It must not open a shell."
     : profile === "host-reachability"
-      ? "Asking the Kata agent to test the fixed host endpoint with its single bounded tool."
-      : "Submitting an untrusted prompt-injection sample. The model may call the single bounded host-access tool or decline.";
+      ? "Authorized demo shell: we tell the Kata agent to call open_demo_shell. Bash stays in that pod. About one minute."
+      : "Untrusted note: sending attacker-shaped text that tells the Kata agent to open a shell.";
   try {
     const res = await fetch("/api/agent-runs", {
       method: "POST",
@@ -761,40 +814,43 @@ async function runAgentProfile(profile) {
     if (data.scenario_run_id !== scenarioRunId) {
       throw new Error("agent run correlation mismatch");
     }
-    const toolOutcome = data.tool_result?.outcome;
-    const confirmedBlock = Boolean(data.correlated_alert && data.argus_host_attempt_observed && data.policy_drop_observed);
+    renderAgentChain(data.evidence_chain);
+    setAgentPrompt(
+      data.instruction
+        ? data.instruction
+        : "The server did not return the prompt for this run."
+    );
     const expectedBaseline = profile === "baseline" && data.status === "no-tool-call";
-    const unexpectedlyConnected = toolOutcome === "connected" && !confirmedBlock;
-    result.className = confirmedBlock || expectedBaseline
+    const injectionMiss = profile === "prompt-injection" && data.status === "no-tool-call";
+    const shellObserved = Boolean(data.working_shell && data.argus_host_attempt_observed);
+    result.className = expectedBaseline || shellObserved
       ? "result-success"
-      : unexpectedlyConnected
-        ? "result-failed"
-        : "result-inconclusive";
-    const attemptSummary = toolOutcome === "not-authorized-for-this-profile"
-      ? "The model selected the tool, but the server profile gate prevented any connection attempt."
-      : data.authenticated_tool_report_observed && data.tool_result?.destination_ip
-        ? `Tool outcome: ${toolOutcome}; destination ${data.tool_result.destination_ip}:${data.tool_result.destination_port}. A timeout is not, by itself, proof of policy enforcement.`
-        : "No authenticated host-access report was received; the agent may have declined or its tool/report call may have failed.";
+      : injectionMiss || data.status === "tool-called" || data.status === "shell-connected"
+        ? "result-inconclusive"
+        : "result-failed";
     const argusEvent = data.argus_host_attempt_event;
     const argusSummary = argusEvent
-      ? `${argusEvent.activity_name} · ${argusEvent.connection_state || "state unknown"} · ${argusEvent.source_ip}:${argusEvent.source_port} → ${argusEvent.destination_ip}:${argusEvent.destination_port} · process=${argusEvent.process_name || argusEvent.process_command} · pod=${argusEvent.pod_name || "not enriched"} · event=${argusEvent.id}`
-      : "No matching native Argus TCP event was observed during this run.";
+      ? `${argusEvent.message_type || "EVENT"} · ${argusEvent.severity || "unspecified"} · ${argusEvent.activity_name} · process=${argusEvent.process_name || argusEvent.process_command || "unknown"} · pod=${argusEvent.pod_name || "not enriched"} · event=${argusEvent.id}`
+      : "No matching native Argus event was observed during this run.";
+    const listenerOutput = (data.listener_session?.output || "").trim();
     const scenarioChecks = profile === "baseline"
-      ? [`Baseline: ${expectedBaseline ? "PASS — no host-access tool call" : "INCONCLUSIVE — inspect agent response"}`]
+      ? [`Baseline: ${expectedBaseline ? "PASS — completed without a shell" : "INCONCLUSIVE — inspect the tool result"}`]
       : [
           `1. Kata RuntimeClass: ${data.kata_runtime_ready ? "PASS — Ready pod" : "NOT PROVEN"} · pod=${data.agent_pod || "unknown"} · node=${data.agent_node || "unknown"} · RuntimeClass=${data.agent_runtime_class || "unknown"}`,
-          `2. Agent attempt: ${data.authenticated_tool_report_observed && data.tool_result?.source_port ? "PASS" : "NOT PROVEN"} · ${data.tool_result?.source_ip || "?"}:${data.tool_result?.source_port || "?"} → ${data.tool_result?.destination_ip || "?"}:${data.tool_result?.destination_port || "?"} · outcome=${toolOutcome || "no tool report"}`,
-          `3. OVN enforcement: ${data.policy_drop_observed ? "PASS — matching ACL drop" : "NOT PROVEN — no matching ACL drop"}`,
-          `4. Argus visibility: ${data.argus_host_attempt_observed ? "PASS — native TCP event" : "NOT PROVEN — no matching native event"}`,
-          `Verdict: ${confirmedBlock ? "PASS — attempted, observed by Argus, and blocked by OVN" : unexpectedlyConnected ? "FAIL — node connection succeeded" : "INCONCLUSIVE — inspect missing evidence above"}`,
+          `2. Agent tool call: ${data.authenticated_tool_report_observed && data.tool_result?.source_port ? "PASS" : "NOT PROVEN"} · ${data.tool_result?.source_ip || "no-source"}:${data.tool_result?.source_port || "none"} -> ${data.tool_result?.destination_ip || "no-dest"}:${data.tool_result?.destination_port || "none"} · outcome=${data.tool_result?.outcome || "no tool report"}`,
+          `3. Working shell: ${data.working_shell ? "PASS — canary received id output" : "NOT PROVEN"} · ${listenerOutput ? listenerOutput.slice(0, 180) : "no listener output"}`,
+          `4. Argus visibility: ${data.argus_host_attempt_observed ? "PASS — native event" : "NOT PROVEN — no matching native event"} · ${argusSummary}`,
+          `Verdict: ${shellObserved ? "PASS — attacker-steerable tool opened a remote shell, and Argus observed it" : injectionMiss ? "INCONCLUSIVE — model declined the injected instruction" : data.policy_drop_observed ? "INCONCLUSIVE — policy dropped the connection" : "INCONCLUSIVE — inspect missing evidence above"}`,
         ];
     result.textContent = [
       `Run ${scenarioRunId} · ${data.status}`,
       ...scenarioChecks,
-      attemptSummary,
-      `Native Argus evidence: ${argusSummary}`,
-      `OVN policy drop observed: ${data.policy_drop_observed ? "yes" : "no"}. ${data.message}`,
-      `Correlated demo alert: ${data.correlated_alert ? "triggered" : "not triggered"}.`,
+      data.message,
+      data.native_argus_alert
+        ? `Argus HIGH alert (message_type=ALERT and severity=HIGH): yes. The demo did not invent this.`
+        : argusEvent
+          ? `Argus HIGH alert (ALERT + HIGH): no. Argus did report ${argusEvent.message_type || "EVENT"} · ${argusEvent.severity || "unspecified"} · ${argusEvent.activity_name}. That is native visibility, not a HIGH detection. The demo did not invent an alert.`
+          : `Argus HIGH alert (ALERT + HIGH): no. No matching Argus event. The demo did not invent an alert.`,
       `Agent response: ${typeof data.agent_response === "string" ? data.agent_response : JSON.stringify(data.agent_response)}`,
     ].join("\n\n");
   } catch (error) {
@@ -802,7 +858,7 @@ async function runAgentProfile(profile) {
     result.textContent = `Agent run failed: ${error.message}`;
   } finally {
     demoActionInProgress = false;
-    document.querySelectorAll("button[data-scenario]").forEach((button) => { button.disabled = false; });
+    document.querySelectorAll("button[data-scenario], button[data-agent-profile]").forEach((button) => { button.disabled = false; });
     await refreshAgentStatus();
   }
 }

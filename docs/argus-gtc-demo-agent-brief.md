@@ -37,16 +37,14 @@ parse the documented common fields: `message_type`, `severity`,
 `occurred_message_time_iso_8601_ns`, `workload_information`,
 `container_context`, and `activity_data`. It publishes normalized events over
 SSE for the UI. No hostPath collector DaemonSet is required.
-- The prompt-injection demo uses a separate runc pod with NeMo Agent Toolkit.
-  Its only tool is a fixed TCP connect to the hosting node's `status.hostIP` on
-  TCP/31999; it accepts no model-supplied destination, sends no application
-  data, and runs no commands. A scoped AdminNetworkPolicy denies that flow.
-- Argus may report process/TCP activity from the agent pod, but it does not
-  report OVN policy verdicts. A local ACL watcher forwards the matching OVN
-  `verdict=drop` record separately and labels it as OVN evidence.
-- The UI can raise a `CORRELATED_ALERT` only when the authenticated agent tool
-  report confirms a timed-out connection and the matching OVN ACL drop is
-  present. This derived demo alert is not presented as a native Argus alert.
+- The prompt-injection demo uses a separate Kata pod with NeMo Agent Toolkit.
+  Its only extra tool opens a bounded Bash session to a demo canary on the
+  hosting node's `status.hostIP` TCP/31999. The canary sends `id`. The tool
+  accepts no model-supplied destination. A scoped AdminNetworkPolicy allows
+  that canary port and denies other node egress.
+- Argus may report process/TCP activity from the agent pod, including a native
+  reverse-shell alert if the sensor emits one. The UI must show that native
+  event and its real severity and must not synthesize an Argus alert.
 
 1. **Kubernetes status adapter**
    - Watch DPUDeployment/DPUService readiness.
@@ -75,15 +73,15 @@ SSE for the UI. No hostPath collector DaemonSet is required.
      workload; keep the agent outside the guest.
    - Run NeMo Agent Toolkit's tool-calling agent against an operator-provided
      OpenAI-compatible model endpoint. Keep any model credential in a Secret.
-   - Expose exactly one tool, `check_host_access`, with a fixed host IP/port
+   - Expose exactly one extra tool, `open_demo_shell`, with a fixed host IP/port
      configured by the pod. The agent pod's normal egress is limited to the
-     demo server and cluster DNS.
-   - Use an AdminNetworkPolicy scoped to the agent pod to deny TCP/31999 to
-     node peers and enable OVN ACL logging. Preflight the API and priority
-     collision before deployment.
-   - Correlate Argus records during the run by agent pod and run id. A blocked
-     result is confirmed only by the matching OVN ACL `verdict=drop`; a TCP
-     timeout alone is not proof.
+     demo server, cluster DNS, TCP/443 for the model, and the canary port.
+   - Use an AdminNetworkPolicy scoped to the agent pod to allow TCP/31999 to
+     nodes and deny other node peers. Preflight the API and priority collision
+     before deployment.
+   - Correlate Argus records during the run by agent pod, socket tuple, and
+     `argus-gtc-agent-shell-<run-id>`. A working shell is confirmed by canary
+     `id` output; Argus detection requires a matching native event.
 
 ## Demo flow
 

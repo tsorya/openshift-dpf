@@ -136,8 +136,25 @@ function remove_legacy_hosted_collector() {
         -n "${DEMO_NAMESPACE}" --ignore-not-found
 }
 
+function agent_canary_egress_to() {
+    local worker_role ip
+    worker_role=$(kata_worker_role)
+    local blocks=""
+    while read -r ip; do
+        [ -z "${ip}" ] && continue
+        [[ "${ip}" == *:* ]] && continue
+        blocks="${blocks}        - ipBlock:"$'\n'"            cidr: ${ip}/32"$'\n'
+    done < <(oc get nodes -l "node-role.kubernetes.io/${worker_role}" -o jsonpath='{range .items[*]}{.status.addresses[?(@.type=="InternalIP")].address}{"\n"}{end}')
+    blocks="${blocks%$'\n'}"
+    if [ -z "${blocks}" ]; then
+        log "ERROR" "No IPv4 InternalIP found for ${worker_role} nodes; cannot scope agent canary egress"
+        exit 1
+    fi
+    printf '%s' "${blocks}"
+}
+
 function render_demo_manifests() {
-    local worker_role ingest_token ingest_token_hash server_url agent_token agent_token_hash model_key_hash agent_model_name
+    local worker_role ingest_token ingest_token_hash server_url agent_token agent_token_hash model_key_hash agent_model_name canary_egress
     worker_role=$(kata_worker_role)
     ingest_token="${ARGUS_GTC_INGEST_TOKEN:-$(openssl rand -hex 16)}"
     ingest_token_hash=$(printf '%s' "${ingest_token}" | sha256sum | awk '{print $1}')
@@ -145,6 +162,7 @@ function render_demo_manifests() {
     agent_token_hash=$(printf '%s' "${agent_token}" | sha256sum | awk '{print $1}')
     model_key_hash=$(printf '%s' "${ARGUS_GTC_MODEL_API_KEY:-}" | sha256sum | awk '{print $1}')
     agent_model_name="${ARGUS_GTC_MODEL_NAME:-unconfigured-model}"
+    canary_egress=$(agent_canary_egress_to)
     mkdir -p "${GENERATED_DEMO_DIR}"
 
     for manifest in "${DEMO_MANIFESTS_DIR}"/*.yaml; do
@@ -164,7 +182,8 @@ function render_demo_manifests() {
             "<ARGUS_GTC_MODEL_BASE_URL>" "${ARGUS_GTC_MODEL_BASE_URL:-}" \
             "<ARGUS_GTC_MODEL_NAME>" "${ARGUS_GTC_MODEL_NAME:-}" \
             "<ARGUS_GTC_AGENT_MODEL_NAME>" "${agent_model_name}" \
-            "<ARGUS_GTC_SERVER_URL>" "${server_url:-http://argus-gtc-demo.${DEMO_NAMESPACE}.svc:8080}"
+            "<ARGUS_GTC_SERVER_URL>" "${server_url:-http://argus-gtc-demo.${DEMO_NAMESPACE}.svc:8080}" \
+            "<ARGUS_GTC_CANARY_EGRESS_TO>" "${canary_egress}"
         chmod 600 "${out}"
         log "INFO" "Rendered ${out}"
     done
@@ -184,6 +203,7 @@ function wait_for_demo_ready() {
     retry 30 10 oc -n "${DEMO_NAMESPACE}" rollout status deploy/argus-gtc-demo --timeout=120s
     retry 30 10 oc -n "${DEMO_NAMESPACE}" rollout status deploy/invisible-vm --timeout=300s
     retry 30 10 oc -n "${DEMO_NAMESPACE}" rollout status deploy/argus-gtc-agent --timeout=300s
+    retry 30 10 oc -n "${DEMO_NAMESPACE}" rollout status deploy/argus-gtc-canary --timeout=120s
 }
 
 function deploy_argus_gtc_demo() {
@@ -221,12 +241,15 @@ function deploy_argus_gtc_demo() {
         --dry-run=client -o yaml | oc apply -f -
 
     apply_manifest "${GENERATED_DEMO_DIR}/05-demo-server.yaml" "true"
+    apply_manifest "${GENERATED_DEMO_DIR}/09-canary.yaml" "true"
     apply_manifest "${GENERATED_DEMO_DIR}/08-agent-host-access-deny.yaml" "true"
     wait_for_agent_network_policy_ready
     apply_manifest "${GENERATED_DEMO_DIR}/07-agent-networkpolicy.yaml" "true"
     apply_manifest "${GENERATED_DEMO_DIR}/06-agent.yaml" "true"
     oc -n "${DEMO_NAMESPACE}" set image deployment/argus-gtc-demo \
         server="${ARGUS_GTC_SERVER_IMAGE}"
+    oc -n "${DEMO_NAMESPACE}" set image deployment/argus-gtc-canary \
+        canary="${ARGUS_GTC_SERVER_IMAGE}"
 
     wait_for_demo_ready
 

