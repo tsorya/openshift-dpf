@@ -11,6 +11,8 @@ from pydantic import BaseModel, Field
 SCENARIO_LABELS: dict[str, str] = {
     "audit-evasion": "Audit Evasion Attempt (demo correlation)",
     "discovery": "Discovery (demo classification)",
+    "exec-memory": "Executable Memory (demo correlation)",
+    "phone-home": "Phone Home (demo correlation)",
     "reverse-shell": "Reverse Shell Simulation (demo classification)",
     "shell-history": "Shell History Tampering (demo classification)",
     "decoy-modify": "Decoy File Modification (demo classification)",
@@ -39,6 +41,8 @@ SCENARIO_SIGNATURES: dict[str, tuple[str, ...]] = {
         "runbook.txt",
         "ps aux",
     ),
+    "exec-memory": ("argus-gtc-exec_memory", "/scripts/exec-memory.py"),
+    "phone-home": ("argus-gtc-phone_home",),
     "reverse-shell": (
         "argus-gtc-reverse_shell",
         "argus-gtc-reverse-shell",
@@ -80,6 +84,8 @@ DEMO_POD_PREFIXES: tuple[str, ...] = (
 SCENARIO_POD_PREFIXES: dict[str, tuple[str, ...]] = {
     "audit-evasion": ("invisible-vm",),
     "discovery": ("invisible-vm",),
+    "exec-memory": ("invisible-vm",),
+    "phone-home": ("invisible-vm",),
     "compute-simulation": ("invisible-vm",),
     "shell-history": ("invisible-vm",),
     "decoy-modify": ("invisible-vm",),
@@ -98,6 +104,12 @@ SCENARIO_NATIVE_ALERTS: dict[str, tuple[str, ...]] = {
         "Shell History Cleared",
     ),
     "reverse-shell": ("Reverse Shell Detected",),
+}
+
+# Expected native Argus event metadata for the two evidence-gated scenes.
+SCENARIO_NATIVE_EVENTS: dict[str, tuple[str, str, str]] = {
+    "exec-memory": ("New Executable Anonymous Memory Mapped", "EVENT", "WARNING"),
+    "phone-home": ("Network Connection Created", "EVENT", "INFO"),
 }
 
 _HYPERVISOR_RE = re.compile(
@@ -296,6 +308,71 @@ def native_alert_matches_scenario(
     return is_demo_workload(event, scenario_id)
 
 
+def native_event_matches_scenario(
+    event: NormalizedEvent,
+    scenario_id: str,
+    scenario_marker: str,
+    scenario_run_id: str,
+    started_at: str,
+    target_pod: str,
+    target_ip: str | None = None,
+    target_port: int | None = None,
+) -> bool:
+    """Match a fresh raw Argus event to the exact demo workload and action."""
+    expected = SCENARIO_NATIVE_EVENTS.get(scenario_id)
+    if not expected or (
+        event.activity_name,
+        (event.message_type or "").upper(),
+        (event.severity or "").upper(),
+    ) != expected:
+        return False
+    if event.evidence_source in {"ovn-acl-audit", "demo-correlation", "canary-listener"}:
+        return False
+    if event.pod_name != target_pod or not target_pod.startswith("invisible-vm"):
+        return False
+    if event.scenario_run_id and event.scenario_run_id != scenario_run_id:
+        return False
+    marker_run_id = scenario_run_id_from_event(event, scenario_id)
+    if marker_run_id and marker_run_id != scenario_run_id:
+        return False
+
+    # A record ingested after the click can still describe an older activity.
+    # Require the native event timestamp, not merely its arrival time.
+    try:
+        occurred = datetime.fromisoformat((event.occurred_at or "").replace("Z", "+00:00"))
+        started = datetime.fromisoformat(started_at.replace("Z", "+00:00"))
+    except ValueError:
+        return False
+    if not occurred.tzinfo or not started.tzinfo or occurred < started:
+        return False
+
+    # The raw Argus activity must agree with the normalized record shown in
+    # the timeline; a demo-side synthetic label is never native evidence.
+    header = event.raw.get("message_header", event.raw)
+    if not isinstance(header, dict):
+        return False
+    activity = header.get("activity_data", event.raw.get("activity_data"))
+    if not isinstance(activity, dict):
+        return False
+    raw_name = str(activity.get("name") or "").replace("_", " ").title()
+    if raw_name != expected[0]:
+        return False
+
+    if scenario_id == "exec-memory":
+        process_text = " ".join(
+            part for part in (event.process_name, event.process_command) if part
+        )
+        return scenario_marker.lower() in process_text.lower()
+
+    return (
+        bool(target_ip)
+        and bool(target_port)
+        and (event.protocol or "").upper() in {"TCP", "6"}
+        and event.destination_ip == target_ip
+        and event.destination_port == target_port
+    )
+
+
 class ScenarioRequest(BaseModel):
     scenario_id: str
 
@@ -324,14 +401,38 @@ class NativeAlertResult(BaseModel):
         )
 
 
+class NativeEventResult(BaseModel):
+    activity_name: str | None = None
+    message_type: str | None = None
+    severity: str | None = None
+    occurred_at: str | None = None
+    process_name: str | None = None
+    process_command: str | None = None
+    pod_name: str | None = None
+    source_ip: str | None = None
+    source_port: int | None = None
+    destination_ip: str | None = None
+    destination_port: int | None = None
+    source_file: str | None = None
+
+    @classmethod
+    def from_event(cls, event: NormalizedEvent) -> NativeEventResult:
+        return cls(**event.model_dump(include=set(cls.model_fields)))
+
+
 class ScenarioResult(BaseModel):
     scenario_id: str
     scenario_run_id: str
-    status: Literal["native-alert", "no-native-alert", "started"]
+    status: Literal[
+        "native-alert", "no-native-alert", "native-event", "no-native-event", "started"
+    ]
     message: str
     started_at: str
     native_alert: NativeAlertResult | None = None
+    native_event: NativeEventResult | None = None
     scenario_marker: str | None = Field(default=None, exclude=True)
+    target_pod: str | None = Field(default=None, exclude=True)
+    target_ip: str | None = Field(default=None, exclude=True)
 
 
 class ContainResult(BaseModel):

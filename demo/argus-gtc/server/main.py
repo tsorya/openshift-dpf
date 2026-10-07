@@ -31,11 +31,14 @@ from .metrics_adapter import MetricsAdapter
 from .models import (
     ContainResult,
     NativeAlertResult,
+    NativeEventResult,
     SCENARIO_LABELS,
     SCENARIO_NATIVE_ALERTS,
+    SCENARIO_NATIVE_EVENTS,
     NormalizedEvent,
     native_agent_host_attempt_matches,
     native_alert_matches_scenario,
+    native_event_matches_scenario,
 )
 from .scenarios import ALLOWED_SCENARIOS, ScenarioController
 
@@ -43,6 +46,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("argus-gtc")
 
 NATIVE_ALERT_TIMEOUT_SECONDS = 45.0
+NATIVE_EVENT_TIMEOUT_SECONDS = 15.0
 AGENT_CONNECT_TIMEOUT_SECONDS = 70.0
 
 
@@ -377,7 +381,7 @@ def create_app() -> FastAPI:
             baseline_ids = app.state.store.event_ids()
             subscription = (
                 app.state.store.subscribe()
-                if scenario_id in SCENARIO_NATIVE_ALERTS
+                if scenario_id in SCENARIO_NATIVE_ALERTS or scenario_id in SCENARIO_NATIVE_EVENTS
                 else None
             )
             try:
@@ -415,7 +419,41 @@ def create_app() -> FastAPI:
                             "No native alert observed within 45 seconds. "
                             "Underlying INFO/EVENT records remain in the timeline."
                         )
-                return result.model_dump()
+                elif scenario_id in SCENARIO_NATIVE_EVENTS:
+                    if not result.scenario_marker or not result.target_pod:
+                        raise HTTPException(status_code=500, detail="scenario target was not recorded")
+                    native_event = await app.state.store.wait_for(
+                        lambda event: native_event_matches_scenario(
+                            event,
+                            scenario_id,
+                            result.scenario_marker,
+                            result.scenario_run_id,
+                            result.started_at,
+                            result.target_pod,
+                            result.target_ip,
+                            app.state.scenarios.settings.sink_port,
+                        ),
+                        timeout_seconds=NATIVE_EVENT_TIMEOUT_SECONDS,
+                        exclude_ids=baseline_ids,
+                        subscription=subscription,
+                    )
+                    if native_event:
+                        result.status = "native-event"
+                        result.message = (
+                            f"Native Argus {native_event.message_type}/{native_event.severity} "
+                            f"observed: {native_event.activity_name}"
+                        )
+                        result.native_event = NativeEventResult.from_event(native_event)
+                    else:
+                        result.status = "no-native-event"
+                        result.message = "No matching native Argus event observed within 15 seconds."
+                response = result.model_dump()
+                if scenario_id in SCENARIO_NATIVE_EVENTS:
+                    response["workload_pod"] = result.target_pod
+                    if scenario_id == "phone-home":
+                        response["sink_ip"] = result.target_ip
+                        response["sink_port"] = app.state.scenarios.settings.sink_port
+                return response
             finally:
                 if subscription is not None:
                     app.state.store.unsubscribe(subscription)

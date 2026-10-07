@@ -140,9 +140,9 @@
           <span class="section-kicker">Safe and repeatable</span>
           <h2>Bounded attack scenarios</h2>
         </div>
-        <span class="recommended-badge">Demo path: Reverse Shell</span>
+        <span class="recommended-badge">Demo path: 4 scenes</span>
       </div>
-      <p class="note action-note">The controller triggers an allowlisted action in the management-cluster Kata VM. Argus observes it from the HyperShift-hosted DPU cluster; success requires a native <strong>ALERT / HIGH</strong>.</p>
+      <p class="note action-note">Present Discovery → Executable Memory → Phone Home → Reverse Shell. The controller triggers allowlisted actions in the management-cluster Kata VM. Argus observes from the HyperShift-hosted DPU cluster. Evidence-gated results show the matching native event and its actual severity; only alert scenarios require <strong>ALERT / HIGH</strong>.</p>
       <div class="buttons">
         <div class="scenario-action">
           <button data-scenario="discovery">Run Discovery</button>
@@ -151,6 +151,24 @@
             <h3 id="info-discovery-title">Discovery</h3>
             <p class="info-does"><strong>What it does.</strong> Execs bounded recon inside the Kata VM: <code>uname -a</code>, <code>id</code>, <code>ps aux</code>, then reads planted decoys at <code>/decoys/credentials.txt</code> and <code>/decoys/runbook.txt</code>. Named marker processes <code>argus-gtc-discovery-*</code> bookend the action. No network, no privilege escalation.</p>
             <p class="info-expect"><strong>On the Kata timeline.</strong> Filter jumps to Discovery. Look for <code>INFO · EVENT</code> process create/terminate on <code>invisible-vm</code> with names like <code>argus-gtc-discovery-uname</code>, <code>-id</code>, <code>-ps</code>, <code>-decoys</code>, plus file-descriptor opens on those decoy paths. Demo classification “Discovery (demo classification)” — not a native HIGH/ALERT.</p>
+          </div>
+        </div>
+        <div class="scenario-action">
+          <button data-scenario="exec-memory">Inject Executable Memory</button>
+          <button type="button" class="info-sign" aria-expanded="false" aria-controls="info-exec-memory" data-info="exec-memory" title="What this scenario does">i</button>
+          <div id="info-exec-memory" class="scenario-info" hidden role="dialog" aria-labelledby="info-exec-memory-title">
+            <h3 id="info-exec-memory-title">Executable Memory</h3>
+            <p class="info-does"><strong>What it does.</strong> A Python process in <code>invisible-vm</code> writes inert bytes into an anonymous executable memory mapping and holds it for 45 seconds so Argus can sample it. It does not execute those bytes.</p>
+            <p class="info-expect"><strong>Native evidence.</strong> Look for <code>New Executable Anonymous Memory Mapped</code> with <code>message_type=EVENT</code> and <code>severity=WARNING</code>, attributed to this Kata workload and run marker. The result says “Native evidence observed” only when a matching Argus record arrives; otherwise it says “No native event observed.”</p>
+          </div>
+        </div>
+        <div class="scenario-action">
+          <button data-scenario="phone-home">Phone Home</button>
+          <button type="button" class="info-sign" aria-expanded="false" aria-controls="info-phone-home" data-info="phone-home" title="What this scenario does">i</button>
+          <div id="info-phone-home" class="scenario-info" hidden role="dialog" aria-labelledby="info-phone-home-title">
+            <h3 id="info-phone-home-title">Phone Home</h3>
+            <p class="info-does"><strong>What it does.</strong> Bash in <code>invisible-vm</code> opens a TCP connection to the in-namespace <code>scenario-sink</code> on port <code>4444</code>, sends this run ID, and holds the connection for 20 seconds. Shell input and output stay off the socket. NetworkPolicy confines traffic to the demo namespace.</p>
+            <p class="info-expect"><strong>Native evidence.</strong> Look for <code>Network Connection Created</code> with <code>message_type=EVENT</code> and <code>severity=INFO</code>, originating from this Kata workload and reaching the sink IP on port <code>4444</code>. This is process-to-network visibility, not a reverse-shell alert. The result reports whether a matching native Argus event arrived.</p>
           </div>
         </div>
         <div class="scenario-action">
@@ -259,6 +277,8 @@
             <option value="evidence" selected>Relevant evidence</option>
             <option value="demo">All demo workload events</option>
             <option value="discovery">Discovery</option>
+            <option value="exec-memory">Executable Memory</option>
+            <option value="phone-home">Phone Home</option>
             <option value="compute-simulation">Compute Simulation</option>
             <option value="audit-evasion">Audit Evasion Attempt</option>
             <option value="reverse-shell">Reverse Shell</option>
