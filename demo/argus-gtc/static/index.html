@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="theme-color" content="#111318" />
   <title>Invisible VM, Visible Threat — Argus GTC Demo</title>
-  <link rel="stylesheet" href="/assets/style.css?v=29" />
+  <link rel="stylesheet" href="/assets/style.css?v=33" />
 </head>
 <body class="guided-page">
   <header class="demo-header">
@@ -33,7 +33,7 @@
     <div class="demo-title">
       <p class="eyebrow">DOCA Argus · BlueField DPU · OpenShift DPF · Kata Containers</p>
       <h1>Invisible VM. <span>Visible Threat.</span></h1>
-      <p>Argus observes activity from the BlueField DPU, outside the isolated workload. The guest has no installed security agent; OpenShift identifies the workload so an operator can respond.</p>
+      <p id="demo-purpose">Argus watches the Kata VM from the BlueField DPU, without an in-guest security agent.</p>
     </div>
   </header>
 
@@ -44,64 +44,74 @@
           <span class="section-kicker" id="story-kicker">Guided story · Workload security</span>
           <p class="selected-workload">Selected workload <strong id="selected-workload">invisible-vm</strong></p>
         </div>
-        <span class="run-state" id="run-state" aria-live="polite">Ready</span>
+        <span class="run-state" id="run-state" aria-live="polite">Ready to begin</span>
       </div>
 
       <ol class="scene-progress" id="scene-progress" aria-label="Demo progress"></ol>
 
       <div class="scene-grid">
         <section class="scene-copy" aria-live="polite">
-          <span class="scene-kicker" id="scene-step-label">Setup</span>
-          <h2 id="scene-heading">Show the environment</h2>
-          <p id="scene-description">This application runs inside an isolated Kata VM. Argus runs separately on the BlueField DPU and observes workload activity without software installed in the guest.</p>
-          <p class="scene-purpose" id="scene-purpose">Start with the workload and independent observer. Then run a bounded action and review what Argus reports.</p>
-          <button type="button" class="primary-action" id="guided-action">Start demo · Show activity inside the VM</button>
-          <p class="action-hint" id="action-hint">Runs the bounded discovery scenario in invisible-vm.</p>
+          <span class="scene-kicker" id="scene-step-label">01 / Environment</span>
+          <h2 id="scene-heading">See where Argus runs</h2>
+          <p id="scene-description">The application is inside a Kata VM. Argus watches from the BlueField DPU, outside that VM.</p>
+          <p class="scene-purpose" id="scene-purpose">No security agent is installed inside the guest.</p>
+          <button type="button" class="primary-action" id="guided-action">Start demo</button>
+          <p class="action-hint" id="action-hint">Next, run a harmless activity inside invisible-vm.</p>
         </section>
 
         <figure class="architecture-card" aria-label="Selected isolated workload observed by Argus on the BlueField DPU">
-          <div class="architecture-title">Independent observation</div>
+          <div class="architecture-title">What runs where</div>
           <div class="architecture-lanes">
             <div class="architecture-boundary workload-boundary">
               <span class="boundary-label">Isolated workload · Kata VM</span>
               <strong id="diagram-workload">invisible-vm</strong>
-              <small id="diagram-workload-detail">Application activity · no in-guest security agent</small>
+              <small id="diagram-workload-detail">No in-guest security agent</small>
             </div>
-            <div class="architecture-link" aria-hidden="true"><span>activity observed</span><i></i></div>
+            <div class="architecture-link" aria-hidden="true"><span>observed by</span><i></i></div>
             <div class="architecture-boundary dpu-boundary">
               <span class="boundary-label">BlueField DPU</span>
               <strong>DOCA Argus</strong>
               <small>Independent security observer</small>
             </div>
           </div>
-          <div class="architecture-context">
-            <span><b>OpenShift</b> supplies workload identity</span>
-            <span id="diagram-destination"><b>Operator</b> can stop or restore invisible-vm</span>
-          </div>
-          <figcaption id="diagram-caption">The demo listener is an action destination. It is separate from the DPU observer.</figcaption>
+          <figcaption>OpenShift adds the workload name to the evidence.</figcaption>
         </figure>
       </div>
 
-      <section class="result-panel" aria-labelledby="result-heading">
+      <section class="readiness-panel" id="readiness-panel" aria-label="Live environment readiness">
+        <div><span>Selected VM</span><strong id="readiness-workload">Checking…</strong></div>
+        <div><span>Argus observer</span><strong id="readiness-argus">Checking…</strong></div>
+        <div><span>Latest Argus data</span><strong id="readiness-feed">Checking…</strong></div>
+      </section>
+
+      <section class="result-panel" id="result-panel" aria-labelledby="result-heading" hidden>
         <div class="result-heading-row">
           <div>
-            <span class="section-kicker">Independent evidence</span>
-            <h3 id="result-heading">What Argus observed</h3>
+            <span class="section-kicker" id="result-kicker">Scene result</span>
+            <h3 id="result-heading">What happened</h3>
           </div>
           <span class="result-workload" id="result-workload">invisible-vm</span>
         </div>
-        <p class="outcome-sentence" id="outcome-sentence" role="status" aria-live="polite">Ready when you are. The result will separate the requested action from Argus evidence.</p>
-        <dl class="result-facts" id="result-facts">
-          <div><dt>Action</dt><dd id="fact-action">Not started</dd></div>
-          <div><dt>Observation</dt><dd id="fact-observation">Waiting for a run</dd></div>
-          <div><dt>Alert</dt><dd id="fact-alert">Not reported</dd></div>
-          <div><dt>Response</dt><dd id="fact-response">Not requested</dd></div>
-        </dl>
-        <details class="supporting-evidence">
-          <summary>More evidence</summary>
-          <div id="guided-evidence-list" class="guided-evidence-list">
-            <p>No result for this run yet. Raw retained records are available in Technical view.</p>
+        <p class="outcome-sentence" id="outcome-sentence" role="status" aria-live="polite"></p>
+        <div class="proof-card" id="proof-card" hidden>
+          <div class="proof-copy">
+            <span class="section-kicker">Matching Argus record</span>
+            <strong id="proof-title"></strong>
+            <p id="proof-why"></p>
+            <small id="proof-meta"></small>
           </div>
+          <button type="button" class="secondary compact" id="proof-raw" hidden>View technical evidence</button>
+        </div>
+        <dl class="result-facts" id="result-facts">
+          <div><dt>Action</dt><dd id="fact-action"></dd></div>
+          <div id="canary-fact" hidden><dt>Shell check</dt><dd id="fact-canary"></dd></div>
+          <div><dt>Argus</dt><dd id="fact-observation"></dd></div>
+          <div><dt>Native alert</dt><dd id="fact-alert"></dd></div>
+          <div><dt>Response</dt><dd id="fact-response"></dd></div>
+        </dl>
+        <details class="supporting-evidence" id="supporting-evidence" hidden>
+          <summary>More evidence</summary>
+          <div id="guided-evidence-list" class="guided-evidence-list"></div>
         </details>
       </section>
 
@@ -109,7 +119,7 @@
         <div>
           <span class="section-kicker">OpenShift operator response</span>
           <h3>Stop the selected demo workload</h3>
-          <p>These controls target <strong id="response-target">invisible-vm</strong>. DPU and Argus remain separate.</p>
+          <p>Target: <strong id="response-target">invisible-vm</strong>. <span id="response-state">No response requested.</span></p>
         </div>
         <div class="response-controls">
           <button type="button" class="danger" id="guided-contain-btn">Stop demo workload</button>
@@ -119,8 +129,8 @@
 
       <nav class="scene-navigation" aria-label="Guided scene navigation">
         <button type="button" class="secondary" id="scene-prev" disabled>Previous</button>
-        <span id="scene-number">Scene 1 of 4</span>
-        <button type="button" class="secondary" id="scene-next">Next</button>
+        <span id="scene-number">1 of 5</span>
+        <button type="button" class="secondary" id="scene-next">Next: normal activity</button>
       </nav>
     </section>
   </main>
@@ -494,6 +504,6 @@
 
 
 
-  <script src="/assets/app.js?v=32"></script>
+  <script src="/assets/app.js?v=38"></script>
 </body>
 </html>
