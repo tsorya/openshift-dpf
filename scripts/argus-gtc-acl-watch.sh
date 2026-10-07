@@ -35,10 +35,10 @@ if [[ -z "${ovn_pod}" ]]; then
     exit 1
 fi
 
-echo "Watching ${ovn_pod} on ${agent_node} for the demo agent's TCP/31999 ANP drops. Ctrl-C to stop."
+echo "Watching ${ovn_pod} on ${agent_node} for demo-agent ANP denies (canary TCP/31999 is allowed). Ctrl-C to stop."
 oc exec -n openshift-ovn-kubernetes "${ovn_pod}" -c ovnkube-node -- \
     tail -n 0 -F /var/log/ovn/acl-audit-log.log |
-    awk '/name="ANP:argus-gtc-agent-host-access:Egress:1"/ && /verdict="?drop"?/ && /direction=from-lport/ && /tcp,/ && /tp_dst=31999([,]|$)/ { print; fflush() }' |
+    awk '/name="ANP:argus-gtc-agent-host-access:Egress:2"/ && /verdict="?drop"?/ && /direction=from-lport/ && /tcp,/ { print; fflush() }' |
     while IFS= read -r line; do
         payload="$(printf '%s' "${line}" | python3 -c 'import json, sys; print(json.dumps({"line": sys.stdin.read()}))')"
         curl --silent --show-error --fail --retry 3 --retry-delay 1 \

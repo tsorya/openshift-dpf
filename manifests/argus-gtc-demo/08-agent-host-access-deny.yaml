@@ -1,5 +1,6 @@
-# Block the Kata agent pod from reaching any cluster node. Its bounded demo
-# probe uses TCP/31999 so the ACL watcher can identify that attempt precisely.
+# Allow the Kata agent to reach only the demo canary NodePort on cluster
+# nodes, then deny every other node destination. ACL logging remains on the
+# deny rule so a misconfiguration still produces policy evidence.
 apiVersion: policy.networking.k8s.io/v1alpha1
 kind: AdminNetworkPolicy
 metadata:
@@ -17,6 +18,14 @@ spec:
         matchLabels:
           app: argus-gtc-agent
   egress:
+    - name: allow-agent-to-canary
+      action: Allow
+      to:
+        - nodes: {}
+      ports:
+        - portNumber:
+            protocol: TCP
+            port: 31999
     - name: deny-agent-to-cluster-nodes
       action: Deny
       to:

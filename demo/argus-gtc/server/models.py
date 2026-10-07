@@ -19,7 +19,7 @@ SCENARIO_LABELS: dict[str, str] = {
     "network-burst": "Network Burst (demo classification)",
     "compute-simulation": "Compute Simulation (demo classification)",
     "agent-baseline": "AI Agent Baseline (demo correlation)",
-    "host-access-attempt": "Kata Agent Host-Boundary Attempt (demo correlation)",
+    "host-access-attempt": "Kata Agent Demo Shell (demo correlation)",
 }
 
 # Distinctive process names / command fragments Argus may emit for each button.
@@ -72,7 +72,12 @@ SCENARIO_SIGNATURES: dict[str, tuple[str, ...]] = {
         "compute-done",
     ),
     "agent-baseline": (),
-    "host-access-attempt": ("check_host_access",),
+    "host-access-attempt": (
+        "open_demo_shell",
+        "argus-gtc-agent-shell-",
+        "bash --noprofile --norc -i",
+        "/dev/tcp/",
+    ),
 }
 
 # Pod name prefixes for the Kata workload and the scenario TCP sink.
@@ -104,6 +109,7 @@ SCENARIO_NATIVE_ALERTS: dict[str, tuple[str, ...]] = {
         "Shell History Cleared",
     ),
     "reverse-shell": ("Reverse Shell Detected",),
+    "host-access-attempt": ("Reverse Shell Detected",),
 }
 
 # Expected native Argus event metadata for the two evidence-gated scenes.
@@ -114,6 +120,17 @@ SCENARIO_NATIVE_EVENTS: dict[str, tuple[str, str, str]] = {
 
 _HYPERVISOR_RE = re.compile(
     r"(?:^|/)(kata-agent|virtiofsd|qemu-system[^/\s]*|cloud-hypervisor)(?:\s|$)",
+    re.IGNORECASE,
+)
+# NeMo/Dask forks inside the agent image. Argus raises MEDIUM
+# "Executable Permissions Removed" on every spawn; that is runtime noise.
+_AGENT_RUNTIME_NOISE_RE = re.compile(
+    r"multiprocessing[.-]fork|multiprocessing\.spawn|spawn_main\(|"
+    r"resource_tracker",
+    re.IGNORECASE,
+)
+_FALSE_REVERSE_SHELL_RE = re.compile(
+    r"nat serve|/usr/bin/pod(?:\s|$)",
     re.IGNORECASE,
 )
 
@@ -129,6 +146,7 @@ class NormalizedEvent(BaseModel):
     activity_name: str | None = None
     process_name: str | None = None
     process_command: str | None = None
+    process_hash_sha256: str | None = None
     protocol: str | None = None
     connection_state: str | None = None
     source_ip: str | None = None
@@ -153,8 +171,56 @@ AGENT_TCP_ACTIVITIES = frozenset(
         "network connection created",
         "network connection terminated",
         "tcp network connection state change",
+        "tcp network connection status",
     }
 )
+AGENT_PROCESS_ACTIVITIES = frozenset(
+    {
+        "process created",
+        "process terminated",
+        "process exec",
+    }
+)
+
+
+def agent_shell_marker(run_id: str) -> str:
+    return f"argus-gtc-agent-shell-{run_id}"
+
+
+def _event_on_agent_or_listener_pod(
+    event: NormalizedEvent,
+    pod_name: str | None,
+    pod_uid: str | None,
+) -> bool:
+    """Allow agent, canary, or unattributed guest events; reject other pods."""
+    event_pod = event.pod_name or ""
+    if not event_pod:
+        return True
+    if pod_name and event_pod == pod_name:
+        if pod_uid and event.pod_uid and event.pod_uid != pod_uid:
+            return False
+        return True
+    return event_pod.startswith("argus-gtc-canary")
+
+
+def _socket_belongs_to_agent_report(event: NormalizedEvent, report: Mapping[str, Any]) -> bool:
+    """Match the agent 5-tuple or the listener's reversed view after kube-proxy DNAT."""
+    source_ip = report.get("source_ip")
+    source_port = report.get("source_port")
+    destination_port = report.get("destination_port")
+    if not source_ip or not source_port or not destination_port:
+        return False
+    agent_side = (
+        event.source_ip == source_ip
+        and event.source_port == source_port
+        and event.destination_port == destination_port
+    )
+    listener_side = (
+        event.destination_ip == source_ip
+        and event.destination_port == source_port
+        and event.source_port == destination_port
+    )
+    return bool(agent_side or listener_side)
 
 
 def native_agent_host_attempt_matches(
@@ -173,22 +239,56 @@ def native_agent_host_attempt_matches(
         return False
     if event.scenario_run_id and event.scenario_run_id != run_id:
         return False
-    if pod_uid and event.pod_uid and event.pod_uid != pod_uid:
-        return False
-    if pod_name and event.pod_name and event.pod_name != pod_name:
+    if not _event_on_agent_or_listener_pod(event, pod_name, pod_uid):
         return False
     if not (event.process_name or event.process_command):
         return False
     if event.protocol and event.protocol.upper() not in {"TCP", "6"}:
         return False
-    source_port = report.get("source_port")
-    if not source_port or event.source_port != source_port:
+    return _socket_belongs_to_agent_report(event, report)
+
+
+def native_agent_shell_matches(
+    event: NormalizedEvent,
+    report: Mapping[str, Any],
+    pod_name: str | None,
+    pod_uid: str | None,
+    run_id: str,
+) -> bool:
+    """Match native Argus process or socket evidence for this agent shell run."""
+    if event.evidence_source in {"ovn-acl-audit", "demo-correlation", "canary-listener"}:
         return False
-    return bool(
-        event.source_ip == report.get("source_ip")
-        and event.destination_ip == report.get("destination_ip")
-        and event.destination_port == report.get("destination_port")
-    )
+    if event.scenario_run_id and event.scenario_run_id != run_id:
+        return False
+
+    if native_agent_host_attempt_matches(event, report, pod_name, pod_uid, run_id):
+        return True
+
+    if not _event_on_agent_or_listener_pod(event, pod_name, pod_uid):
+        return False
+    if (event.pod_name or "").startswith("argus-gtc-canary"):
+        return False
+
+    marker = agent_shell_marker(run_id)
+    text = _event_signature_text(event)
+    if marker in text or run_id in text:
+        return True
+
+    activity = (event.activity_name or "").casefold()
+    command = (event.process_command or "").lower()
+    if activity in AGENT_PROCESS_ACTIVITIES and (
+        marker in text or run_id in text or (
+            (event.process_name or "").lower() == "bash" and "noprofile" in command
+        )
+    ):
+        return True
+
+    if event.activity_name == "Reverse Shell Detected":
+        if pod_name and event.pod_name == pod_name:
+            return True
+        if marker in text or run_id in text:
+            return True
+    return False
 
 
 def _event_signature_text(event: NormalizedEvent) -> str:
@@ -219,10 +319,28 @@ def is_hypervisor_noise(event: NormalizedEvent) -> bool:
     return bool(_HYPERVISOR_RE.search(text))
 
 
+def is_runtime_noise(event: NormalizedEvent) -> bool:
+    """Hypervisor helpers, NAT fork workers, and piped false reverse shells."""
+    if is_hypervisor_noise(event):
+        return True
+    text = " ".join(
+        part for part in (event.process_name, event.process_command) if part
+    )
+    if _AGENT_RUNTIME_NOISE_RE.search(text):
+        return True
+    if (event.activity_name or "") == "Reverse Shell Detected":
+        lowered = text.lower()
+        if "argus-gtc-agent-shell-" in lowered or "/dev/tcp/" in lowered:
+            return False
+        if _FALSE_REVERSE_SHELL_RE.search(text):
+            return True
+    return False
+
+
 def is_demo_workload(
     event: NormalizedEvent, scenario_id: str | None = None
 ) -> bool:
-    if is_hypervisor_noise(event):
+    if is_runtime_noise(event):
         return False
     pod = (event.pod_name or "").lower()
     prefixes = SCENARIO_POD_PREFIXES.get(scenario_id or "", DEMO_POD_PREFIXES)
@@ -239,6 +357,8 @@ def classify_scenario(
     A running scenario must never stamp OpenShift system pods (node-resolver,
     MCD, node-exporter). Those share the worker with the Kata guest.
     """
+    if is_runtime_noise(event):
+        return None
     text = _event_signature_text(event)
     if active_scenario and is_native_high_alert(event):
         expected = SCENARIO_NATIVE_ALERTS.get(active_scenario, ())

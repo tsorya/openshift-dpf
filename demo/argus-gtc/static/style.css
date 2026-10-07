@@ -727,7 +727,7 @@ button.secondary {
 
 .agent-flow {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr) auto minmax(0, 1fr) auto minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr) auto minmax(0, 1fr) auto minmax(0, 1fr) auto minmax(0, 1fr);
   align-items: stretch;
   gap: 0.45rem;
 }
@@ -756,7 +756,108 @@ button.secondary {
 }
 
 .agent-flow-node.deny { border-color: rgba(255, 83, 100, 0.55); color: #ffadb5; }
+.agent-flow-node.observe { border-color: rgba(118, 185, 0, 0.55); color: #c6e48b; }
 .agent-flow-link { align-self: center; color: var(--accent-2); }
+
+.agent-chain {
+  display: grid;
+  gap: 0.35rem;
+  margin: 0.8rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+.agent-chain li {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 0.55rem;
+  align-items: start;
+  padding: 0.45rem 0.55rem;
+  border: 1px solid var(--panel-border);
+  border-radius: 10px;
+  background: rgba(3, 7, 12, 0.45);
+  font-size: 0.72rem;
+  line-height: 1.4;
+}
+.agent-chain .chain-step {
+  color: var(--muted);
+  font-size: 0.58rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  min-width: 7.5rem;
+}
+.agent-chain li.ok { border-color: rgba(79, 209, 139, 0.45); }
+.agent-chain li.miss { border-color: rgba(255, 193, 7, 0.45); }
+.agent-chain li.chain-instruction {
+  grid-template-columns: auto minmax(0, 1fr);
+}
+.agent-chain .chain-detail {
+  display: grid;
+  gap: 0.35rem;
+  min-width: 0;
+}
+.agent-chain .chain-caption {
+  color: var(--muted);
+}
+.agent-chain .chain-prompt,
+.agent-prompt-block pre {
+  margin: 0;
+  padding: 0.7rem 0.8rem;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.45);
+  color: #f2f7ff;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.78rem;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow: visible;
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+.agent-prompt-block {
+  display: grid;
+  gap: 0.4rem;
+  margin: 0.85rem 0 0.7rem;
+  padding: 0.65rem;
+  border: 1px solid rgba(53, 201, 255, 0.45);
+  border-radius: 12px;
+  background: rgba(8, 18, 32, 0.85);
+}
+.agent-prompt-block pre {
+  min-height: 7rem;
+}
+.agent-prompt-block .section-kicker {
+  margin: 0;
+}
+
+.agent-running {
+  display: grid;
+  gap: 0.55rem;
+  margin: 0 0 0.85rem;
+}
+.agent-running > div {
+  display: grid;
+  grid-template-columns: 7.2rem minmax(0, 1fr);
+  gap: 0.65rem;
+  padding: 0.45rem 0.55rem;
+  border: 1px solid var(--panel-border);
+  border-radius: 10px;
+  background: rgba(3, 7, 12, 0.45);
+}
+.agent-running dt {
+  margin: 0;
+  color: var(--accent-2);
+  font-size: 0.58rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.agent-running dd {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.72rem;
+  line-height: 1.4;
+}
 
 .agent-evidence-paths {
   display: grid;
@@ -771,8 +872,18 @@ button.secondary {
 .agent-controls {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.6rem;
+  gap: 0.75rem;
   margin-top: 0.85rem;
+}
+.agent-control {
+  display: grid;
+  gap: 0.3rem;
+  max-width: 16rem;
+}
+.agent-control small {
+  color: var(--muted);
+  font-size: 0.68rem;
+  line-height: 1.35;
 }
 
 .agent-footnote { margin: 0.6rem 0 0; font-size: 0.72rem; line-height: 1.45; }

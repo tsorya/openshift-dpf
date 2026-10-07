@@ -25,6 +25,8 @@ class Settings(BaseSettings):
     model_name: str = ""
     model_api_key: str = ""
     agent_host_access_port: int = 31999
+    shell_seconds: int = 20
+    canary_command: str = "id"
 
     activity_log_dir: str = "/var/log/doca_argus_activity_report"
     service_log_dir: str = "/var/log/doca_argus"
