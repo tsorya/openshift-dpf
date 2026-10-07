@@ -1,18 +1,20 @@
 # GTC Argus Agent Demo — Goal and Validation
 
-## What the demo should show
+## What the demo shows
 
-An attacker-controlled instruction steers the real NeMo Agent Toolkit agent to initiate a bounded connection from its Kata workload to a controlled in-cluster canary. DOCA Argus, running out of band on the DPU service plane, reports the agent process and its socket activity. The demo UI ties the agent run to the native Argus evidence.
+The primary story is a Kata workload with no in-guest security agent. DOCA Argus runs separately on the BlueField DPU and reports observed activity; OpenShift supplies workload identity. The scripted workload is `invisible-vm`.
 
-The evidence chain should be visible and independently verifiable:
+The separate AI story uses `argus-gtc-agent`, an AI application running in its own Kata VM. “Agent” here means the application, not a security agent installed inside the guest. The authorized tool-use scene asks that application to open a bounded shell to the configured `argus-gtc-canary` Service on TCP/31999. The workflow also has a pasted-note example that currently asks the application to complete the note. Describe it as note-driven tool use, not as a prompt-injection result.
 
-1. The agent receives the attacker-controlled instruction.
-2. The agent makes a tool call from its own Kata pod.
-3. The tool produces a real connection attempt to the configured demo target.
-4. Argus reports a matching native event for the workload process or socket.
-5. The UI shows the run ID, agent pod, connection result, raw Argus event, and alert severity.
+Keep these facts separate in the UI and when presenting:
 
-The claim is detection and workload visibility. A TCP connection by itself does not prove host command execution, a Kata escape, or containment. If the demo uses an interactive shell channel, any commands run through it execute in the agent workload context.
+1. An authenticated tool report establishes that the agent tool reported an attempt.
+2. A matching canary response containing `uid=` confirms the bounded shell session.
+3. A matching native Argus process/socket event establishes independent visibility.
+4. A native alert exists only when the Argus record itself has the required `message_type` and `severity`, including `ALERT/HIGH` for a HIGH claim.
+5. OVN policy evidence is separate. A timeout alone does not prove a policy deny.
+
+The two stories use separate workloads and evidence. The scripted workload’s stop/restore action targets `invisible-vm`; the current UI does not claim that this action contains `argus-gtc-agent`.
 
 ## Cluster access
 
@@ -38,7 +40,10 @@ oc --kubeconfig="$KUBECONFIG" -n argus-gtc-demo get route argus-gtc-demo
 
 A localhost port-forward is only a fallback when the Route certificate is untrusted in an embedded browser. It is not required for the demo.
 
-## Current observed state
+## Historical cluster snapshot
+
+The notes below are from an earlier read-only check. The check date was not recorded; re-check the cluster before relying on these values. This repository review did not exercise the deployed cluster.
+
 
 At the last read-only check:
 
@@ -75,9 +80,9 @@ curl -sS "$ROUTE/api/status"
 
 Before running an agent scenario, confirm `ready: true`, the expected Kata runtime, and `model_configured: true`. Configure the OpenAI-compatible base URL on the required deployments; keep credentials in the Kubernetes Secret.
 
-### 3. Run one host-reachability attempt
+### 3. Run one authorized demo-shell attempt
 
-Use a fresh run ID and save the JSON response. This asks the deployed agent workflow to run its bounded host-reachability scenario; it does not itself prove Argus detection.
+Use a fresh run ID and save the JSON response. This asks the deployed AI application to use its bounded demo-shell tool. It does not itself prove listener confirmation or Argus detection.
 
 ```bash
 run_id=$(python3 -c 'import secrets; print(secrets.token_hex(6))')
@@ -94,7 +99,7 @@ Inspect these response fields:
 - `policy_drop_observed` and `policy_evidence_source`: was there evidence of a network-policy drop?
 - `correlated_alert`: did the UI have a native alert to show?
 
-Treat `no-tool-call`, `authorization-unavailable`, or `model_configured: false` as an unsuccessful test setup, not as Argus detection.
+For the authorized shell request, `no-tool-call` means the requested tool action was not recorded; the baseline profile intentionally expects no shell-tool call. `authorization-unavailable` or `model_configured: false` indicate setup problems. None of these outcomes is Argus detection.
 
 ### 4. Inspect a small slice of the native event feed
 
@@ -111,19 +116,20 @@ oc --kubeconfig="$KUBECONFIG" -n argus-gtc-demo \
   logs deployment/argus-gtc-agent --since=5m --tail=100
 ```
 
-### 5. Success criteria
+### 5. Evidence criteria
 
-Call the demo successful only when all of these are true:
+Report the outcomes separately:
 
-- The deployed model-backed agent made the intended tool call from its Kata pod.
-- The connection result came from the configured demo target, with the scenario run ID recorded.
-- Raw Argus telemetry identifies matching workload process/socket activity.
-- The UI shows that native event and its real severity; do not synthesize an Argus alert from the agent response.
+- An authenticated tool report records the agent tool result and fixed configured destination.
+- The canary listener’s matching `uid=` output confirms a working shell. A TCP connection without listener output is not enough.
+- A matching native Argus event confirms independent observation. Show its actual activity, type, severity, workload, and run identity.
+- A native HIGH alert requires the matching raw record to contain `message_type=ALERT` and `severity=HIGH`. Do not infer it from the agent response or a process/socket event.
+- A matching OVN ACL audit record is policy evidence. A timeout alone is inconclusive.
 
-If the connection is denied, report the actual policy evidence. If the event feed has no matching native event, the Argus-detection claim has not been validated.
+If evidence is missing, keep that fact visible and narrow the claim accordingly.
 
 ## Implementation boundary
 
 Keep the target fixed to a demo-owned canary listener, bound the run duration, and scope any network allowance to the agent pod and that listener only. Do not disable the namespace's broad egress policy. Build container images on the laptop and push them to Quay; use the bastion only for cluster access and deployment. Avoid changes to the DPU or hosted cluster for this scenario.
 
-The current Reverse Shell Simulation button is a separate controller-triggered scenario in `invisible-vm`; it does not prove the AI agent initiated the action. The requested agent-originated flow must show the agent tool call and the resulting pod process/socket in native Argus telemetry.
+The Reverse Shell Simulation is a separate controller-triggered scenario in `invisible-vm`; it does not prove the AI application initiated an action. Keep its run identity and evidence separate from the `argus-gtc-agent` story.
