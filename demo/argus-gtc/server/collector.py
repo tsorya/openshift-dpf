@@ -23,17 +23,65 @@ logger = logging.getLogger(__name__)
 INITIAL_TAIL_BYTES = 512 * 1024
 MAX_READ_BYTES = 256 * 1024
 MAX_LOG_FILES_PER_POLL = 20
+MAX_SSE_REPLAY = 500
 
-ScenarioContext = tuple[str, str]
+ScenarioContext = tuple[str, str] | tuple[str, str, str | None]
 ScenarioLookup = Callable[[], ScenarioContext | str | None]
+
+
+class CollectorHealth:
+    """Read health, independent of whether the workload emitted an event."""
+
+    def __init__(self, source: str) -> None:
+        self.source = source
+        self.state = "starting"
+        self.last_attempt_at: str | None = None
+        self.last_success_at: str | None = None
+        self.last_error: str | None = None
+        self.consecutive_failures = 0
+
+    def success(self) -> None:
+        now = datetime.now(timezone.utc).isoformat()
+        self.state = "reading"
+        self.last_attempt_at = now
+        self.last_success_at = now
+        self.last_error = None
+        self.consecutive_failures = 0
+
+    def failure(self, reason: str) -> None:
+        self.state = "unavailable"
+        self.last_attempt_at = datetime.now(timezone.utc).isoformat()
+        self.last_error = reason[:240]
+        self.consecutive_failures += 1
+
+    def snapshot(self) -> dict[str, Any]:
+        return {
+            "source": self.source,
+            "state": self.state,
+            "last_attempt_at": self.last_attempt_at,
+            "last_success_at": self.last_success_at,
+            "last_error": self.last_error,
+            "consecutive_failures": self.consecutive_failures,
+        }
 
 
 def _scenario_context(
     value: ScenarioContext | str | None,
-) -> tuple[str | None, str | None]:
+) -> tuple[str | None, str | None, str | None]:
     if isinstance(value, tuple):
-        return value
-    return value, None
+        return value if len(value) == 3 else (value[0], value[1], None)
+    return value, None, None
+
+
+def _occurred_during_run(event: NormalizedEvent, started_at: str | None) -> bool:
+    if not started_at:
+        return True
+    try:
+        occurred = datetime.fromisoformat((event.occurred_at or "").replace("Z", "+00:00"))
+        started = datetime.fromisoformat(started_at.replace("Z", "+00:00"))
+        return bool(occurred.tzinfo and started.tzinfo and occurred >= started)
+    except ValueError:
+        return False
 
 
 def _as_dict(value: Any) -> dict[str, Any]:
@@ -210,6 +258,7 @@ class EventStore:
         self._evidence_ids: set[str] = set()
         self._subscribers: list[asyncio.Queue[NormalizedEvent]] = []
         self._last_event_at: datetime | None = None
+        self._last_native_occurred_at: datetime | None = None
         self._evicted_events = 0
         self._evicted_evidence = 0
         self._lock = asyncio.Lock()
@@ -218,6 +267,10 @@ class EventStore:
     def last_event_at(self) -> datetime | None:
         return self._last_event_at
 
+    @property
+    def last_native_occurred_at(self) -> datetime | None:
+        return self._last_native_occurred_at
+
     def list_events(self, limit: int = 100) -> list[NormalizedEvent]:
         items = list(self._events)
         return items[-limit:]
@@ -225,6 +278,15 @@ class EventStore:
     def list_evidence(self, limit: int = 100) -> list[NormalizedEvent]:
         items = list(self._evidence)
         return items[-limit:]
+
+    def events_after(self, cursor: str, limit: int = MAX_SSE_REPLAY) -> tuple[list[NormalizedEvent], bool]:
+        """Replay in ingestion order, or signal that retained history has a gap."""
+        items = list(self._events)
+        index = next((i for i, item in enumerate(items) if item.id == cursor), None)
+        if index is None:
+            return items[-limit:], True
+        remaining = items[index + 1 :]
+        return remaining[-limit:], len(remaining) > limit
 
     def stats(self) -> dict[str, Any]:
         oldest = self._events[0].received_at if self._events else None
@@ -271,8 +333,18 @@ class EventStore:
                     self._evicted_evidence += 1
                 self._evidence.append(event)
                 self._evidence_ids.add(event.id)
-            if event.evidence_source not in {"ovn-acl-audit", "demo-correlation"}:
+            if event.evidence_source not in {"ovn-acl-audit", "demo-correlation", "canary-listener"}:
                 self._last_event_at = datetime.now(timezone.utc)
+                if (event.message_type or "").upper() in {"EVENT", "ALERT"}:
+                    try:
+                        occurred = datetime.fromisoformat((event.occurred_at or "").replace("Z", "+00:00"))
+                        if occurred.tzinfo and (
+                            self._last_native_occurred_at is None
+                            or occurred > self._last_native_occurred_at
+                        ):
+                            self._last_native_occurred_at = occurred
+                    except ValueError:
+                        pass
             for queue in list(self._subscribers):
                 await queue.put(event)
             return True
@@ -356,14 +428,15 @@ class ArgusLogParser:
             self._seen_ids.add(message_id)
 
         event = normalize_argus_message(payload, source_file=source_file)
-        active_scenario, active_run_id = _scenario_context(self.scenario_lookup())
+        active_scenario, active_run_id, started_at = _scenario_context(self.scenario_lookup())
         classified = classify_scenario(event, active_scenario)
         if classified:
             event.scenario_id = classified
-            if classified == active_scenario:
-                marker_run_id = scenario_run_id_from_event(event, classified)
-                if marker_run_id in (None, active_run_id):
-                    event.scenario_run_id = active_run_id
+            marker_run_id = scenario_run_id_from_event(event, classified)
+            if marker_run_id:
+                event.scenario_run_id = marker_run_id
+            elif classified == active_scenario and _occurred_during_run(event, started_at):
+                event.scenario_run_id = active_run_id
             event.demo_label = SCENARIO_LABELS.get(classified)
         return event
 
@@ -388,6 +461,7 @@ class ArgusLogTailer:
         self.store = store
         self.parser = ArgusLogParser(scenario_lookup)
         self._offsets: dict[str, int] = {}
+        self.health = CollectorHealth("local Argus log files")
 
     def _iter_log_dirs(self) -> list[Path]:
         dirs = [Path(self.settings.activity_log_dir)]
@@ -398,6 +472,8 @@ class ArgusLogTailer:
     def _poll_once_sync(self) -> list[NormalizedEvent]:
         events: list[NormalizedEvent] = []
         candidates: list[tuple[float, Path]] = []
+        if not any(base.is_dir() for base in self._iter_log_dirs()):
+            raise RuntimeError("configured Argus log directories are unavailable")
         for base in self._iter_log_dirs():
             if not base.is_dir():
                 continue
@@ -409,6 +485,8 @@ class ArgusLogTailer:
                 except OSError:
                     continue
         candidates.sort(reverse=True)
+        pending_reads = 0
+        successful_reads = 0
         for _, path in candidates[:MAX_LOG_FILES_PER_POLL]:
             key = str(path)
             try:
@@ -419,22 +497,27 @@ class ArgusLogTailer:
             read_size = min(MAX_READ_BYTES, max(0, stat.st_size - offset))
             if read_size == 0:
                 continue
+            pending_reads += 1
             try:
                 with path.open("rb") as handle:
                     handle.seek(offset)
                     raw_chunk = handle.read(read_size)
                     self._offsets[key] = offset + len(raw_chunk)
+                successful_reads += 1
             except OSError as exc:
                 logger.debug("skip %s: %s", path, exc)
                 continue
             chunk = raw_chunk.decode("utf-8", errors="replace")
             events.extend(self.parser.parse_chunk(chunk, source_file=key))
+        if pending_reads and not successful_reads:
+            raise RuntimeError("Argus log files were listed but none could be read")
         return events
 
     async def poll_once(self) -> int:
         events = await asyncio.to_thread(self._poll_once_sync)
         for event in events:
             await self.store.add(event)
+        self.health.success()
         if events:
             logger.info("ingested %d argus events from local logs", len(events))
         return len(events)
@@ -443,7 +526,8 @@ class ArgusLogTailer:
         while not stop_event.is_set():
             try:
                 await self.poll_once()
-            except Exception:
+            except Exception as exc:
+                self.health.failure(f"local Argus log read failed: {exc}")
                 logger.exception("collector poll failed")
             await asyncio.sleep(self.settings.poll_interval_seconds)
 
@@ -461,6 +545,7 @@ class HostedArgusPodTailer:
         self.store = store
         self.parser = ArgusLogParser(scenario_lookup)
         self._offsets: dict[str, int] = {}
+        self.health = CollectorHealth("hosted Argus pod logs")
 
     def _hosted_clients(self) -> tuple[Any, Any] | None:
         if not self.settings.hosted_kubeconfig:
@@ -477,13 +562,18 @@ class HostedArgusPodTailer:
     def _poll_once_sync(self) -> list[NormalizedEvent]:
         clients = self._hosted_clients()
         if not clients:
-            return []
+            raise RuntimeError("hosted cluster client is unavailable")
         core, _k8s_client = clients
         from kubernetes.stream import stream
 
         pods = core.list_namespaced_pod(namespace=self.settings.dpf_namespace).items
         argus_pods = [p for p in pods if p.metadata.name and "doca-argus" in p.metadata.name]
+        if not argus_pods:
+            raise RuntimeError("no Argus pods found in the hosted cluster")
         events: list[NormalizedEvent] = []
+        readable_pods = 0
+        pending_reads = 0
+        successful_reads = 0
         list_cmd = (
             "find /var/log/doca_argus_activity_report -type f "
             "-name 'doca_argus_log*.log' ! -name '*.gz' -printf '%T@ %s %p\\n' 2>/dev/null "
@@ -507,6 +597,7 @@ class HostedArgusPodTailer:
             except Exception:
                 logger.exception("failed to list argus logs in %s", pod.metadata.name)
                 continue
+            readable_pods += 1
             for line in listing.splitlines():
                 parts = line.strip().split(" ", 2)
                 if len(parts) != 3:
@@ -521,6 +612,7 @@ class HostedArgusPodTailer:
                 read_size = min(MAX_READ_BYTES, max(0, size - offset))
                 if read_size == 0:
                     continue
+                pending_reads += 1
                 tail_cmd = (
                     f"tail -c +{offset + 1} '{path}' 2>/dev/null | head -c {read_size}"
                 )
@@ -537,16 +629,22 @@ class HostedArgusPodTailer:
                     )
                 except Exception:
                     continue
+                successful_reads += 1
                 if not chunk:
                     continue
                 self._offsets[key] = offset + len(chunk.encode("utf-8", errors="ignore"))
                 events.extend(self.parser.parse_chunk(chunk, source_file=key))
+        if not readable_pods:
+            raise RuntimeError("Argus pod logs could not be read")
+        if pending_reads and not successful_reads:
+            raise RuntimeError("Argus log files were listed but none could be read")
         return events
 
     async def poll_once(self) -> int:
         events = await asyncio.to_thread(self._poll_once_sync)
         for event in events:
             await self.store.add(event)
+        self.health.success()
         if events:
             logger.info("ingested %d argus events from hosted cluster", len(events))
         return len(events)
@@ -555,7 +653,8 @@ class HostedArgusPodTailer:
         while not stop_event.is_set():
             try:
                 await self.poll_once()
-            except Exception:
+            except Exception as exc:
+                self.health.failure(f"hosted Argus pod log read failed: {exc}")
                 logger.exception("hosted pod tailer failed")
             await asyncio.sleep(self.settings.poll_interval_seconds)
 
@@ -579,7 +678,7 @@ class RemoteCollectorClient:
                 payload,
                 source_file=item.get("source_file"),
             )
-            active_scenario, active_run_id = _scenario_context(self.scenario_lookup())
+            active_scenario, active_run_id, started_at = _scenario_context(self.scenario_lookup())
             classified = classify_scenario(
                 event,
                 active_scenario or item.get("scenario_id"),
@@ -587,13 +686,11 @@ class RemoteCollectorClient:
             if classified:
                 event.scenario_id = classified
                 item_run_id = item.get("scenario_run_id")
-                if classified == active_scenario:
-                    marker_run_id = scenario_run_id_from_event(event, classified)
-                    if (
-                        item_run_id in (None, active_run_id)
-                        and marker_run_id in (None, active_run_id)
-                    ):
-                        event.scenario_run_id = active_run_id
+                marker_run_id = scenario_run_id_from_event(event, classified)
+                if marker_run_id:
+                    event.scenario_run_id = marker_run_id
+                elif classified == active_scenario and _occurred_during_run(event, started_at):
+                    event.scenario_run_id = active_run_id if item_run_id in (None, active_run_id) else item_run_id
                 else:
                     event.scenario_run_id = item_run_id
                 event.demo_label = item.get("demo_label") or SCENARIO_LABELS.get(classified)
@@ -610,7 +707,13 @@ class RemoteCollectorClient:
         url = self.settings.collector_url.rstrip("/") + "/api/events/ingest"
         async with httpx.AsyncClient(timeout=10.0, verify=False) as client:
             while not stop_event.is_set():
-                await tailer.poll_once()
+                try:
+                    await tailer.poll_once()
+                except Exception as exc:
+                    tailer.health.failure(f"local Argus log read failed: {exc}")
+                    logger.exception("collector poll failed before forwarding")
+                    await asyncio.sleep(self.settings.poll_interval_seconds)
+                    continue
                 batch = [event.model_dump() for event in self.store.list_events(50)]
                 if batch:
                     try:
@@ -620,13 +723,19 @@ class RemoteCollectorClient:
                 await asyncio.sleep(self.settings.poll_interval_seconds)
 
 
-async def sse_stream(store: EventStore) -> AsyncIterator[dict[str, str]]:
+async def sse_stream(store: EventStore, cursor: str | None = None) -> AsyncIterator[dict[str, str]]:
     queue = store.subscribe()
     try:
-        for event in store.list_events(25):
-            yield {"event": "argus", "data": event.model_dump_json()}
+        replay, gap = store.events_after(cursor) if cursor else (store.list_events(25), False)
+        if gap:
+            yield {
+                "event": "history-gap",
+                "data": json.dumps({"reason": "cursor unavailable or replay limit exceeded", "retention": store.stats()}),
+            }
+        for event in replay:
+            yield {"event": "argus", "id": event.id, "data": event.model_dump_json()}
         while True:
             event = await queue.get()
-            yield {"event": "argus", "data": event.model_dump_json()}
+            yield {"event": "argus", "id": event.id, "data": event.model_dump_json()}
     finally:
         store.unsubscribe(queue)

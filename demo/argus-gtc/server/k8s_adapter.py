@@ -57,7 +57,10 @@ class K8sAdapter:
             label_selector=f"app={self.settings.workload_name}",
         ).items
         for pod in pods:
-            if pod.status and pod.status.phase != "Succeeded":
+            if (
+                pod.status
+                and pod.status.phase in {"Running", "Pending", "Unknown"}
+            ):
                 return self._pod_summary(pod)
         return None
 
@@ -98,14 +101,59 @@ class K8sAdapter:
                 name=self.settings.workload_name,
                 namespace=self.settings.namespace,
             )
-        except ApiException:
-            return {"replicas": 0, "ready": 0, "available": 0}
+        except ApiException as exc:
+            if exc.status != 404:
+                raise
+            return {"exists": False, "replicas": 0, "ready": 0, "available": 0}
         status = deploy.status
         return {
+            "exists": True,
             "replicas": deploy.spec.replicas,
             "ready": status.ready_replicas or 0 if status else 0,
             "available": status.available_replicas or 0 if status else 0,
         }
+
+    def get_workload_state(self) -> dict[str, Any]:
+        deployment = self.apps.read_namespaced_deployment(
+            name=self.settings.workload_name,
+            namespace=self.settings.namespace,
+        )
+        pods = self.core.list_namespaced_pod(
+            namespace=self.settings.namespace,
+            label_selector=f"app={self.settings.workload_name}",
+        ).items
+        status = deployment.status
+        active_pods = [
+            pod
+            for pod in pods
+            if pod.status and pod.status.phase not in {"Succeeded", "Failed"}
+        ]
+        ready_pods = [
+            pod
+            for pod in active_pods
+            if pod.status
+            and pod.status.phase == "Running"
+            and any(
+                condition.type == "Ready" and condition.status == "True"
+                for condition in (pod.status.conditions or [])
+            )
+        ]
+        observed = {
+            "desired_replicas": deployment.spec.replicas or 0,
+            "ready_replicas": status.ready_replicas or 0 if status else 0,
+            "available_replicas": status.available_replicas or 0 if status else 0,
+            "active_pods": [pod.metadata.name for pod in active_pods],
+            "ready_pods": [pod.metadata.name for pod in ready_pods],
+        }
+        observed["stopped"] = (
+            observed["desired_replicas"] == 0 and not active_pods
+        )
+        observed["ready"] = (
+            observed["desired_replicas"] > 0
+            and observed["available_replicas"] > 0
+            and bool(ready_pods)
+        )
+        return observed
 
     def get_agent_deployment_status(self) -> dict[str, Any]:
         try:
@@ -222,8 +270,10 @@ class K8sAdapter:
         kata_state = "Absent"
         vf_state = "Unknown"
 
-        if deploy.get("replicas", 0) == 0:
-            kata_state = "Contained"
+        if not deploy.get("exists", True):
+            kata_state = "Absent"
+        elif deploy.get("replicas", 0) == 0:
+            kata_state = "Stopping" if pod else "Stopped"
         elif pod and pod.get("ready"):
             kata_state = "Ready" if pod.get("runtime_class") == self.settings.kata_runtime_class else "Running"
             reqs = pod.get("resource_requests") or []

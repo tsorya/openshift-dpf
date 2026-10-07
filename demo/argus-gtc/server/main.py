@@ -10,6 +10,7 @@ from datetime import datetime, timezone
 from hmac import compare_digest
 from pathlib import Path
 from typing import Any, Literal
+from uuid import uuid4
 
 import httpx
 from fastapi import FastAPI, Header, HTTPException, Request
@@ -29,7 +30,6 @@ from .config import Settings, get_settings
 from .k8s_adapter import K8sAdapter
 from .metrics_adapter import MetricsAdapter
 from .models import (
-    ContainResult,
     NativeAlertResult,
     NativeEventResult,
     SCENARIO_LABELS,
@@ -42,6 +42,7 @@ from .models import (
     native_event_matches_scenario,
 )
 from .scenarios import ALLOWED_SCENARIOS, ScenarioController
+from .scenario_catalog import SCENARIO_CATALOG
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("argus-gtc")
@@ -59,7 +60,7 @@ class IngestBody(BaseModel):
 
 class AgentRunRequest(BaseModel):
     scenario_run_id: str
-    profile: Literal["baseline", "host-reachability", "prompt-injection"]
+    profile: Literal["baseline", "host-reachability", "note-driven", "prompt-injection"]
 
 
 def build_agent_request_message(profile: str, run_id: str) -> str:
@@ -155,11 +156,11 @@ def _agent_evidence_chain(
     argus_event: NormalizedEvent | None,
 ) -> list[dict[str, Any]]:
     instruction_label = (
-        "benign operator task"
+        "routine status request"
         if profile == "baseline"
-        else "authorized demo shell task"
+        else "authorized demo shell request"
         if profile == "host-reachability"
-        else "attacker-controlled note"
+        else "pasted maintenance note; current workflow asks the agent to complete it"
     )
     tool_ok = bool(tool_result and tool_result.get("source_port"))
     listener_ok = bool(listener_session and listener_session.get("working_shell"))
@@ -173,36 +174,50 @@ def _agent_evidence_chain(
         {
             "step": "tool_call",
             "ok": tool_ok,
+            "applicable": True,
+            "expected_absent": profile == "baseline" and not tool_ok,
             "detail": (
                 f"{tool_result.get('tool_name', 'open_demo_shell')} "
                 f"{tool_result.get('source_ip')}:{tool_result.get('source_port')} → "
                 f"{tool_result.get('destination_ip')}:{tool_result.get('destination_port')}"
                 if tool_ok
+                else "no shell-tool call recorded (expected for baseline)"
+                if profile == "baseline"
                 else "the agent did not call the demo shell tool"
             ),
         },
         {
             "step": "shell_connection",
             "ok": bool(tool_result and tool_result.get("outcome") == "connected"),
+            "applicable": profile != "baseline",
+            "expected_absent": False,
             "detail": (
                 f"outcome {tool_result.get('outcome')} · process {tool_result.get('process_name')}"
                 if tool_result
+                else "not applicable to the status-summary baseline"
+                if profile == "baseline"
                 else "no shell connection"
             ),
         },
         {
             "step": "listener_response",
             "ok": listener_ok,
+            "applicable": profile != "baseline",
+            "expected_absent": False,
             "detail": (
                 f"canary sent {listener_session.get('command')}; received "
                 f"{(listener_session.get('output') or '').strip()[:180]}"
                 if listener_ok
+                else "not applicable to the status-summary baseline"
+                if profile == "baseline"
                 else "canary did not record id output"
             ),
         },
         {
             "step": "argus_event",
             "ok": argus_event is not None,
+            "applicable": profile != "baseline",
+            "expected_absent": False,
             "detail": (
                 f"{argus_event.message_type} · {argus_event.severity} · "
                 f"{argus_event.activity_name}"
@@ -217,6 +232,8 @@ def _agent_evidence_chain(
                     else ""
                 )
                 if argus_event
+                else "not applicable to the status-summary baseline"
+                if profile == "baseline"
                 else "no matching native Argus event"
             ),
             "value": (
@@ -224,6 +241,73 @@ def _agent_evidence_chain(
             ),
         },
     ]
+
+
+async def _wait_for_workload_state(k8s: K8sAdapter, *, stopped: bool) -> dict[str, Any]:
+    deadline = asyncio.get_running_loop().time() + 90.0
+    observed: dict[str, Any] = {}
+    while True:
+        observed = await asyncio.to_thread(k8s.get_workload_state)
+        complete = bool(observed.get("stopped" if stopped else "ready"))
+        if complete or asyncio.get_running_loop().time() >= deadline:
+            return {"complete": complete, "observed": observed}
+        await asyncio.sleep(1.0)
+
+
+def _start_demo_run(
+    app: FastAPI,
+    *,
+    run_id: str,
+    scenario_id: str,
+    profile: str | None,
+    workload: str,
+    observes: bool,
+) -> None:
+    now = datetime.now(timezone.utc).isoformat()
+    app.state.demo_run_state = {
+        "run_id": run_id,
+        "scenario_id": scenario_id,
+        "profile": "note-driven" if profile == "prompt-injection" else profile,
+        "workload": workload,
+        "phase": "action",
+        "action_status": "running",
+        "observation_status": "waiting" if observes else "not_checked",
+        "native_alert": None,
+        "message": "Action is running.",
+        "started_at": now,
+        "updated_at": now,
+        "result": None,
+    }
+
+
+def _update_demo_run(app: FastAPI, run_id: str, **changes: Any) -> None:
+    state = app.state.demo_run_state
+    if not state or state.get("run_id") != run_id:
+        return
+    state.update(changes)
+    state["updated_at"] = datetime.now(timezone.utc).isoformat()
+
+
+def _run_result_snapshot(kind: str, response: dict[str, Any]) -> dict[str, Any]:
+    if kind == "scenario":
+        fields = (
+            "scenario_id", "scenario_run_id", "status", "message", "started_at",
+            "native_alert", "native_event", "workload_pod", "sink_ip", "sink_port",
+        )
+    else:
+        fields = (
+            "scenario_id", "scenario_run_id", "profile", "status", "agent_pod",
+            "agent_pod_uid", "agent_node", "agent_runtime_class", "kata_runtime_ready",
+            "tool_result", "listener_session", "working_shell",
+            "authenticated_tool_report_observed", "argus_events_observed",
+            "argus_host_attempt_observed", "argus_host_attempt_event",
+            "native_argus_alert", "policy_drop_observed", "policy_evidence_source",
+            "message",
+        )
+    snapshot = {key: response[key] for key in fields if key in response}
+    if kind == "agent" and snapshot.get("profile") == "prompt-injection":
+        snapshot["profile"] = "note-driven"
+    return snapshot
 
 
 @asynccontextmanager
@@ -240,6 +324,7 @@ async def lifespan(app: FastAPI):
             store,
             scenario_lookup=lambda: None,
         )
+        app.state.collector = tailer
         forwarder = RemoteCollectorClient(settings, store)
         if settings.collector_url:
             tasks.append(asyncio.create_task(forwarder.forward_loop(stop_event, tailer)))
@@ -251,6 +336,7 @@ async def lifespan(app: FastAPI):
             store,
             scenario_lookup=lambda: app.state.scenarios.active_scenario_context,
         )
+        app.state.collector = hosted_tailer
         tasks.append(asyncio.create_task(hosted_tailer.run(stop_event)))
 
     app.state.background_tasks = tasks
@@ -279,6 +365,8 @@ def create_app() -> FastAPI:
     app.state.metrics = MetricsAdapter(settings)
     app.state.scenarios = ScenarioController(settings)
     app.state.scenario_lock = asyncio.Lock()
+    app.state.server_instance_id = uuid4().hex
+    app.state.demo_run_state = None
     app.state.agent_tool_results = {}
     app.state.shell_sessions = {}
     app.state.unassigned_shell_sessions: list[dict[str, Any]] = []
@@ -293,6 +381,7 @@ def create_app() -> FastAPI:
         app.mount("/assets", StaticFiles(directory=static_dir), name="assets")
 
     @app.get("/")
+    @app.get("/agent")
     async def index() -> FileResponse:
         index_path = static_dir / "index.html"
         if not index_path.is_file():
@@ -305,6 +394,14 @@ def create_app() -> FastAPI:
     @app.get("/api/health")
     async def health() -> dict[str, str]:
         return {"status": "ok", "role": settings.role}
+
+    @app.get("/api/demo/run-state")
+    async def demo_run_state() -> dict[str, Any]:
+        state = app.state.demo_run_state
+        return {
+            "server_instance_id": app.state.server_instance_id,
+            "run": dict(state) if state else None,
+        }
 
     @app.get("/api/agent/status")
     async def agent_status() -> dict[str, Any]:
@@ -395,6 +492,19 @@ def create_app() -> FastAPI:
         result["tool_name"] = "open_demo_shell"
         result["scenario_id"] = context[0]
         app.state.agent_tool_results[body.scenario_run_id] = result
+        _update_demo_run(
+            app,
+            body.scenario_run_id,
+            action_status="tool_reported",
+            tool_result={
+                "outcome": body.outcome,
+                "source_ip": body.source_ip,
+                "source_port": body.source_port,
+                "destination_ip": body.destination_ip,
+                "destination_port": body.destination_port,
+            },
+            message="Authenticated tool report received; listener and Argus evidence are separate checks.",
+        )
         _attach_shell_session(app, body.scenario_run_id, result)
         return {"recorded": True}
 
@@ -423,6 +533,12 @@ def create_app() -> FastAPI:
             tool = app.state.agent_tool_results.get(context[1])
             if _shell_session_matches_tool(session, tool):
                 app.state.shell_sessions[context[1]] = session
+                _update_demo_run(
+                    app,
+                    context[1],
+                    listener_status="confirmed" if session["working_shell"] else "not_confirmed",
+                    message="Canary listener response received; matching Argus evidence is checked separately.",
+                )
                 return {"recorded": True, "scenario_run_id": context[1]}
         app.state.unassigned_shell_sessions.append(session)
         app.state.unassigned_shell_sessions = app.state.unassigned_shell_sessions[-32:]
@@ -444,6 +560,14 @@ def create_app() -> FastAPI:
             and context[0] == "host-access-attempt"
             and context[1] == body.scenario_run_id
         )
+        if allowed:
+            _update_demo_run(
+                app,
+                body.scenario_run_id,
+                phase="action",
+                action_status="tool_authorized",
+                message="The server authorized the bounded tool for this active run.",
+            )
         return {"authorized": allowed}
 
     @app.post("/api/agent-runs/policy-evidence")
@@ -507,7 +631,25 @@ def create_app() -> FastAPI:
             app.state.store.last_event_at,
             dts_health,
         )
-        return ribbon.model_dump()
+        result = ribbon.model_dump()
+        collector = getattr(app.state, "collector", None)
+        result["collector"] = collector.health.snapshot() if collector else {
+            "state": "starting", "source": "Argus logs"
+        }
+        result["latest_native_occurred_at"] = (
+            app.state.store.last_native_occurred_at.isoformat()
+            if app.state.store.last_native_occurred_at else None
+        )
+        result["latest_native_received_at"] = (
+            app.state.store.last_event_at.isoformat()
+            if app.state.store.last_event_at else None
+        )
+        result["server_instance_id"] = app.state.server_instance_id
+        result["retention"] = {
+            **app.state.store.stats(),
+            "server_instance_id": app.state.server_instance_id,
+        }
+        return result
 
     @app.get("/api/events")
     async def events(limit: int = 100, evidence_limit: int = 100) -> dict[str, Any]:
@@ -518,12 +660,16 @@ def create_app() -> FastAPI:
         return {
             "events": [item.model_dump() for item in items],
             "evidence": [item.model_dump() for item in evidence],
-            "retention": app.state.store.stats(),
+            "retention": {
+                **app.state.store.stats(),
+                "server_instance_id": app.state.server_instance_id,
+            },
         }
 
     @app.get("/api/events/stream")
-    async def events_stream():
-        return EventSourceResponse(sse_stream(app.state.store))
+    async def events_stream(request: Request, last_event_id: str | None = None):
+        cursor = last_event_id or request.headers.get("last-event-id")
+        return EventSourceResponse(sse_stream(app.state.store, cursor))
 
     @app.post("/api/events/ingest")
     async def ingest(
@@ -543,9 +689,10 @@ def create_app() -> FastAPI:
     @app.get("/api/scenarios")
     async def list_scenarios() -> dict[str, Any]:
         return {
+            "target": settings.workload_name,
             "scenarios": [
-                {"id": sid, "label": SCENARIO_LABELS.get(sid, sid)}
-                for sid in sorted(ALLOWED_SCENARIOS)
+                {"id": sid, **SCENARIO_CATALOG[sid]}
+                for sid in SCENARIO_CATALOG
             ]
         }
 
@@ -564,6 +711,16 @@ def create_app() -> FastAPI:
                 detail="another scenario is already running",
             )
         async with app.state.scenario_lock:
+            run_id = scenario_run_id or uuid4().hex[:12]
+            observes = scenario_id in SCENARIO_NATIVE_ALERTS or scenario_id in SCENARIO_NATIVE_EVENTS
+            _start_demo_run(
+                app,
+                run_id=run_id,
+                scenario_id=scenario_id,
+                profile=None,
+                workload=settings.workload_name,
+                observes=observes,
+            )
             baseline_ids = app.state.store.event_ids()
             subscription = (
                 app.state.store.subscribe()
@@ -575,10 +732,21 @@ def create_app() -> FastAPI:
                     result = await asyncio.to_thread(
                         app.state.scenarios.run,
                         scenario_id,
-                        scenario_run_id,
+                        run_id,
                     )
                 except Exception as exc:
                     raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+                _update_demo_run(
+                    app,
+                    run_id,
+                    phase="observation" if observes else "complete",
+                    action_status="completed",
+                    observation_status="waiting" if observes else "not_checked",
+                    message="Action completed; checking for matching Argus evidence."
+                    if observes
+                    else "Scenario action completed; the controller did not verify sensor evidence for this scenario.",
+                )
 
                 if scenario_id in SCENARIO_NATIVE_ALERTS:
                     native_alert = await app.state.store.wait_for(
@@ -587,6 +755,7 @@ def create_app() -> FastAPI:
                             scenario_id,
                             result.scenario_marker,
                             result.scenario_run_id,
+                            result.started_at,
                         ),
                         timeout_seconds=NATIVE_ALERT_TIMEOUT_SECONDS,
                         exclude_ids=baseline_ids,
@@ -639,7 +808,46 @@ def create_app() -> FastAPI:
                     if scenario_id == "phone-home":
                         response["sink_ip"] = result.target_ip
                         response["sink_port"] = app.state.scenarios.settings.sink_port
+                matched_alert = result.native_alert.model_dump() if result.native_alert else None
+                matched_event = result.native_event.model_dump() if result.native_event else None
+                observation_status = (
+                    "observed" if matched_alert or matched_event else "not_observed"
+                ) if observes else "not_checked"
+                _update_demo_run(
+                    app,
+                    run_id,
+                    phase="complete",
+                    status=result.status,
+                    action_status="completed",
+                    observation_status=observation_status,
+                    native_alert=matched_alert,
+                    message=result.message,
+                    result=_run_result_snapshot("scenario", response),
+                )
                 return response
+            except HTTPException as exc:
+                _update_demo_run(
+                    app,
+                    run_id,
+                    phase="failed",
+                    status="failed",
+                    action_status="failed",
+                    observation_status="not_evaluated",
+                    message=str(exc.detail),
+                )
+                raise
+            except Exception as exc:
+                _update_demo_run(
+                    app,
+                    run_id,
+                    phase="failed",
+                    status="failed",
+                    action_status="failed",
+                    observation_status="not_evaluated",
+                    message="The scenario failed before producing a complete result.",
+                )
+                logger.exception("scenario run failed for run id %s", run_id)
+                raise HTTPException(status_code=500, detail="scenario run failed") from exc
             finally:
                 if subscription is not None:
                     app.state.store.unsubscribe(subscription)
@@ -679,6 +887,14 @@ def create_app() -> FastAPI:
         request_message = build_agent_request_message(body.profile, run_id)
 
         async with app.state.scenario_lock:
+            _start_demo_run(
+                app,
+                run_id=run_id,
+                scenario_id=scenario_id,
+                profile=body.profile,
+                workload=agent_status.get("pod_name") or "argus-gtc-agent",
+                observes=body.profile != "baseline",
+            )
             app.state.scenarios.activate_external_context(scenario_id, run_id)
             app.state.agent_tool_results.pop(run_id, None)
             app.state.shell_sessions.pop(run_id, None)
@@ -703,6 +919,19 @@ def create_app() -> FastAPI:
 
                 await asyncio.sleep(2)
                 reported_tool_result = app.state.agent_tool_results.get(run_id)
+                _update_demo_run(
+                    app,
+                    run_id,
+                    phase="observation" if reported_tool_result else "action",
+                    action_status="tool_reported" if reported_tool_result else "not_performed",
+                    observation_status=(
+                        "not_applicable" if body.profile == "baseline" else
+                        "waiting" if reported_tool_result else "not_observed"
+                    ),
+                    message="Checking listener and Argus evidence for this run."
+                    if reported_tool_result
+                    else "No authenticated shell-tool report has been recorded.",
+                )
                 if reported_tool_result:
                     _attach_shell_session(app, run_id, reported_tool_result)
                 observed_policy: NormalizedEvent | None = None
@@ -863,10 +1092,10 @@ def create_app() -> FastAPI:
                         "The demo shell did not complete. If a policy drop is missing, the "
                         "network result is inconclusive."
                     )
-                elif body.profile == "prompt-injection":
+                elif body.profile in {"prompt-injection", "note-driven"}:
                     message = (
-                        "The model did not call the demo shell tool. Treat this as an honest "
-                        "injection miss, not as Argus detection."
+                        "No authenticated shell-tool call was recorded for the pasted-note "
+                        "example. The agent response alone does not establish a deliberate refusal."
                     )
                 else:
                     message = "No authorized demo-shell attempt was recorded."
@@ -878,10 +1107,10 @@ def create_app() -> FastAPI:
                     listener_session=listener_session,
                     argus_event=argus_event,
                 )
-                return {
+                response_payload = {
                     "scenario_id": scenario_id,
                     "scenario_run_id": run_id,
-                    "profile": body.profile,
+                    "profile": "note-driven" if body.profile == "prompt-injection" else body.profile,
                     "status": status,
                     "agent_pod": agent_status.get("pod_name"),
                     "agent_pod_uid": agent_status.get("pod_uid"),
@@ -910,6 +1139,50 @@ def create_app() -> FastAPI:
                     "evidence_chain": evidence_chain,
                     "message": message,
                 }
+                _update_demo_run(
+                    app,
+                    run_id,
+                    phase="complete",
+                    status=status,
+                    action_status=(
+                        "completed" if body.profile == "baseline" else
+                        "tool_reported" if reported_tool_result else "not_performed"
+                    ),
+                    observation_status=(
+                        "not_applicable" if body.profile == "baseline" else
+                        "observed" if argus_events else "not_observed"
+                    ),
+                    native_alert=(
+                        {"activity_name": native_alert.activity_name, "severity": native_alert.severity}
+                        if native_alert else None
+                    ),
+                    message=message,
+                    result=_run_result_snapshot("agent", response_payload),
+                )
+                return response_payload
+            except HTTPException as exc:
+                _update_demo_run(
+                    app,
+                    run_id,
+                    phase="failed",
+                    status="failed",
+                    action_status="failed",
+                    observation_status="not_evaluated",
+                    message=str(exc.detail),
+                )
+                raise
+            except Exception as exc:
+                _update_demo_run(
+                    app,
+                    run_id,
+                    phase="failed",
+                    status="failed",
+                    action_status="failed",
+                    observation_status="not_evaluated",
+                    message="The agent run failed before producing a complete result.",
+                )
+                logger.exception("agent run failed for run id %s", run_id)
+                raise HTTPException(status_code=500, detail="agent run failed") from exc
             finally:
                 if policy_subscription:
                     app.state.store.unsubscribe(policy_subscription)
@@ -921,21 +1194,43 @@ def create_app() -> FastAPI:
 
     @app.post("/api/contain")
     async def contain() -> dict[str, Any]:
-        result = await asyncio.to_thread(app.state.k8s.scale_workload, 0)
-        return ContainResult(
-            status="contained",
-            message="Demo workload scaled to zero; DPU services unchanged",
-            replicas=result["replicas"],
-        ).model_dump()
+        if app.state.scenario_lock.locked():
+            raise HTTPException(status_code=409, detail="another demo action is already running")
+        async with app.state.scenario_lock:
+            requested = await asyncio.to_thread(app.state.k8s.scale_workload, 0)
+            state = await _wait_for_workload_state(app.state.k8s, stopped=True)
+            status = "stopped" if state["complete"] else "stopping"
+            return {
+                "status": status,
+                "target": app.state.scenarios.settings.workload_name,
+                "message": (
+                    f"{app.state.scenarios.settings.workload_name} has stopped; DPU services remain available."
+                    if state["complete"]
+                    else f"Stop requested for {app.state.scenarios.settings.workload_name}; waiting for its pod to terminate."
+                ),
+                "desired_replicas": requested["replicas"],
+                "observed": state["observed"],
+            }
 
     @app.post("/api/reset")
     async def reset() -> dict[str, Any]:
-        result = await asyncio.to_thread(app.state.k8s.scale_workload, 1)
-        return {
-            "status": "reset",
-            "message": "Demo workload restored to one replica",
-            "replicas": result["replicas"],
-        }
+        if app.state.scenario_lock.locked():
+            raise HTTPException(status_code=409, detail="another demo action is already running")
+        async with app.state.scenario_lock:
+            requested = await asyncio.to_thread(app.state.k8s.scale_workload, 1)
+            state = await _wait_for_workload_state(app.state.k8s, stopped=False)
+            status = "restored" if state["complete"] else "restoring"
+            return {
+                "status": status,
+                "target": app.state.scenarios.settings.workload_name,
+                "message": (
+                    f"{app.state.scenarios.settings.workload_name} is Ready again."
+                    if state["complete"]
+                    else f"Restore requested for {app.state.scenarios.settings.workload_name}; waiting for a Ready pod."
+                ),
+                "desired_replicas": requested["replicas"],
+                "observed": state["observed"],
+            }
 
     return app
 

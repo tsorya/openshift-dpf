@@ -15,6 +15,14 @@ const eventDialogMeta = document.getElementById("event-dialog-meta");
 const eventDialogJson = document.getElementById("event-dialog-json");
 const eventCopyStatus = document.getElementById("event-copy-status");
 const copyEventJsonBtn = document.getElementById("copy-event-json");
+const storySelect = document.getElementById("story-select");
+const connectionState = document.getElementById("connection-state");
+const feedFreshness = document.getElementById("feed-freshness");
+const legacyConnectionState = document.getElementById("legacy-connection-state");
+const legacyFeedState = document.getElementById("legacy-feed-state");
+const guidedActionButton = document.getElementById("guided-action");
+const guidedRunState = document.getElementById("run-state");
+const guidedEvidenceList = document.getElementById("guided-evidence-list");
 let selectedEventJson = "";
 let eventDialogTrigger = null;
 
@@ -93,6 +101,113 @@ const SCENARIO_NATIVE_EVENT_SEVERITIES = {
   "phone-home": "INFO",
 };
 
+const GUIDED_STORIES = {
+  workload: {
+    label: "Workload security",
+    workload: "invisible-vm",
+    scenes: [
+      {
+        step: "Environment",
+        title: "See where Argus runs",
+        description: "The application is inside a Kata VM. Argus watches from the BlueField DPU, outside that VM.",
+        purpose: "No security agent is installed inside the guest.",
+        action: "Start demo",
+        hint: "Next, run harmless activity inside invisible-vm.",
+        nextOnly: true,
+      },
+      {
+        step: "Normal activity",
+        title: "Show activity inside the VM",
+        description: "Run a few harmless commands inside invisible-vm. Then look for the matching activity in Argus.",
+        purpose: "The command finishing and Argus seeing it are separate outcomes.",
+        action: "Run harmless commands",
+        hint: "",
+        scenario: "discovery",
+      },
+      {
+        step: "Remote shell",
+        title: "Simulate a remote shell",
+        description: "Run a short shell inside invisible-vm that connects to a controlled demo destination.",
+        purpose: "Argus may report the activity or raise a native HIGH alert. The result below shows what actually arrived.",
+        action: "Run remote shell simulation",
+        hint: "",
+        scenario: "reverse-shell",
+      },
+      {
+        step: "Evidence",
+        title: "Explain the evidence",
+        description: "Show the specific Argus record tied to the remote-shell run, or state clearly that none matched.",
+        purpose: "The record identifies the workload, native activity, severity, and time.",
+        evidenceFor: "reverse-shell",
+      },
+      {
+        step: "Response",
+        title: "Stop and restore invisible-vm",
+        description: "The operator can stop this demo workload, then restore it when the demonstration is over.",
+        purpose: "The status changes only after OpenShift reports the observed pod state.",
+        evidenceFor: "reverse-shell",
+        response: true,
+      },
+    ],
+  },
+  agent: {
+    label: "AI agent behavior",
+    workload: "argus-gtc-agent",
+    scenes: [
+      {
+        step: "Normal request",
+        title: "Start with a normal request",
+        description: "The AI application runs inside its own Kata VM. Ask it for a routine status summary.",
+        purpose: "No shell-tool call is expected for this baseline request.",
+        action: "Ask for a status summary",
+        hint: "",
+        profile: "baseline",
+      },
+      {
+        step: "Tool use",
+        title: "Ask the AI agent to use a tool",
+        description: "Ask the AI agent to open a short demo shell in its Kata VM.",
+        purpose: "The fixed demo listener confirms a working shell only if it records the expected id output.",
+        action: "Ask the AI agent to open a demo shell",
+        hint: "",
+        profile: "host-reachability",
+      },
+      {
+        step: "Argus evidence",
+        title: "See what Argus observed",
+        description: "Review the matching native Argus record from argus-gtc-agent, if one arrived.",
+        purpose: "The tool report, canary response, Argus event, and native alert remain separate facts.",
+        evidenceFor: "host-reachability",
+      },
+      {
+        step: "Recap",
+        title: "Explain what happened",
+        description: "Summarize the latest AI request, shell check, and independent Argus observation.",
+        purpose: "Stop and restore controls are available only for invisible-vm in the other story.",
+        evidenceFor: "latest-agent",
+      },
+    ],
+  },
+};
+
+function readSelectedStory() {
+  return window.location.pathname.replace(/\/$/, "") === "/agent" ? "agent" : "workload";
+}
+
+let activeStory = readSelectedStory();
+let activeSceneIndex = 0;
+let storySelectionChanged = false;
+let guidedRuns = { workload: null, agent: null };
+let guidedHistory = { workload: {}, agent: {} };
+let workloadResponseState = "Not requested";
+let streamState = "connecting";
+let streamReconnectTimer = null;
+let lastReceivedEventId = null;
+let agentIsReady = false;
+let appServerInstanceId = null;
+let lastSystemStatus = null;
+let lastAgentStatus = null;
+
 let eventQueue = [];
 let allEvents = [];
 let evidenceEvents = [];
@@ -101,6 +216,7 @@ let evidenceEventIds = new Set();
 let pinnedScenarioEventIds = new Map();
 let serverRetention = null;
 let droppedQueuedEvents = 0;
+let browserEvictedEvents = 0;
 let flushTimer = null;
 let timelinePaused = false;
 let lastClickAt = 0;
@@ -110,16 +226,603 @@ let activeScenarioTarget = null;
 let scenarioRunBaselineIds = new Set();
 let demoActionInProgress = false;
 
+function setStreamState(state, label) {
+  const value = label || ({ connected: "Connected", connecting: "Connecting", disconnected: "Reconnecting" }[state] || "Connection unknown");
+  if (connectionState) {
+    connectionState.dataset.state = state;
+    connectionState.lastElementChild.textContent = value;
+  }
+  if (legacyConnectionState?.lastElementChild) {
+    legacyConnectionState.lastElementChild.textContent = value.toLowerCase();
+  }
+  if (legacyFeedState) {
+    legacyFeedState.dataset.state = state;
+    const label = document.getElementById("legacy-stream-label");
+    if (label) label.textContent = value;
+  }
+  streamState = state;
+  window.renderMonitorConsole?.();
+}
+
+function updateFeedFreshness(value) {
+  const freshness = value || "Unknown";
+  if (feedFreshness) {
+    feedFreshness.textContent = freshness;
+    feedFreshness.dataset.freshness = freshness.toLowerCase().replaceAll(" ", "-");
+  }
+  const legacyFreshness = document.getElementById("legacy-freshness");
+  if (legacyFreshness) legacyFreshness.textContent = freshness;
+}
+
+function currentGuidedStory() {
+  return GUIDED_STORIES[activeStory] || GUIDED_STORIES.workload;
+}
+
+function currentGuidedScene() {
+  const scenes = currentGuidedStory().scenes;
+  return scenes[Math.max(0, Math.min(activeSceneIndex, scenes.length - 1))];
+}
+
+function guidedRunKey(run) {
+  return run?.profile || run?.scenarioId || null;
+}
+
+function rememberGuidedRun(run) {
+  guidedRuns[run.story] = run;
+  const key = guidedRunKey(run);
+  if (key) guidedHistory[run.story][key] = run;
+}
+
+function runForScene(scene = currentGuidedScene()) {
+  const key = scene.scenario || scene.profile || scene.evidenceFor;
+  if (key === "latest-agent") return guidedRuns.agent;
+  return key ? guidedHistory[activeStory][key] || null : null;
+}
+
+function readRunReference() {
+  try {
+    return JSON.parse(sessionStorage.getItem("argus-demo-run-reference") || "null");
+  } catch (_error) {
+    return null;
+  }
+}
+
+function saveRunReference(run) {
+  try {
+    sessionStorage.setItem("argus-demo-run-reference", JSON.stringify({
+      runId: run.runId,
+      story: run.story,
+      scenarioId: run.scenarioId,
+      profile: run.profile || null,
+      serverInstanceId: appServerInstanceId,
+    }));
+  } catch (_error) {
+    // The server-owned run state remains available even if session storage is disabled.
+  }
+}
+
+function storyForServerRun(run) {
+  return Boolean(
+    run.profile || run.scenario_id === "agent-baseline" || run.scenario_id === "host-access-attempt"
+  )
+    ? "agent"
+    : "workload";
+}
+
+function hydrateServerRun(runState, allowStorySwitch = false) {
+  const story = storyForServerRun(runState);
+  const isAgent = story === "agent";
+  const snapshot = runState.result || null;
+  const profile = runState.profile || snapshot?.profile || null;
+  const previous = guidedHistory[story][profile || runState.scenario_id];
+  const run = {
+    kind: isAgent ? "agent" : "scenario",
+    story,
+    scenarioId: runState.scenario_id || snapshot?.scenario_id,
+    runId: runState.run_id,
+    workload: runState.workload,
+    profile,
+    serverState: runState,
+    running: !["complete", "failed"].includes(runState.phase),
+    data: snapshot,
+    error: runState.phase === "failed" ? runState.message : null,
+    actionLabel: runState.message,
+    pinnedProof: previous?.runId === runState.run_id ? previous.pinnedProof : null,
+  };
+  rememberGuidedRun(run);
+  if (allowStorySwitch) {
+    activeStory = story;
+    storySelect.value = story;
+    const scenes = GUIDED_STORIES[story].scenes;
+    const matchingIndex = scenes.findIndex((scene) =>
+      scene.scenario === run.scenarioId || scene.profile === run.profile
+    );
+    activeSceneIndex = matchingIndex >= 0 ? matchingIndex : 0;
+  }
+  saveRunReference({ ...run, story });
+  renderGuidedScene();
+}
+
+function hasGuidedRunInProgress() {
+  return Object.values(guidedRuns).some((run) => run?.running);
+}
+
+async function refreshServerRunState(initial = false) {
+  try {
+    const response = await fetch("/api/demo/run-state", { cache: "no-store" });
+    const data = await parseJsonResponse(response);
+    const reference = readRunReference();
+    const runState = data.run;
+    const instanceChanged = Boolean(reference?.serverInstanceId && reference.serverInstanceId !== data.server_instance_id);
+    appServerInstanceId = data.server_instance_id || null;
+
+    if (initial && reference && (instanceChanged || !runState || runState.run_id !== reference.runId)) {
+      const story = reference.story === "agent" ? "agent" : "workload";
+      const scenarioId = reference.scenarioId || "unknown";
+      rememberGuidedRun({
+        story,
+        runId: reference.runId,
+        scenarioId,
+        profile: reference.profile,
+        workload: story === "agent" ? "argus-gtc-agent" : "invisible-vm",
+        kind: story === "agent" ? "agent" : "scenario",
+        lost: true,
+      });
+      if (!storySelectionChanged && activeStory === story) {
+        const scenes = GUIDED_STORIES[story].scenes;
+        const index = scenes.findIndex((scene) => scene.scenario === scenarioId || scene.profile === reference.profile);
+        activeSceneIndex = index >= 0 ? index : 0;
+      }
+      renderGuidedScene();
+      return;
+    }
+
+    if (!runState) {
+      const localRun = guidedRuns[activeStory];
+      if (localRun?.running && localRun.serverState) {
+        localRun.lost = true;
+        localRun.running = false;
+        renderGuidedResult();
+      }
+      return;
+    }
+
+    const story = storyForServerRun(runState);
+    const localRun = guidedRuns[story];
+    if (initial || !localRun || localRun.runId === runState.run_id || !localRun.running) {
+      const resumeSelectedRun = initial && !storySelectionChanged && reference?.runId === runState.run_id && activeStory === story;
+      hydrateServerRun(runState, resumeSelectedRun);
+    }
+  } catch (_error) {
+    // Retain the current display; a later poll can recover server-owned progress.
+  } finally {
+    window.renderMonitorConsole?.();
+  }
+}
+
+function renderReadiness() {
+  const workload = lastSystemStatus?.kata_vm || "Checking…";
+  const argus = lastSystemStatus?.argus || "Checking…";
+  const feed = lastSystemStatus?.argus_freshness || "Checking…";
+  const values = [
+    ["readiness-workload", workload],
+    ["readiness-argus", argus],
+    ["readiness-feed", feed],
+  ];
+  values.forEach(([id, value]) => {
+    const item = document.getElementById(id);
+    item.textContent = value;
+    item.dataset.state = pillClass(value);
+  });
+}
+
+function renderGuidedScene() {
+  const story = currentGuidedStory();
+  const scene = currentGuidedScene();
+  const isAgent = activeStory === "agent";
+  const friendlyWorkload = isAgent ? "argus-gtc-agent" : "invisible-vm";
+  document.body.classList.toggle("agent-page", isAgent);
+  document.title = isAgent ? "AI Agent Behavior — Argus GTC Demo" : "Invisible VM, Visible Threat — Argus GTC Demo";
+  const heading = document.getElementById("demo-title");
+  const highlight = document.createElement("span");
+  highlight.textContent = isAgent ? "Visible Actions." : "Visible Threat.";
+  heading.replaceChildren(document.createTextNode(isAgent ? "AI Agent. " : "Invisible VM. "), highlight);
+  document.getElementById("workload-page-link").setAttribute("aria-current", isAgent ? "false" : "page");
+  document.getElementById("agent-page-link").setAttribute("aria-current", isAgent ? "page" : "false");
+  document.getElementById("monitor-context-kicker").textContent = isAgent
+    ? "Continuous AI workload monitoring"
+    : "Continuous workload monitoring";
+  document.getElementById("technical-view-description").textContent = isAgent
+    ? "Agent flow, exact prompts, raw events, and metrics"
+    : "Topology, scenarios, health, filters, metrics, and raw events";
+  document.getElementById("demo-purpose").textContent = isAgent
+    ? "See AI tool activity in its Kata VM and independent Argus evidence from the BlueField DPU."
+    : "Argus watches the Kata VM from the BlueField DPU, without an in-guest security agent.";
+  document.getElementById("story-kicker").textContent = `Guided story · ${story.label}`;
+  document.getElementById("selected-workload").textContent = friendlyWorkload;
+  document.getElementById("result-workload").textContent = friendlyWorkload;
+  document.getElementById("response-target").textContent = "invisible-vm";
+  document.getElementById("diagram-workload").textContent = story.workload;
+  document.getElementById("diagram-workload-detail").textContent = isAgent
+    ? "AI application · no in-guest security agent"
+    : "No in-guest security agent";
+  document.getElementById("scene-step-label").textContent = `${String(activeSceneIndex + 1).padStart(2, "0")} / ${scene.step}${scene.optional ? " · optional" : ""}`;
+  document.getElementById("scene-heading").textContent = scene.title;
+  document.getElementById("scene-description").textContent = scene.description;
+  document.getElementById("scene-purpose").textContent = scene.purpose;
+  const sceneRun = runForScene(scene);
+  const replay = Boolean(sceneRun?.data && !sceneRun.running && !sceneRun.error);
+  document.getElementById("action-hint").textContent = scene.hint || "";
+  document.getElementById("action-hint").hidden = !scene.hint;
+  guidedActionButton.textContent = replay ? "Run this scene again" : scene.action || "";
+  guidedActionButton.classList.toggle("is-replay", replay);
+  guidedActionButton.hidden = !scene.action;
+  guidedActionButton.disabled = demoActionInProgress || hasGuidedRunInProgress() || (isAgent && Boolean(scene.profile) && !agentIsReady);
+  document.getElementById("response-panel").hidden = !scene.response || isAgent;
+  document.getElementById("readiness-panel").hidden = !scene.nextOnly;
+  document.getElementById("result-panel").hidden = Boolean(scene.nextOnly || scene.response);
+  document.getElementById("scene-number").textContent = `${activeSceneIndex + 1} of ${story.scenes.length}`;
+  document.getElementById("scene-prev").disabled = activeSceneIndex === 0;
+  const nextButton = document.getElementById("scene-next");
+  const nextScene = story.scenes[activeSceneIndex + 1];
+  nextButton.disabled = !nextScene;
+  nextButton.textContent = nextScene ? `Next: ${nextScene.step}` : "End of story";
+  nextButton.classList.toggle("ready-next", Boolean(nextScene && sceneRun?.data && !sceneRun.running && !sceneRun.error));
+  const progress = document.getElementById("scene-progress");
+  progress.replaceChildren();
+  story.scenes.forEach((step, index) => {
+    const item = document.createElement("li");
+    item.dataset.number = String(index + 1);
+    item.textContent = step.step;
+    if (index === activeSceneIndex) item.setAttribute("aria-current", "step");
+    else if (index < activeSceneIndex) item.dataset.visited = "true";
+    progress.appendChild(item);
+  });
+  renderReadiness();
+  renderGuidedResult();
+  syncActionButtons();
+}
+
+function setGuidedActionState(state, label) {
+  if (!guidedRunState) return;
+  guidedRunState.dataset.state = state;
+  guidedRunState.textContent = label;
+}
+
+function syncActionButtons() {
+  const actionLocked = demoActionInProgress || hasGuidedRunInProgress();
+  document.querySelectorAll("button[data-scenario], button[data-agent-profile], #guided-action, #contain-btn, #reset-btn, #guided-contain-btn, #guided-reset-btn").forEach((button) => {
+    if (button.matches("[data-scenario], [data-agent-profile]")) {
+      button.disabled = false;
+    } else if (button === guidedActionButton) {
+      const scene = currentGuidedScene();
+      button.disabled = actionLocked || (activeStory === "agent" && Boolean(scene.profile) && !agentIsReady);
+    } else {
+      button.disabled = actionLocked;
+    }
+  });
+}
+
+function setGuidedFact(id, value) {
+  const element = document.getElementById(id);
+  if (element) element.textContent = value;
+}
+
+function relevantRunEvents(run) {
+  if (!run?.runId) return [];
+  return retainedEvents().filter((event) => event.scenario_run_id === run.runId);
+}
+
+function formatEvidenceTime(value) {
+  const date = new Date(value || "");
+  if (Number.isNaN(date.getTime())) return "time unavailable";
+  return new Intl.DateTimeFormat(undefined, {
+    hour: "numeric", minute: "2-digit", second: "2-digit",
+  }).format(date);
+}
+
+function meaningfulSceneEvents(run) {
+  if (run.kind !== "scenario") return [];
+  const marker = run.scenarioId === "discovery"
+    ? "argus-gtc-discovery"
+    : "argus-gtc-reverse_shell-" + run.runId;
+  return relevantRunEvents(run).filter((event) => {
+    if (["ovn-acl-audit", "demo-correlation", "canary-listener"].includes(event.evidence_source)) return false;
+    if (!["EVENT", "ALERT"].includes((event.message_type || "").toUpperCase())) return false;
+    if (!podMatchesPrefixes(event.pod_name, [run.workload])) return false;
+    if (!eventHaystack(event).includes(marker)) return false;
+    const activity = event.activity_name || "";
+    return run.scenarioId === "discovery"
+      ? /^Process (Created|Executed|Started)$/i.test(activity)
+      : /^(Reverse Shell Detected|Process (Created|Executed|Started)|Network Connection Created|TCP Network Connection State Change)$/i.test(activity);
+  });
+}
+
+function pickGuidedProof(run) {
+  if (run.pinnedProof) return run.pinnedProof;
+  const data = run.data || {};
+  let event = data.native_alert || data.native_event || null;
+  if (run.kind === "agent") event = data.argus_host_attempt_event || null;
+  if (event && run.kind === "scenario") {
+    const full = relevantRunEvents(run).find((item) =>
+      item.activity_name === event.activity_name &&
+      item.occurred_at === event.occurred_at &&
+      item.pod_name === event.pod_name
+    );
+    event = full || event;
+  }
+  if (!event && run.kind === "scenario") {
+    const candidates = meaningfulSceneEvents(run);
+    event = run.scenarioId === "reverse-shell"
+      ? candidates.find((item) => /Reverse Shell|Network Connection/i.test(item.activity_name || "")) || candidates[0]
+      : candidates[0];
+  }
+  if (!event) return null;
+  const alert = (event.message_type || "").toUpperCase() === "ALERT" &&
+    (event.severity || "").toUpperCase() === "HIGH";
+  let title;
+  let why;
+  if (run.kind === "agent") {
+    title = alert ? "Argus raised a HIGH alert for the AI workload" : "Argus saw activity from the AI workload";
+    why = "This native record matches the current AI tool attempt. The demo listener's check is separate.";
+  } else if (run.scenarioId === "discovery") {
+    title = "Argus saw a demo command inside invisible-vm";
+    why = "A process record from this run shows visibility inside the isolated VM.";
+  } else {
+    title = alert ? "Argus raised a HIGH remote-shell alert" : "Argus saw the shell process or connection";
+    why = alert
+      ? "The alert came from Argus and matches this run."
+      : "This native activity record is separate from a HIGH detection.";
+  }
+  run.pinnedProof = { event, title, why };
+  return run.pinnedProof;
+}
+
+function renderGuidedEvidence(run, proof) {
+  const details = document.getElementById("supporting-evidence");
+  guidedEvidenceList.replaceChildren();
+  if (!run || !proof || run.kind !== "scenario") {
+    details.hidden = true;
+    return;
+  }
+  const seen = new Set();
+  const extra = meaningfulSceneEvents(run).filter((event) => {
+    if (event.id && event.id === proof.event.id) return false;
+    if (event.activity_name === proof.event.activity_name &&
+        event.occurred_at === proof.event.occurred_at) return false;
+    const key = [event.activity_name, event.process_name].join("|");
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  }).slice(0, 2);
+  details.hidden = !extra.length;
+  extra.forEach((event) => {
+    const row = document.createElement("div");
+    row.className = "guided-evidence-item";
+    const title = document.createElement("strong");
+    title.textContent = event.activity_name || "Argus activity";
+    const meta = document.createElement("span");
+    meta.textContent = (event.severity || "severity unavailable") + " · " + formatEvidenceTime(event.occurred_at || event.received_at);
+    row.append(title, meta);
+    guidedEvidenceList.appendChild(row);
+  });
+}
+
+function renderGuidedProof(run, proof) {
+  const card = document.getElementById("proof-card");
+  const button = document.getElementById("proof-raw");
+  card.hidden = !proof;
+  button.hidden = true;
+  button.onclick = null;
+  if (!proof) {
+    renderGuidedEvidence(null, null);
+    return;
+  }
+  const event = proof.event;
+  card.dataset.severity = (event.severity || "").toLowerCase();
+  document.getElementById("proof-title").textContent = proof.title;
+  document.getElementById("proof-why").textContent = proof.why;
+  document.getElementById("proof-meta").textContent = [
+    "DOCA Argus",
+    event.pod_name || "Argus pod name unavailable",
+    event.activity_name || "activity",
+    (event.message_type || "EVENT") + " / " + (event.severity || "severity unavailable"),
+    formatEvidenceTime(event.occurred_at || event.received_at),
+  ].join(" · ");
+  const full = event.id && retainedEvents().find((item) => item.id === event.id);
+  if (full) {
+    button.hidden = false;
+    button.onclick = () => openEventDialog(full, button);
+  }
+  renderGuidedEvidence(run, proof);
+}
+
+function setGuidedFacts(action, observation, alert, response, canary = "Not applicable") {
+  document.getElementById("canary-fact").hidden = activeStory !== "agent";
+  document.getElementById("result-facts").dataset.story = activeStory;
+  setGuidedFact("fact-action", action);
+  setGuidedFact("fact-canary", canary);
+  setGuidedFact("fact-observation", observation);
+  setGuidedFact("fact-alert", alert);
+  setGuidedFact("fact-response", response);
+}
+
+function renderGuidedResult() {
+  const scene = currentGuidedScene();
+  const resultPanel = document.getElementById("result-panel");
+  const facts = document.getElementById("result-facts");
+  const outcome = document.getElementById("outcome-sentence");
+  const response = activeStory === "agent" ? "Unavailable for this workload" : workloadResponseState;
+  document.getElementById("response-state").textContent = response === "Not requested"
+    ? "No response requested."
+    : response + ".";
+  if (scene.nextOnly) {
+    resultPanel.hidden = true;
+    setGuidedActionState("ready", "Ready to begin");
+    return;
+  }
+
+  resultPanel.hidden = Boolean(scene.response);
+  document.getElementById("result-kicker").textContent = scene.response
+    ? "Operator response"
+    : scene.evidenceFor ? "Independent evidence" : "Current scene";
+  document.getElementById("result-heading").textContent = scene.response
+    ? "Response status"
+    : scene.evidenceFor ? "What Argus reported" : "What happened";
+  const run = runForScene(scene);
+  const replay = Boolean(run?.data && !run.running && !run.error && (scene.scenario || scene.profile));
+  guidedActionButton.classList.toggle("is-replay", replay);
+  if (replay) guidedActionButton.textContent = "Run this scene again";
+  facts.hidden = true;
+  renderGuidedProof(null, null);
+
+  if (scene.response) {
+    if (response.startsWith("Stopped")) {
+      const dpu = lastSystemStatus?.dpu || "Unavailable";
+      const argus = lastSystemStatus?.argus || "Unavailable";
+      document.getElementById("response-state").textContent = lastSystemStatus?.kata_vm !== "Stopped"
+        ? `The stop action completed, but current workload status is ${lastSystemStatus?.kata_vm || "unavailable"}. Check the workload before presenting it as stopped.`
+        : dpu === "Ready" && argus === "Ready"
+          ? "OpenShift confirmed invisible-vm stopped. DPU and Argus report Ready."
+          : `OpenShift confirmed invisible-vm stopped. DPU: ${dpu}; Argus: ${argus}.`;
+    } else if (response.startsWith("Restored")) {
+      document.getElementById("response-state").textContent = lastSystemStatus?.kata_vm === "Ready"
+        ? "OpenShift confirmed invisible-vm is Ready again."
+        : `The restore action completed, but current workload status is ${lastSystemStatus?.kata_vm || "unavailable"}.`;
+    } else if (response === "Not requested") {
+      document.getElementById("response-state").textContent = lastSystemStatus?.kata_vm === "Stopped"
+        ? "OpenShift reports invisible-vm is stopped. Restore it to continue."
+        : "No response requested yet.";
+    } else {
+      document.getElementById("response-state").textContent = response + ".";
+    }
+    const statusMismatch = (response.startsWith("Stopped") && lastSystemStatus?.kata_vm !== "Stopped") ||
+      (response.startsWith("Restored") && lastSystemStatus?.kata_vm !== "Ready");
+    const statusLabel = statusMismatch
+      ? "Verify workload state"
+      : response === "Not requested"
+        ? lastSystemStatus?.kata_vm === "Stopped" ? "Workload stopped" : "Response available"
+        : response.split(" · ")[0];
+    setGuidedActionState(statusMismatch ? "error" : "ready", statusLabel);
+    return;
+  }
+
+  if (!run) {
+    const agentUnavailable = activeStory === "agent" && scene.profile && lastAgentStatus && !agentIsReady;
+    setGuidedActionState("ready", agentUnavailable ? "Agent not ready" : scene.response ? "Response available" : "Ready for this scene");
+    outcome.textContent = agentUnavailable
+      ? lastAgentStatus.unavailable ? "Agent status is unavailable. Check the deployment in Technical view." : lastAgentStatus.message || "Wait for the AI application to become ready."
+      : scene.evidenceFor
+        ? "No run to explain yet. Return to the action scene, or continue without evidence."
+        : "Use the action above to create a result for this scene.";
+    return;
+  }
+  if (run.lost) {
+    setGuidedActionState("error", "Run state unavailable");
+    outcome.textContent = "The server no longer has this run. Its action and Argus result cannot be confirmed after the reload.";
+    return;
+  }
+  if (run.running) {
+    const state = run.serverState || {};
+    const started = Date.parse(state.started_at || "") || Date.now();
+    const elapsed = Math.max(0, Math.floor((Date.now() - started) / 1000));
+    setGuidedActionState("running", "Running · " + elapsed + "s");
+    outcome.textContent = state.phase === "observation"
+      ? "The action finished. Waiting for matching Argus evidence · " + elapsed + "s elapsed."
+      : "The action is running in " + run.workload + " · " + elapsed + "s elapsed.";
+    return;
+  }
+  if (run.error) {
+    setGuidedActionState("error", "Action failed");
+    outcome.textContent = "This scene failed: " + run.error;
+    return;
+  }
+
+  const data = run.data || {};
+  const proof = run.profile === "baseline" ? null : pickGuidedProof(run);
+  const event = proof?.event || null;
+  const highAlert = run.kind === "scenario"
+    ? Boolean(data.native_alert)
+    : Boolean(data.native_argus_alert && event &&
+        (event.message_type || "").toUpperCase() === "ALERT" &&
+        (event.severity || "").toUpperCase() === "HIGH");
+  facts.hidden = false;
+  renderGuidedProof(run, proof);
+
+  if (run.kind === "scenario") {
+    const discovery = run.scenarioId === "discovery";
+    setGuidedFacts(
+      discovery ? "Harmless commands finished" : "Remote-shell simulation finished",
+      proof ? "Matching native activity" : "No matching activity visible",
+      highAlert ? "HIGH · " + (event?.activity_name || "native alert")
+        : discovery ? "Not evaluated for this scene" : "No matching HIGH alert in 45s",
+      response
+    );
+    if (discovery) {
+      outcome.textContent = proof
+        ? "Harmless commands finished in invisible-vm. Argus reported matching process activity."
+        : "Harmless commands finished in invisible-vm. A matching Argus process record is not visible yet.";
+      setGuidedActionState("complete", proof ? "Activity observed" : "Action finished");
+    } else if (highAlert) {
+      outcome.textContent = "The simulation finished. Argus raised a matching native HIGH alert.";
+      setGuidedActionState("complete", "HIGH alert observed");
+    } else if (proof) {
+      outcome.textContent = "The simulation finished. Argus reported matching activity; no native HIGH alert arrived within 45 seconds.";
+      setGuidedActionState("complete", "Activity observed");
+    } else {
+      outcome.textContent = "The simulation finished. No matching Argus record is visible in the current feed.";
+      setGuidedActionState("complete", "Action finished");
+    }
+    return;
+  }
+
+  const baseline = run.profile === "baseline";
+  const toolReported = Boolean(data.authenticated_tool_report_observed);
+  const workingShell = Boolean(data.working_shell);
+  setGuidedFacts(
+    baseline
+      ? data.status === "no-tool-call" ? "No shell tool used · expected" : "Unexpected tool activity"
+      : toolReported ? "Authenticated tool report received" : "No authenticated tool report",
+    baseline ? "Not applicable" : proof ? "Matching native activity" :
+      data.policy_drop_observed ? "OVN deny · separate evidence" : "No matching Argus activity",
+    baseline ? "Not applicable" : highAlert ? "HIGH · " + (event?.activity_name || "native alert") : "No matching HIGH alert",
+    "Unavailable for AI workload",
+    baseline ? "Not applicable" : workingShell ? "Confirmed · id output" : "No id output"
+  );
+  if (baseline) {
+    outcome.textContent = data.status === "no-tool-call"
+      ? "The routine request completed without a shell-tool call, as expected."
+      : "The baseline had unexpected shell-tool activity. Inspect the technical result.";
+  } else if (highAlert && workingShell) {
+    outcome.textContent = "The demo listener confirmed a working shell. Argus raised a matching native HIGH alert.";
+  } else if (highAlert) {
+    outcome.textContent = "Argus raised a native HIGH alert. The demo listener did not confirm a working shell.";
+  } else if (workingShell && proof) {
+    outcome.textContent = "The demo listener confirmed a working shell. Argus independently reported matching activity.";
+  } else if (workingShell) {
+    outcome.textContent = "The demo listener confirmed a working shell. No matching Argus event arrived during this run.";
+  } else if (data.policy_drop_observed) {
+    outcome.textContent = "OVN recorded a matching deny. No working shell was confirmed.";
+  } else if (toolReported) {
+    outcome.textContent = "The tool reported an attempt. The demo listener did not confirm a working shell.";
+  } else {
+    outcome.textContent = "No authenticated shell-tool call was recorded. This alone does not establish a deliberate refusal.";
+  }
+  setGuidedActionState("complete", baseline ? "Baseline complete" : proof ? "Evidence available" : "Request complete");
+}
+
 function pillClass(value) {
   if (!value) return "";
   const v = String(value).toLowerCase();
-  if (["ready", "live", "allocated", "ok", "contained"].includes(v)) return "ok";
-  if (["pending", "unknown", "degraded"].includes(v)) return "warn";
+  if (["ready", "live", "allocated", "ok", "contained", "stopped", "restored"].includes(v)) return "ok";
+  if (["pending", "unknown", "degraded", "stopping", "restoring"].includes(v)) return "warn";
   if (["absent", "error", "failed"].includes(v)) return "bad";
   return "";
 }
 
 function updateRibbon(status) {
+  lastSystemStatus = status;
+  if (status.retention) serverRetention = status.retention;
   document.querySelectorAll(".pill").forEach((pill) => {
     const key = pill.dataset.key;
     const value = status[key] || "—";
@@ -135,6 +838,10 @@ function updateRibbon(status) {
   const argus = status.details?.argus;
   document.getElementById("argus-pods").textContent = argus ? `${argus.running}/${argus.total} ready` : "—";
   updateCoverage(status.details?.coverage);
+  updateFeedFreshness(status.argus_freshness || "Unknown");
+  renderReadiness();
+  if (activeStory === "workload" && currentGuidedScene().response) renderGuidedResult();
+  window.renderMonitorConsole?.();
 }
 
 function fillList(id, items) {
@@ -387,6 +1094,7 @@ function trimBuffers() {
 
   if (allEvents.length > MAX_BUFFERED_EVENTS) {
     const removed = allEvents.splice(0, allEvents.length - MAX_BUFFERED_EVENTS);
+    browserEvictedEvents += removed.length;
     removed.forEach((event) => {
       if (!evidenceEventIds.has(event.id)) knownEventIds.delete(event.id);
     });
@@ -548,6 +1256,7 @@ function renderTimeline() {
     `${demoCorrelated} demo-correlated. ALERT means native Argus detection; CORRELATED_ALERT joins demo evidence sources.`;
 
   updateTimelineState();
+  window.renderMonitorConsole?.();
 }
 
 function updateTimelineState() {
@@ -570,9 +1279,14 @@ function flushEventQueue() {
   flushTimer = null;
   if (!eventQueue.length || timelinePaused) return;
 
-  eventQueue.splice(0, 250).forEach(rememberEvent);
+  const incoming = eventQueue.splice(0, 250);
+  incoming.forEach(rememberEvent);
   trimBuffers();
   renderTimeline();
+  const currentRun = runForScene();
+  if (currentRun?.runId && incoming.some((event) => event.scenario_run_id === currentRun.runId)) {
+    renderGuidedResult();
+  }
   if (eventQueue.length) scheduleFlush();
 }
 
@@ -582,6 +1296,12 @@ function scheduleFlush() {
 }
 
 function queueEvent(event) {
+  const currentRun = runForScene();
+  if (currentRun?.runId && event?.scenario_run_id === currentRun.runId) {
+    rememberEvent(event);
+    trimBuffers();
+    if (!currentRun.running) renderGuidedResult();
+  }
   eventQueue.push(event);
   if (eventQueue.length > MAX_QUEUED_EVENTS) {
     const overflow = eventQueue.length - MAX_QUEUED_EVENTS;
@@ -590,6 +1310,7 @@ function queueEvent(event) {
   }
   if (timelinePaused) updateTimelineState();
   else scheduleFlush();
+  window.renderMonitorConsole?.();
 }
 
 function createScenarioRunId() {
@@ -608,9 +1329,8 @@ function setScenarioFilter(scenarioId, scenarioRunId) {
     ...eventQueue.map((event) => event?.id).filter(Boolean),
   ]);
   pinnedScenarioEventIds.set(scenarioId, new Set());
-  timelineFilter.value = scenarioId;
   timelinePin.hidden = false;
-  timelinePin.textContent = `Current run: ${SCENARIO_LABELS[scenarioId] || scenarioId} · ${scenarioRunId} · earlier-run and unrelated alerts hidden`;
+  timelinePin.textContent = `Current run: ${SCENARIO_LABELS[scenarioId] || scenarioId} · ${scenarioRunId}. Select a technical filter to narrow this separate view.`;
   renderTimeline();
 }
 
@@ -650,9 +1370,16 @@ async function refreshMetrics() {
 }
 
 async function refreshStatus() {
-  const res = await fetch("/api/status");
-  const data = await parseJsonResponse(res);
-  updateRibbon(data);
+  try {
+    const res = await fetch("/api/status");
+    const data = await parseJsonResponse(res);
+    updateRibbon(data);
+  } catch (_error) {
+    lastSystemStatus = { kata_vm: "Unavailable", argus: "Unavailable", argus_freshness: "Unavailable" };
+    updateFeedFreshness("Unavailable");
+    renderReadiness();
+    if (activeStory === "workload" && currentGuidedScene().response) renderGuidedResult();
+  }
 }
 
 async function refreshAgentStatus() {
@@ -661,7 +1388,9 @@ async function refreshAgentStatus() {
   try {
     const res = await fetch("/api/agent/status");
     const data = await parseJsonResponse(res);
+    lastAgentStatus = data;
     const ready = Boolean(data.ready && data.model_configured);
+    agentIsReady = ready;
     badge.textContent = ready
       ? `Ready · Kata · ${data.model_name}`
       : !data.model_configured
@@ -670,29 +1399,59 @@ async function refreshAgentStatus() {
           ? "Agent is not in Kata"
           : "Kata agent pod not ready";
     badge.className = `agent-state ${ready ? "ok" : "warn"}`;
-    buttons.forEach((button) => { button.disabled = !ready || demoActionInProgress; });
+    buttons.forEach((button) => { button.disabled = false; });
+    if (activeStory === "agent" && currentGuidedScene().profile) {
+      guidedActionButton.disabled = !ready || demoActionInProgress || hasGuidedRunInProgress();
+      const hint = document.getElementById("action-hint");
+      hint.hidden = ready && !currentGuidedScene().hint;
+      hint.textContent = ready ? currentGuidedScene().hint : data.message || badge.textContent;
+    }
     if (!ready) {
       document.getElementById("agent-log").textContent = data.message;
     }
   } catch (error) {
+    lastAgentStatus = { unavailable: true };
+    agentIsReady = false;
     badge.textContent = "Agent status unavailable";
     badge.className = "agent-state warn";
-    buttons.forEach((button) => { button.disabled = true; });
+    buttons.forEach((button) => { button.disabled = false; });
+    if (activeStory === "agent" && currentGuidedScene().profile) {
+      guidedActionButton.disabled = true;
+      const hint = document.getElementById("action-hint");
+      hint.hidden = false;
+      hint.textContent = "Agent readiness could not be checked. Refresh status before running this scene.";
+    }
+  } finally {
+    if (activeStory === "agent") renderGuidedResult();
+    window.renderMonitorConsole?.();
   }
 }
 
-async function runScenario(id) {
-  const scenarioRunId = createScenarioRunId();
+async function runScenario(id, options = {}) {
+  const scenarioRunId = options.scenarioRunId || createScenarioRunId();
+  const workload = "invisible-vm";
   setScenarioFilter(id, scenarioRunId);
-  const scenarioButtons = document.querySelectorAll("button[data-scenario], button[data-agent-profile]");
   demoActionInProgress = true;
-  scenarioButtons.forEach((button) => { button.disabled = true; });
+  if (options.fromGuided) {
+    rememberGuidedRun({
+      kind: "scenario",
+      story: "workload",
+      scenarioId: id,
+      runId: scenarioRunId,
+      workload,
+      running: true,
+      actionLabel: id === "discovery" ? "Harmless commands" : "Remote-shell simulation",
+    });
+    saveRunReference(guidedRuns.workload);
+    renderGuidedResult();
+  }
+  syncActionButtons();
   actionLog.className = "result-running";
   actionLog.textContent = SCENARIO_NATIVE_ALERTS[id]
     ? `Running ${id}. Waiting up to 45 seconds for a native Argus ALERT/HIGH.`
     : SCENARIO_NATIVE_EVENTS[id]
       ? `Running ${id}. Waiting for ${SCENARIO_NATIVE_EVENTS[id]} from Argus; the controller checks for up to 15 seconds after the action.`
-      : `Running ${id}. Timeline filtered for correlation. Demo labels are not native Argus alerts.`;
+      : `Running ${id}. Demo labels are not native Argus alerts.`;
   try {
     const res = await fetch(
       `/api/scenarios/${id}?scenario_run_id=${encodeURIComponent(scenarioRunId)}`,
@@ -711,10 +1470,19 @@ async function runScenario(id) {
       };
       renderTimeline();
     }
+    if (options.fromGuided) {
+      rememberGuidedRun({
+        ...guidedRuns.workload,
+        running: false,
+        data,
+        finishedAt: Date.now(),
+      });
+      renderGuidedScene();
+    }
     actionLog.className = data.status === "native-alert" || data.status === "native-event"
       ? "result-success"
       : data.status === "no-native-alert" || data.status === "no-native-event"
-        ? "result-failed"
+        ? "result-inconclusive"
         : "";
     if (SCENARIO_NATIVE_EVENTS[id]) {
       const event = data.native_event;
@@ -745,39 +1513,45 @@ async function runScenario(id) {
   } catch (error) {
     actionLog.className = "result-failed";
     actionLog.textContent = `Scenario failed: ${error.message}`;
+    if (options.fromGuided) {
+      rememberGuidedRun({
+        ...guidedRuns.workload,
+        running: false,
+        error: error.message,
+      });
+      renderGuidedScene();
+    }
   } finally {
     demoActionInProgress = false;
-    document.querySelectorAll("button[data-scenario], button[data-agent-profile]").forEach((button) => { button.disabled = false; });
+    syncActionButtons();
     await refreshAgentStatus();
   }
 }
 
-function renderAgentChain(chain) {
+function renderAgentChain(chain, profile) {
   const list = document.getElementById("agent-chain");
   if (!list) return;
   list.replaceChildren();
   (chain || []).forEach((item) => {
     const row = document.createElement("li");
-    row.className = item.ok ? "ok" : "miss";
+    const baselineNA = profile === "baseline" && !["instruction", "tool_call"].includes(item.step);
+    const expectedAbsent = Boolean(item.expected_absent) || (profile === "baseline" && item.step === "tool_call" && !item.ok);
+    const applicable = item.applicable !== false && !baselineNA;
+    row.className = !applicable ? "not-applicable" : expectedAbsent ? "expected" : item.ok ? "ok" : "miss";
     if (item.step === "instruction") row.classList.add("chain-instruction");
     const step = document.createElement("span");
     step.className = "chain-step";
     step.textContent = String(item.step || "").replaceAll("_", " ");
     const detail = document.createElement("span");
     detail.className = "chain-detail";
-    const label = item.detail || "";
-    const prompt = typeof item.value === "string" ? item.value.trim() : "";
-    if (item.step === "instruction" && prompt) {
-      const caption = document.createElement("span");
-      caption.className = "chain-caption";
-      caption.textContent = label ? `${label} — exact text sent to the model` : "exact text sent to the model";
-      const promptBlock = document.createElement("pre");
-      promptBlock.className = "chain-prompt";
-      promptBlock.textContent = prompt;
-      detail.append(caption, promptBlock);
-    } else {
-      detail.textContent = label;
-    }
+    const label = item.step === "instruction"
+      ? `${item.detail || "Input sent"} · exact input is in Technical view`
+      : !applicable
+        ? "Not applicable for this profile"
+        : expectedAbsent
+          ? item.detail || "No tool call recorded as expected"
+          : item.detail || "";
+    detail.textContent = label;
     row.append(step, detail);
     list.appendChild(row);
   });
@@ -788,77 +1562,101 @@ function setAgentPrompt(text) {
   if (box) box.textContent = text;
 }
 
-async function runAgentProfile(profile) {
+async function runAgentProfile(profile, options = {}) {
   const scenarioId = profile === "baseline" ? "agent-baseline" : "host-access-attempt";
-  const scenarioRunId = createScenarioRunId();
+  const scenarioRunId = options.scenarioRunId || createScenarioRunId();
+  const apiProfile = profile;
   setScenarioFilter(scenarioId, scenarioRunId);
-  const buttons = document.querySelectorAll("button[data-scenario], button[data-agent-profile]");
   const result = document.getElementById("agent-log");
   demoActionInProgress = true;
-  buttons.forEach((button) => { button.disabled = true; });
+  if (options.fromGuided) {
+    rememberGuidedRun({
+      kind: "agent",
+      story: "agent",
+      profile,
+      scenarioId,
+      runId: scenarioRunId,
+      workload: "argus-gtc-agent",
+      running: true,
+      actionLabel: GUIDED_STORIES.agent.scenes[activeSceneIndex]?.action || "AI agent request",
+    });
+    saveRunReference(guidedRuns.agent);
+    renderGuidedResult();
+  }
+  syncActionButtons();
   result.className = "result-running";
-  renderAgentChain([]);
+  renderAgentChain([], profile);
   setAgentPrompt("Sending this run to the Kata agent. The exact prompt will appear here.");
   result.textContent = profile === "baseline"
     ? "Baseline: asking the Kata agent for a status summary. It must not open a shell."
     : profile === "host-reachability"
       ? "Authorized demo shell: we tell the Kata agent to call open_demo_shell. Bash stays in that pod. About one minute."
-      : "Untrusted note: sending attacker-shaped text that tells the Kata agent to open a shell.";
+      : "Pasted-note example: the current workflow asks the Kata agent to complete the note using its bounded demo-shell tool.";
   try {
     const res = await fetch("/api/agent-runs", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ profile, scenario_run_id: scenarioRunId }),
+      body: JSON.stringify({ profile: apiProfile, scenario_run_id: scenarioRunId }),
     });
     const data = await parseJsonResponse(res);
     if (data.scenario_run_id !== scenarioRunId) {
       throw new Error("agent run correlation mismatch");
     }
-    renderAgentChain(data.evidence_chain);
+    renderAgentChain(data.evidence_chain, profile);
     setAgentPrompt(
       data.instruction
         ? data.instruction
         : "The server did not return the prompt for this run."
     );
     const expectedBaseline = profile === "baseline" && data.status === "no-tool-call";
-    const injectionMiss = profile === "prompt-injection" && data.status === "no-tool-call";
     const shellObserved = Boolean(data.working_shell && data.argus_host_attempt_observed);
     result.className = expectedBaseline || shellObserved
       ? "result-success"
-      : injectionMiss || data.status === "tool-called" || data.status === "shell-connected"
+      : data.status === "tool-called" || data.status === "shell-connected" || profile === "note-driven"
         ? "result-inconclusive"
         : "result-failed";
     const argusEvent = data.argus_host_attempt_event;
-    const argusSummary = argusEvent
-      ? `${argusEvent.message_type || "EVENT"} · ${argusEvent.severity || "unspecified"} · ${argusEvent.activity_name} · process=${argusEvent.process_name || argusEvent.process_command || "unknown"} · pod=${argusEvent.pod_name || "not enriched"} · event=${argusEvent.id}`
-      : "No matching native Argus event was observed during this run.";
     const listenerOutput = (data.listener_session?.output || "").trim();
     const scenarioChecks = profile === "baseline"
-      ? [`Baseline: ${expectedBaseline ? "PASS — completed without a shell" : "INCONCLUSIVE — inspect the tool result"}`]
+      ? [
+          `Action: ${expectedBaseline ? "no shell-tool call recorded (expected baseline)" : "unexpected shell-tool activity; inspect the evidence"}`,
+          "Shell connection: not applicable to the baseline",
+          "Listener response: not applicable to the baseline",
+          "Argus shell observation: not applicable to the baseline",
+        ]
       : [
-          `1. Kata RuntimeClass: ${data.kata_runtime_ready ? "PASS — Ready pod" : "NOT PROVEN"} · pod=${data.agent_pod || "unknown"} · node=${data.agent_node || "unknown"} · RuntimeClass=${data.agent_runtime_class || "unknown"}`,
-          `2. Agent tool call: ${data.authenticated_tool_report_observed && data.tool_result?.source_port ? "PASS" : "NOT PROVEN"} · ${data.tool_result?.source_ip || "no-source"}:${data.tool_result?.source_port || "none"} -> ${data.tool_result?.destination_ip || "no-dest"}:${data.tool_result?.destination_port || "none"} · outcome=${data.tool_result?.outcome || "no tool report"}`,
-          `3. Working shell: ${data.working_shell ? "PASS — canary received id output" : "NOT PROVEN"} · ${listenerOutput ? listenerOutput.slice(0, 180) : "no listener output"}`,
-          `4. Argus visibility: ${data.argus_host_attempt_observed ? "PASS — native event" : "NOT PROVEN — no matching native event"} · ${argusSummary}`,
-          `Verdict: ${shellObserved ? "PASS — attacker-steerable tool opened a remote shell, and Argus observed it" : injectionMiss ? "INCONCLUSIVE — model declined the injected instruction" : data.policy_drop_observed ? "INCONCLUSIVE — policy dropped the connection" : "INCONCLUSIVE — inspect missing evidence above"}`,
+          `Agent workload: ${data.kata_runtime_ready ? "Kata RuntimeClass confirmed" : "Kata placement not confirmed"} · pod=${data.agent_pod || "unknown"} · node=${data.agent_node || "unknown"} · RuntimeClass=${data.agent_runtime_class || "unknown"}`,
+          `Authenticated tool report: ${data.authenticated_tool_report_observed ? "recorded" : "not recorded"} · ${data.tool_result?.source_ip || "no source"}:${data.tool_result?.source_port || "none"} → ${data.tool_result?.destination_ip || "no destination"}:${data.tool_result?.destination_port || "none"} · outcome=${data.tool_result?.outcome || "no report"}`,
+          `Listener proof: ${data.working_shell ? "canary recorded id output" : "no working shell confirmed"} · ${listenerOutput ? listenerOutput.slice(0, 180) : "no listener output"}`,
+          `Argus observation: ${argusEvent ? `${argusEvent.message_type || "EVENT"} · ${argusEvent.severity || "unspecified"} · ${argusEvent.activity_name || "activity"} · pod=${argusEvent.pod_name || "not enriched"}` : "no matching native event observed"}`,
+          `Native alert: ${data.native_argus_alert && argusEvent?.message_type === "ALERT" && argusEvent?.severity === "HIGH" ? `HIGH · ${argusEvent.activity_name}` : "no matching native ALERT/HIGH confirmed"}`,
+          `OVN policy evidence: ${data.policy_drop_observed ? "matching deny recorded by OVN" : "none recorded"}`,
         ];
     result.textContent = [
       `Run ${scenarioRunId} · ${data.status}`,
       ...scenarioChecks,
       data.message,
-      data.native_argus_alert
-        ? `Argus HIGH alert (message_type=ALERT and severity=HIGH): yes. The demo did not invent this.`
-        : argusEvent
-          ? `Argus HIGH alert (ALERT + HIGH): no. Argus did report ${argusEvent.message_type || "EVENT"} · ${argusEvent.severity || "unspecified"} · ${argusEvent.activity_name}. That is native visibility, not a HIGH detection. The demo did not invent an alert.`
-          : `Argus HIGH alert (ALERT + HIGH): no. No matching Argus event. The demo did not invent an alert.`,
       `Agent response: ${typeof data.agent_response === "string" ? data.agent_response : JSON.stringify(data.agent_response)}`,
     ].join("\n\n");
+    if (options.fromGuided) {
+      rememberGuidedRun({
+        ...guidedRuns.agent,
+        running: false,
+        data,
+        finishedAt: Date.now(),
+      });
+      renderGuidedScene();
+    }
   } catch (error) {
     result.className = "result-failed";
     result.textContent = `Agent run failed: ${error.message}`;
+    if (options.fromGuided) {
+      rememberGuidedRun({ ...guidedRuns.agent, running: false, error: error.message });
+      renderGuidedScene();
+    }
   } finally {
     demoActionInProgress = false;
-    document.querySelectorAll("button[data-scenario], button[data-agent-profile]").forEach((button) => { button.disabled = false; });
+    syncActionButtons();
     await refreshAgentStatus();
   }
 }
@@ -866,14 +1664,14 @@ async function runAgentProfile(profile) {
 document.querySelectorAll("button[data-scenario]").forEach((btn) => {
   btn.addEventListener("click", () => {
     closeScenarioInfo();
-    runScenario(btn.dataset.scenario);
+    window.selectMonitorScenario?.(btn.dataset.scenario);
   });
 });
 
 document.querySelectorAll("button[data-agent-profile]").forEach((btn) => {
   btn.addEventListener("click", () => {
     closeScenarioInfo();
-    runAgentProfile(btn.dataset.agentProfile);
+    window.selectMonitorAgent?.(btn.dataset.agentProfile);
   });
 });
 
@@ -913,14 +1711,40 @@ document.addEventListener("keydown", (event) => {
 });
 
 async function runControlAction(path) {
+  const isStopping = path === "/api/contain";
+  demoActionInProgress = true;
+  if (isStopping) workloadResponseState = "Stopping · invisible-vm";
+  else workloadResponseState = "Restoring · invisible-vm";
+  if (activeStory === "workload") renderGuidedResult();
+  syncActionButtons();
+  actionLog.className = "result-running";
+  actionLog.textContent = isStopping
+    ? "Stop requested for invisible-vm. Waiting for observed pod termination."
+    : "Restore requested for invisible-vm. Waiting for a Ready pod.";
   try {
     const res = await fetch(path, { method: "POST" });
+    const data = await parseJsonResponse(res);
+    const target = data.target || "invisible-vm";
+    const responseLabel = {
+      stopping: "Stopping",
+      stopped: "Stopped",
+      restoring: "Restoring",
+      restored: "Restored",
+    }[data.status] || data.status || "Pending";
+    workloadResponseState = `${responseLabel} · ${target}`;
+    document.getElementById("response-target").textContent = target;
     actionLog.className = "";
-    actionLog.textContent = JSON.stringify(await parseJsonResponse(res), null, 2);
+    actionLog.textContent = `${data.message || "Response state updated."}\nObserved pod state: ${JSON.stringify(data.observed || {})}`;
     await refreshStatus();
+    if (activeStory === "workload") renderGuidedResult();
   } catch (error) {
+    workloadResponseState = `Response failed · ${error.message}`;
     actionLog.className = "result-failed";
     actionLog.textContent = `Action failed: ${error.message}`;
+    if (activeStory === "workload") renderGuidedResult();
+  } finally {
+    demoActionInProgress = false;
+    syncActionButtons();
   }
 }
 
@@ -930,6 +1754,75 @@ document.getElementById("contain-btn").addEventListener("click", () => {
 
 document.getElementById("reset-btn").addEventListener("click", () => {
   runControlAction("/api/reset");
+});
+
+document.getElementById("guided-contain-btn").addEventListener("click", () => {
+  runControlAction("/api/contain");
+});
+
+document.getElementById("guided-reset-btn").addEventListener("click", () => {
+  runControlAction("/api/reset");
+});
+
+document.getElementById("scene-prev").addEventListener("click", () => {
+  if (activeSceneIndex === 0) return;
+  activeSceneIndex -= 1;
+  document.getElementById("supporting-evidence").open = false;
+  renderGuidedScene();
+});
+
+document.getElementById("scene-next").addEventListener("click", () => {
+  if (activeSceneIndex >= currentGuidedStory().scenes.length - 1) return;
+  activeSceneIndex += 1;
+  document.getElementById("supporting-evidence").open = false;
+  renderGuidedScene();
+});
+
+storySelect.addEventListener("change", () => {
+  storySelectionChanged = true;
+  activeStory = storySelect.value === "agent" ? "agent" : "workload";
+  activeSceneIndex = 0;
+  const path = activeStory === "agent" ? "/agent" : "/";
+  if (window.location.pathname !== path) window.history.pushState(null, "", path);
+  document.getElementById("supporting-evidence").open = false;
+  renderGuidedScene();
+  refreshAgentStatus();
+});
+
+document.querySelectorAll(".story-nav a").forEach((link) => {
+  link.addEventListener("click", (event) => {
+    if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+    event.preventDefault();
+    const story = link.id === "agent-page-link" ? "agent" : "workload";
+    if (activeStory === story) return;
+    storySelect.value = story;
+    storySelect.dispatchEvent(new Event("change", { bubbles: true }));
+  });
+});
+
+window.addEventListener("popstate", () => {
+  const story = readSelectedStory();
+  if (activeStory === story) return;
+  storySelect.value = story;
+  storySelect.dispatchEvent(new Event("change", { bubbles: true }));
+});
+
+guidedActionButton.addEventListener("click", async () => {
+  if (demoActionInProgress) return;
+  const scene = currentGuidedScene();
+  if (scene.nextOnly) {
+    activeSceneIndex += 1;
+    renderGuidedScene();
+    return;
+  }
+  if (scene.scenario) {
+    runScenario(scene.scenario, { fromGuided: true });
+    return;
+  }
+  if (scene.profile) {
+    runAgentProfile(scene.profile, { fromGuided: true });
+    return;
+  }
 });
 
 pauseBtn.addEventListener("click", () => {
@@ -954,31 +1847,82 @@ async function loadTimelineHistory() {
     [...(data.events || []), ...(data.evidence || [])].forEach(rememberEvent);
     trimBuffers();
     renderTimeline();
+    renderGuidedResult();
   } catch (error) {
     timelineState.textContent = `Could not load retained history: ${error.message}`;
   }
 }
 
 function connectStream() {
-  const source = new EventSource("/api/events/stream");
+  const cursor = lastReceivedEventId ? `?last_event_id=${encodeURIComponent(lastReceivedEventId)}` : "";
+  const source = new EventSource("/api/events/stream" + cursor);
+  setStreamState("connecting", "Connecting");
+  source.onopen = () => {
+    if (streamReconnectTimer) clearTimeout(streamReconnectTimer);
+    streamReconnectTimer = null;
+    setStreamState("connected", "Connected");
+  };
   source.addEventListener("argus", (msg) => {
     try {
-      queueEvent(JSON.parse(msg.data));
+      const event = JSON.parse(msg.data);
+      lastReceivedEventId = msg.lastEventId || event.id || lastReceivedEventId;
+      queueEvent(event);
     } catch (e) {
       console.error(e);
     }
   });
+  source.addEventListener("history-gap", (msg) => {
+    try {
+      window.onMonitorHistoryGap?.(JSON.parse(msg.data));
+    } catch (_error) {
+      window.onMonitorHistoryGap?.({ reason: "stream replay unavailable" });
+    }
+    loadTimelineHistory();
+  });
   source.onerror = () => {
     source.close();
-    setTimeout(connectStream, 3000);
+    setStreamState("disconnected", "Reconnecting");
+    if (streamReconnectTimer) clearTimeout(streamReconnectTimer);
+    streamReconnectTimer = setTimeout(() => {
+      setStreamState("connecting", "Connecting");
+      connectStream();
+    }, 3000);
   };
 }
 
+storySelect.value = activeStory;
+renderGuidedScene();
 refreshStatus();
 refreshAgentStatus();
 refreshMetrics();
 connectStream();
 loadTimelineHistory();
+refreshServerRunState(true);
 setInterval(refreshStatus, 5000);
 setInterval(refreshAgentStatus, 15000);
 setInterval(refreshMetrics, 15000);
+setInterval(() => refreshServerRunState(false), 2000);
+
+window.argusDemo = {
+  get story() { return activeStory; },
+  get events() { return retainedEvents(); },
+  get streamState() { return streamState; },
+  get status() { return lastSystemStatus; },
+  get agentStatus() { return lastAgentStatus; },
+  get agentReady() { return agentIsReady; },
+  get run() { return guidedRuns[activeStory]; },
+  get serverInstanceId() { return appServerInstanceId; },
+  get retention() { return serverRetention; },
+  get droppedQueuedEvents() { return droppedQueuedEvents; },
+  get browserEvictedEvents() { return browserEvictedEvents; },
+  get actionInProgress() { return demoActionInProgress || hasGuidedRunInProgress(); },
+  get responseState() { return workloadResponseState; },
+  createRunId: createScenarioRunId,
+  runScenario,
+  runAgentProfile,
+  runControlAction,
+  openEventDialog,
+  refreshStatus,
+  refreshServerRunState,
+  loadTimelineHistory,
+};
