@@ -16,6 +16,12 @@ Keep these facts separate in the UI and when presenting:
 
 The two stories use separate workloads and evidence. The scripted workload’s stop/restore action targets `invisible-vm`; the current UI does not claim that this action contains `argus-gtc-agent`.
 
+## Presenter screen
+
+The fixed console shows continuous native Argus activity and a persistent native Alerts panel. Choose a workload action or AI request to read **What happens**, **Why show it**, and **Watch for**; only its separate **Run** button starts it. The last actual run stays identified when a different action is selected. A demo controller action marker is visually separate from native Argus records and excluded from their counts. Browser connection, collector source reads, and the most recent native source timestamp are independent health signals. **Inspect record** opens the original retained payload. The nine workload descriptions are served from the [scenario catalog](demo/argus-gtc/server/scenario_catalog.py).
+
+At presentation time, show activity before running Discovery, then follow related process/file records and a Reverse shell attempt without hiding unrelated activity in the selected scope. State whether Argus produced a matching native alert; a completed action can end with no alert. Stop/restore controls are shown only for `invisible-vm` and wait for observed pod state. The [presenter brief](docs/argus-gtc-demo-agent-brief.md) contains the short spoken path.
+
 ## Cluster access
 
 The demo is in the `igal-cno` management cluster, namespace `argus-gtc-demo`. Use the bastion `nvd-srv-45` and its kubeconfig:

@@ -42,6 +42,7 @@ from .models import (
     native_event_matches_scenario,
 )
 from .scenarios import ALLOWED_SCENARIOS, ScenarioController
+from .scenario_catalog import SCENARIO_CATALOG
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("argus-gtc")
@@ -323,6 +324,7 @@ async def lifespan(app: FastAPI):
             store,
             scenario_lookup=lambda: None,
         )
+        app.state.collector = tailer
         forwarder = RemoteCollectorClient(settings, store)
         if settings.collector_url:
             tasks.append(asyncio.create_task(forwarder.forward_loop(stop_event, tailer)))
@@ -334,6 +336,7 @@ async def lifespan(app: FastAPI):
             store,
             scenario_lookup=lambda: app.state.scenarios.active_scenario_context,
         )
+        app.state.collector = hosted_tailer
         tasks.append(asyncio.create_task(hosted_tailer.run(stop_event)))
 
     app.state.background_tasks = tasks
@@ -627,7 +630,25 @@ def create_app() -> FastAPI:
             app.state.store.last_event_at,
             dts_health,
         )
-        return ribbon.model_dump()
+        result = ribbon.model_dump()
+        collector = getattr(app.state, "collector", None)
+        result["collector"] = collector.health.snapshot() if collector else {
+            "state": "starting", "source": "Argus logs"
+        }
+        result["latest_native_occurred_at"] = (
+            app.state.store.last_native_occurred_at.isoformat()
+            if app.state.store.last_native_occurred_at else None
+        )
+        result["latest_native_received_at"] = (
+            app.state.store.last_event_at.isoformat()
+            if app.state.store.last_event_at else None
+        )
+        result["server_instance_id"] = app.state.server_instance_id
+        result["retention"] = {
+            **app.state.store.stats(),
+            "server_instance_id": app.state.server_instance_id,
+        }
+        return result
 
     @app.get("/api/events")
     async def events(limit: int = 100, evidence_limit: int = 100) -> dict[str, Any]:
@@ -638,12 +659,16 @@ def create_app() -> FastAPI:
         return {
             "events": [item.model_dump() for item in items],
             "evidence": [item.model_dump() for item in evidence],
-            "retention": app.state.store.stats(),
+            "retention": {
+                **app.state.store.stats(),
+                "server_instance_id": app.state.server_instance_id,
+            },
         }
 
     @app.get("/api/events/stream")
-    async def events_stream():
-        return EventSourceResponse(sse_stream(app.state.store))
+    async def events_stream(request: Request, last_event_id: str | None = None):
+        cursor = last_event_id or request.headers.get("last-event-id")
+        return EventSourceResponse(sse_stream(app.state.store, cursor))
 
     @app.post("/api/events/ingest")
     async def ingest(
@@ -663,9 +688,10 @@ def create_app() -> FastAPI:
     @app.get("/api/scenarios")
     async def list_scenarios() -> dict[str, Any]:
         return {
+            "target": settings.workload_name,
             "scenarios": [
-                {"id": sid, "label": SCENARIO_LABELS.get(sid, sid)}
-                for sid in sorted(ALLOWED_SCENARIOS)
+                {"id": sid, **SCENARIO_CATALOG[sid]}
+                for sid in SCENARIO_CATALOG
             ]
         }
 
@@ -728,6 +754,7 @@ def create_app() -> FastAPI:
                             scenario_id,
                             result.scenario_marker,
                             result.scenario_run_id,
+                            result.started_at,
                         ),
                         timeout_seconds=NATIVE_ALERT_TIMEOUT_SECONDS,
                         exclude_ids=baseline_ids,

@@ -217,6 +217,7 @@ let guidedHistory = { workload: {}, agent: {} };
 let workloadResponseState = "Not requested";
 let streamState = "connecting";
 let streamReconnectTimer = null;
+let lastReceivedEventId = null;
 let agentIsReady = false;
 let appServerInstanceId = null;
 let lastSystemStatus = null;
@@ -230,6 +231,7 @@ let evidenceEventIds = new Set();
 let pinnedScenarioEventIds = new Map();
 let serverRetention = null;
 let droppedQueuedEvents = 0;
+let browserEvictedEvents = 0;
 let flushTimer = null;
 let timelinePaused = false;
 let lastClickAt = 0;
@@ -254,6 +256,7 @@ function setStreamState(state, label) {
     if (label) label.textContent = value;
   }
   streamState = state;
+  window.renderMonitorConsole?.();
 }
 
 function updateFeedFreshness(value) {
@@ -407,6 +410,8 @@ async function refreshServerRunState(initial = false) {
     }
   } catch (_error) {
     // Retain the current display; a later poll can recover server-owned progress.
+  } finally {
+    window.renderMonitorConsole?.();
   }
 }
 
@@ -488,8 +493,8 @@ function setGuidedActionState(state, label) {
 function syncActionButtons() {
   const actionLocked = demoActionInProgress || hasGuidedRunInProgress();
   document.querySelectorAll("button[data-scenario], button[data-agent-profile], #guided-action, #contain-btn, #reset-btn, #guided-contain-btn, #guided-reset-btn").forEach((button) => {
-    if (button.matches("[data-agent-profile]")) {
-      button.disabled = actionLocked || !agentIsReady;
+    if (button.matches("[data-scenario], [data-agent-profile]")) {
+      button.disabled = false;
     } else if (button === guidedActionButton) {
       const scene = currentGuidedScene();
       button.disabled = actionLocked || (activeStory === "agent" && Boolean(scene.profile) && !agentIsReady);
@@ -818,6 +823,7 @@ function pillClass(value) {
 
 function updateRibbon(status) {
   lastSystemStatus = status;
+  if (status.retention) serverRetention = status.retention;
   document.querySelectorAll(".pill").forEach((pill) => {
     const key = pill.dataset.key;
     const value = status[key] || "—";
@@ -836,6 +842,7 @@ function updateRibbon(status) {
   updateFeedFreshness(status.argus_freshness || "Unknown");
   renderReadiness();
   if (activeStory === "workload" && currentGuidedScene().response) renderGuidedResult();
+  window.renderMonitorConsole?.();
 }
 
 function fillList(id, items) {
@@ -1088,6 +1095,7 @@ function trimBuffers() {
 
   if (allEvents.length > MAX_BUFFERED_EVENTS) {
     const removed = allEvents.splice(0, allEvents.length - MAX_BUFFERED_EVENTS);
+    browserEvictedEvents += removed.length;
     removed.forEach((event) => {
       if (!evidenceEventIds.has(event.id)) knownEventIds.delete(event.id);
     });
@@ -1249,6 +1257,7 @@ function renderTimeline() {
     `${demoCorrelated} demo-correlated. ALERT means native Argus detection; CORRELATED_ALERT joins demo evidence sources.`;
 
   updateTimelineState();
+  window.renderMonitorConsole?.();
 }
 
 function updateTimelineState() {
@@ -1302,6 +1311,7 @@ function queueEvent(event) {
   }
   if (timelinePaused) updateTimelineState();
   else scheduleFlush();
+  window.renderMonitorConsole?.();
 }
 
 function createScenarioRunId() {
@@ -1320,9 +1330,8 @@ function setScenarioFilter(scenarioId, scenarioRunId) {
     ...eventQueue.map((event) => event?.id).filter(Boolean),
   ]);
   pinnedScenarioEventIds.set(scenarioId, new Set());
-  timelineFilter.value = scenarioId;
   timelinePin.hidden = false;
-  timelinePin.textContent = `Current run: ${SCENARIO_LABELS[scenarioId] || scenarioId} · ${scenarioRunId} · earlier-run and unrelated alerts hidden`;
+  timelinePin.textContent = `Current run: ${SCENARIO_LABELS[scenarioId] || scenarioId} · ${scenarioRunId}. Select a technical filter to narrow this separate view.`;
   renderTimeline();
 }
 
@@ -1391,7 +1400,7 @@ async function refreshAgentStatus() {
           ? "Agent is not in Kata"
           : "Kata agent pod not ready";
     badge.className = `agent-state ${ready ? "ok" : "warn"}`;
-    buttons.forEach((button) => { button.disabled = !ready || demoActionInProgress || hasGuidedRunInProgress(); });
+    buttons.forEach((button) => { button.disabled = false; });
     if (activeStory === "agent" && currentGuidedScene().profile) {
       guidedActionButton.disabled = !ready || demoActionInProgress || hasGuidedRunInProgress();
       const hint = document.getElementById("action-hint");
@@ -1406,7 +1415,7 @@ async function refreshAgentStatus() {
     agentIsReady = false;
     badge.textContent = "Agent status unavailable";
     badge.className = "agent-state warn";
-    buttons.forEach((button) => { button.disabled = true; });
+    buttons.forEach((button) => { button.disabled = false; });
     if (activeStory === "agent" && currentGuidedScene().profile) {
       guidedActionButton.disabled = true;
       const hint = document.getElementById("action-hint");
@@ -1415,11 +1424,12 @@ async function refreshAgentStatus() {
     }
   } finally {
     if (activeStory === "agent") renderGuidedResult();
+    window.renderMonitorConsole?.();
   }
 }
 
 async function runScenario(id, options = {}) {
-  const scenarioRunId = createScenarioRunId();
+  const scenarioRunId = options.scenarioRunId || createScenarioRunId();
   const workload = "invisible-vm";
   setScenarioFilter(id, scenarioRunId);
   demoActionInProgress = true;
@@ -1442,7 +1452,7 @@ async function runScenario(id, options = {}) {
     ? `Running ${id}. Waiting up to 45 seconds for a native Argus ALERT/HIGH.`
     : SCENARIO_NATIVE_EVENTS[id]
       ? `Running ${id}. Waiting for ${SCENARIO_NATIVE_EVENTS[id]} from Argus; the controller checks for up to 15 seconds after the action.`
-      : `Running ${id}. Timeline filtered for correlation. Demo labels are not native Argus alerts.`;
+      : `Running ${id}. Demo labels are not native Argus alerts.`;
   try {
     const res = await fetch(
       `/api/scenarios/${id}?scenario_run_id=${encodeURIComponent(scenarioRunId)}`,
@@ -1555,7 +1565,7 @@ function setAgentPrompt(text) {
 
 async function runAgentProfile(profile, options = {}) {
   const scenarioId = profile === "baseline" ? "agent-baseline" : "host-access-attempt";
-  const scenarioRunId = createScenarioRunId();
+  const scenarioRunId = options.scenarioRunId || createScenarioRunId();
   const apiProfile = profile;
   setScenarioFilter(scenarioId, scenarioRunId);
   const result = document.getElementById("agent-log");
@@ -1655,14 +1665,14 @@ async function runAgentProfile(profile, options = {}) {
 document.querySelectorAll("button[data-scenario]").forEach((btn) => {
   btn.addEventListener("click", () => {
     closeScenarioInfo();
-    runScenario(btn.dataset.scenario);
+    window.selectMonitorScenario?.(btn.dataset.scenario);
   });
 });
 
 document.querySelectorAll("button[data-agent-profile]").forEach((btn) => {
   btn.addEventListener("click", () => {
     closeScenarioInfo();
-    runAgentProfile(btn.dataset.agentProfile);
+    window.selectMonitorAgent?.(btn.dataset.agentProfile);
   });
 });
 
@@ -1830,7 +1840,8 @@ async function loadTimelineHistory() {
 }
 
 function connectStream() {
-  const source = new EventSource("/api/events/stream");
+  const cursor = lastReceivedEventId ? `?last_event_id=${encodeURIComponent(lastReceivedEventId)}` : "";
+  const source = new EventSource("/api/events/stream" + cursor);
   setStreamState("connecting", "Connecting");
   source.onopen = () => {
     if (streamReconnectTimer) clearTimeout(streamReconnectTimer);
@@ -1839,10 +1850,20 @@ function connectStream() {
   };
   source.addEventListener("argus", (msg) => {
     try {
-      queueEvent(JSON.parse(msg.data));
+      const event = JSON.parse(msg.data);
+      lastReceivedEventId = msg.lastEventId || event.id || lastReceivedEventId;
+      queueEvent(event);
     } catch (e) {
       console.error(e);
     }
+  });
+  source.addEventListener("history-gap", (msg) => {
+    try {
+      window.onMonitorHistoryGap?.(JSON.parse(msg.data));
+    } catch (_error) {
+      window.onMonitorHistoryGap?.({ reason: "stream replay unavailable" });
+    }
+    loadTimelineHistory();
   });
   source.onerror = () => {
     source.close();
@@ -1867,3 +1888,27 @@ setInterval(refreshStatus, 5000);
 setInterval(refreshAgentStatus, 15000);
 setInterval(refreshMetrics, 15000);
 setInterval(() => refreshServerRunState(false), 2000);
+
+window.argusDemo = {
+  get story() { return activeStory; },
+  get events() { return retainedEvents(); },
+  get streamState() { return streamState; },
+  get status() { return lastSystemStatus; },
+  get agentStatus() { return lastAgentStatus; },
+  get agentReady() { return agentIsReady; },
+  get run() { return guidedRuns[activeStory]; },
+  get serverInstanceId() { return appServerInstanceId; },
+  get retention() { return serverRetention; },
+  get droppedQueuedEvents() { return droppedQueuedEvents; },
+  get browserEvictedEvents() { return browserEvictedEvents; },
+  get actionInProgress() { return demoActionInProgress || hasGuidedRunInProgress(); },
+  get responseState() { return workloadResponseState; },
+  createRunId: createScenarioRunId,
+  runScenario,
+  runAgentProfile,
+  runControlAction,
+  openEventDialog,
+  refreshStatus,
+  refreshServerRunState,
+  loadTimelineHistory,
+};

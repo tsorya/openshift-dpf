@@ -107,27 +107,29 @@ This command:
 
 ### Workload security presenter path
 
-The initial story is `invisible-vm`, matching the presenter controls in the UI. Scene navigation only changes the current explanation; it does not execute an action. Each scenario starts only when its labeled action is selected.
+The fixed console opens on `invisible-vm`. Native Argus activity and alerts remain visible before, during, and after an action. The descriptions for all nine allowlisted workload actions live in the [scenario catalog](../demo/argus-gtc/server/scenario_catalog.py), which also serves `GET /api/scenarios` for the UI. Use that catalog as the source for the What happens, Why show it, and Watch for copy. **More scenarios** exposes Phone home, Legacy shell-history test, Modify a demo file, Network burst, and Compute activity; **Technical view** has the exact commands and references. Selection only changes the explanation and Run button.
 
-1. **Environment.** Confirm the actual workload and Argus readiness, EventSource connection, and feed freshness. Explain that the Kata VM has no installed security agent and Argus runs separately on the BlueField DPU. **Start demo** advances to Normal activity without running a scenario.
-2. **Normal activity.** Select **Run harmless commands** to run bounded Discovery in `invisible-vm`. The result shows a current-run process record only when one matches the demo command; unrelated file events do not become the headline. Controller completion and Argus telemetry remain separate. Discovery does not require a native HIGH alert.
-3. **Remote shell.** Advance to this scene and select **Run remote shell simulation**. It opens a short shell inside `invisible-vm` to the controlled demo listener in the namespace. The action is not a causal continuation of Discovery. A matching process/socket event is native visibility; show a detection only if the current run has the matching native `ALERT/HIGH` event named `Reverse Shell Detected`.
-4. **Evidence.** The result card stays pinned to one matching Argus record for the remote-shell run. It distinguishes action status, matching Argus observation, and native alert status. Select **View technical evidence** for the retained record; Technical view contains the wider event timeline.
-5. **Respond and recover.** Stop demo workload targets only `invisible-vm`. The server serializes it with scenario/agent actions and waits for observed pod termination; the UI remains Stopping if termination has not completed. Restore waits for a Ready pod and remains Restoring while pending. DPU and Argus health are separate from workload state.
+1. **Environment.** Show the activity stream before running anything. Identify the selected workload and say: “Argus runs on the BlueField DPU and observes activity inside this isolated workload without a security agent installed in the guest.” Read Browser, Argus collector, and Latest native event separately. A connected browser and a quiet workload do not prove or disprove source health.
+2. **Discovery.** Select **Discovery**, explain the bounded commands, then select **Run Discovery**. The distinct demo controller marker identifies the action start. Related process and file events are highlighted in the continuing native stream; unrelated activity remains visible in scope. Discovery completion alone is not an Argus alert.
+3. **Reverse shell.** Select **Reverse shell**, explain the controlled listener, then select **Run Reverse shell**. The latest actual run remains identified even while a different action is selected. Follow process and network records in the stream. Call it a detection only if the matching native `Reverse Shell Detected` record is `ALERT/HIGH`; it then appears in the persistent Alerts panel with its original severity. If none arrives, report the explicit no-matching-alert result.
+4. **Inspect evidence.** Use **Inspect record** on the stream row or alert card to show event ID, source timestamp, workload, process, run ID, and original payload. The same native alert appears in both panels. Earlier-run or unassociated records remain labeled honestly; the controller marker is not native telemetry.
+5. **Respond and recover.** The secondary stop/restore controls target only `invisible-vm`. The server serializes these actions with scenario/agent runs and waits for observed pod termination or readiness. Argus and DPU health remain separate from workload state.
 
-Use **Explore scenarios** in Technical view for the extended tour. Executable Memory writes inert bytes to an anonymous executable mapping but does not execute them; its expected record is `New Executable Anonymous Memory Mapped`, `EVENT/WARNING`. Phone Home opens a TCP connection to the local scenario sink; it is not a reverse shell. Audit Evasion, Shell History, Decoy Modification, Compute Simulation, and Network Burst are independent demonstrations, not a proven causal attack chain. Keep each result tied to its own run and show the captured native severity.
+The stream scope defaults to the selected workload. **All demo workloads** and **Worker telemetry** broaden it without deleting evidence. **Pause** freezes the displayed rows while ingestion continues and shows incoming count; Resume catches up to retained records. A replay gap, eviction, or server restart is shown in the history note. The server and browser buffers are bounded, so inspect older raw records before retention removes them.
 
 ### AI agent behavior path
 
 The AI story uses only `argus-gtc-agent`, a separate Kata workload on the management cluster. It is not `invisible-vm`, and the UI does not present the scripted workload's stop control as an AI response. The agent's configured target is the `argus-gtc-canary` Service name on TCP/31999; the listener is a controlled action destination, separate from the DPU observer.
 
-1. **Normal request.** Run the status-summary baseline. A run with no recorded shell-tool call is the expected baseline. Shell connection, listener, and shell-specific Argus checks are Not applicable.
-2. **Authorized tool use.** Explicitly ask the agent to open one bounded demo shell. Keep the evidence separate: authenticated tool report; canary `id` output; matching native Argus process/socket event; native alert, if any; OVN deny, if any. A connected socket without listener output is not a confirmed working shell.
+Select **AI agent behavior** in the story picker; the same stream and alerts layout now scopes to `argus-gtc-agent`. Selecting an AI request shows its description without sending it.
+
+1. **Normal request.** Select and run the status-summary baseline. A run with no recorded shell-tool call is the expected baseline. Shell connection, listener, and shell-specific Argus checks are Not applicable.
+2. **Authorized demo shell.** Explicitly ask the agent to open one bounded demo shell. Keep the evidence separate: authenticated tool report; canary `id` output; matching native Argus process/socket event; native alert, if any; OVN deny, if any. A connected socket without listener output is not a confirmed working shell.
 3. **Independent observation.** Show the matching native Argus record from `argus-gtc-agent`. Only describe a HIGH alert when the record itself contains `message_type=ALERT` and `severity=HIGH`. A timeout alone is not proof of an OVN policy block.
 4. **Pasted-note example (optional).** The current workflow explicitly asks the agent to complete actions requested in the pasted maintenance note. Describe this as note-driven tool use, not as a successful prompt-injection test. If no tool call is recorded, show the agent response without claiming a deliberate refusal.
 5. **Recap.** State what the agent attempted, what the listener confirmed, what Argus observed, whether Argus raised a native alert, and whether OVN recorded a matching deny. Do not blend this evidence with `invisible-vm`.
 
-For both stories, use the actual workload name, connection state, and feed freshness shown by the UI. “Connected” means the SSE connection is open; freshness separately reports the age of the most recently received Argus event.
+For both stories, use the actual workload name and the three separate health signals. “Connected” means the SSE connection is open; “Reading source” means the collector completed a source poll, even if it found no new events; Latest native event uses the source occurrence timestamp. A collector failure is shown separately from a quiet feed.
 
 ## Cleanup
 
@@ -159,7 +161,7 @@ and Kata infrastructure are untouched. It also deletes only the named
 | Phone Home returns `no-native-event` | Confirm `scenario-sink` has a Pod IP and the connection reached that IP on TCP/4444. Inspect native Argus reports for `Network Connection Created` from `invisible-vm` with the correct destination; confirm the live network collector is enabled. Other socket events do not satisfy this scene. |
 | Audit Evasion returns `no-native-alert` | Confirm the live Argus config has `shell_command.disable_scan=false`, `shell_history_cleared=true`, and `shell_history_disabled=true`; inspect `/var/log/doca_argus/` for profile or collection failures. A correlated `Executable Permissions Removed` MEDIUM alert does not satisfy this scenario. |
 
-## Measuring scene timing and detection latency
+## Measuring action timing and detection latency
 
 Before presenting, run two scenarios and note timestamps:
 
