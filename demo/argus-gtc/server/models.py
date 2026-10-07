@@ -388,12 +388,21 @@ def native_alert_matches_scenario(
     scenario_id: str,
     scenario_marker: str | None = None,
     scenario_run_id: str | None = None,
+    started_at: str | None = None,
 ) -> bool:
     """Return true only for an exact native HIGH alert from the active run."""
     if not is_native_high_alert(event):
         return False
     if event.activity_name not in SCENARIO_NATIVE_ALERTS.get(scenario_id, ()):
         return False
+    if started_at:
+        try:
+            occurred = datetime.fromisoformat((event.occurred_at or "").replace("Z", "+00:00"))
+            started = datetime.fromisoformat(started_at.replace("Z", "+00:00"))
+        except ValueError:
+            return False
+        if not occurred.tzinfo or not started.tzinfo or occurred < started:
+            return False
 
     if (
         scenario_run_id

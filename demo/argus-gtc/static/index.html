@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="theme-color" content="#111318" />
   <title>Invisible VM, Visible Threat — Argus GTC Demo</title>
-  <link rel="stylesheet" href="/assets/style.css?v=33" />
+  <link rel="stylesheet" href="/assets/style.css?v=34" />
 </head>
 <body class="guided-page">
   <header class="demo-header">
@@ -23,12 +23,6 @@
           <option value="agent">AI agent behavior · argus-gtc-agent</option>
         </select>
       </label>
-      <div class="live-status" aria-label="Live connection and evidence freshness">
-        <span class="connection-chip" id="connection-state" data-state="connecting">
-          <span class="status-dot" aria-hidden="true"></span><span>Connecting</span>
-        </span>
-        <span class="freshness-chip">Argus feed <strong id="feed-freshness">Checking…</strong></span>
-      </div>
     </div>
     <div class="demo-title">
       <p class="eyebrow">DOCA Argus · BlueField DPU · OpenShift DPF · Kata Containers</p>
@@ -37,6 +31,97 @@
     </div>
   </header>
 
+  <main class="monitor-main">
+    <section class="monitor-console" aria-label="Argus monitoring console">
+      <div class="monitor-context">
+        <div>
+          <span class="section-kicker">Continuous workload monitoring</span>
+          <strong id="monitor-workload">invisible-vm</strong>
+          <span class="monitor-location">Kata VM · DOCA Argus on BlueField DPU</span>
+        </div>
+        <div class="monitor-health" aria-label="Independent connection and source states">
+          <span>Browser <strong id="monitor-browser-health">Connecting</strong></span>
+          <span>Argus collector <strong id="monitor-collector-health">Checking…</strong></span>
+          <span>Latest native event <strong id="monitor-native-age">Checking…</strong></span>
+        </div>
+      </div>
+
+      <div class="monitor-scenario-tabs" aria-label="Choose an action">
+        <div class="monitor-primary-scenarios" id="monitor-primary-scenarios"></div>
+        <details class="monitor-more" id="monitor-more">
+          <summary>More scenarios</summary>
+          <div id="monitor-more-scenarios"></div>
+        </details>
+      </div>
+
+      <section class="monitor-explanation" aria-labelledby="monitor-scenario-title">
+        <div class="monitor-explanation-title">
+          <div>
+            <span class="section-kicker" id="monitor-selection-kind">Selected scenario</span>
+            <h2 id="monitor-scenario-title">Discovery</h2>
+          </div>
+          <span class="monitor-target">Target <strong id="monitor-target">invisible-vm</strong></span>
+        </div>
+        <div class="monitor-explanation-grid">
+          <p><strong>What happens</strong><span id="monitor-what">Loading the allowlisted scenario catalog…</span></p>
+          <p><strong>Why show it</strong><span id="monitor-why"></span></p>
+          <p><strong>Watch for</strong><span id="monitor-watch"></span></p>
+        </div>
+        <div class="monitor-action-line">
+          <button type="button" class="primary-action" id="monitor-run-button" disabled>Run Discovery</button>
+          <span id="monitor-duration"></span>
+          <span id="monitor-readiness" role="status"></span>
+        </div>
+      </section>
+
+      <div class="monitor-run-strip" role="status" aria-live="polite">
+        <strong id="monitor-run-status">No action started</strong>
+        <span id="monitor-run-identity">Monitoring continues before and after a run.</span>
+        <span id="monitor-run-evidence"></span>
+      </div>
+
+      <div class="monitor-evidence-grid">
+        <section class="monitor-stream-panel" aria-labelledby="monitor-stream-heading">
+          <div class="monitor-panel-heading">
+            <div><span class="section-kicker">DOCA Argus · native telemetry</span><h2 id="monitor-stream-heading">Activity stream</h2></div>
+            <div class="monitor-stream-controls">
+              <label>Scope
+                <select id="monitor-scope">
+                  <option value="selected">Selected workload</option>
+                  <option value="demo">All demo workloads</option>
+                  <option value="worker">Worker telemetry</option>
+                </select>
+              </label>
+              <button type="button" class="secondary compact" id="monitor-pause">Pause</button>
+            </div>
+          </div>
+          <div class="monitor-feed-state"><span id="monitor-event-count">0 native records</span><span id="monitor-pause-count"></span><span id="monitor-history-state"></span></div>
+          <div class="monitor-stream" id="monitor-stream" role="feed" aria-label="Native Argus activity" tabindex="0">
+            <p class="monitor-empty">Loading retained Argus activity…</p>
+          </div>
+        </section>
+        <section class="monitor-alert-panel" aria-labelledby="monitor-alert-heading">
+          <div class="monitor-panel-heading">
+            <div><span class="section-kicker">Native Argus detections</span><h2 id="monitor-alert-heading">Alerts</h2></div>
+            <span id="monitor-alert-count">0</span>
+          </div>
+          <div class="monitor-alerts" id="monitor-alerts" aria-live="polite">
+            <p class="monitor-empty">No native alerts in this view. Monitoring is still active.</p>
+          </div>
+        </section>
+      </div>
+
+      <div class="monitor-operator" id="monitor-operator">
+        <span><strong>OpenShift response</strong> · target <b id="monitor-response-target">invisible-vm</b> · <span id="monitor-response-state">No response requested.</span></span>
+        <div>
+          <button type="button" class="danger" id="monitor-stop-btn">Stop demo workload</button>
+          <button type="button" class="secondary" id="monitor-restore-btn">Restore demo workload</button>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <div class="legacy-guided-runtime" hidden inert aria-hidden="true">
   <main class="guided-main">
     <section class="guided-card" aria-labelledby="scene-heading">
       <div class="guided-toolbar">
@@ -134,6 +219,7 @@
       </nav>
     </section>
   </main>
+  </div>
 
   <details id="technical-view" class="technical-view">
     <summary>Technical view <span>Topology, scenarios, health, filters, metrics, raw events, and exact agent prompts</span></summary>
@@ -271,9 +357,9 @@
           <span class="section-kicker">Safe and repeatable</span>
           <h2>Explore scenarios</h2>
         </div>
-        <span class="recommended-badge">Demo path: 4 scenes</span>
+        <span class="recommended-badge">Allowlisted actions</span>
       </div>
-      <p class="note action-note">Present Discovery → Executable Memory → Phone Home → Reverse Shell. The controller triggers allowlisted actions in the management-cluster Kata VM. Argus observes from the HyperShift-hosted DPU cluster. Evidence-gated results show the matching native event and its actual severity; only alert scenarios require <strong>ALERT / HIGH</strong>.</p>
+      <p class="note action-note">These buttons select an action in the console above; use its separate Run button to execute it. The controller triggers only allowlisted actions in the management-cluster Kata VM. Argus observes from the HyperShift-hosted DPU cluster. The details below show the bounded commands and exact native evidence requirements.</p>
       <div class="buttons">
         <div class="scenario-action">
           <button data-scenario="discovery">Show activity inside the VM</button>
@@ -504,6 +590,7 @@
 
 
 
-  <script src="/assets/app.js?v=38"></script>
+  <script src="/assets/app.js?v=41"></script>
+  <script src="/assets/monitor.js?v=5"></script>
 </body>
 </html>

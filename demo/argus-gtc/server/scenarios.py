@@ -13,6 +13,7 @@ from kubernetes.stream import stream
 
 from .config import Settings
 from .models import SCENARIO_LABELS, ScenarioResult
+from .scenario_catalog import SCENARIO_CATALOG
 
 # Argus logs can land after exec returns; keep the scenario id long enough
 # for the hosted tailer to classify Kata guest events, not host daemons.
@@ -40,19 +41,7 @@ _AUDIT_EVASION_INPUT = "\n".join(
 
 logger = logging.getLogger(__name__)
 
-ALLOWED_SCENARIOS = frozenset(
-    {
-        "audit-evasion",
-        "discovery",
-        "exec-memory",
-        "phone-home",
-        "reverse-shell",
-        "shell-history",
-        "decoy-modify",
-        "network-burst",
-        "compute-simulation",
-    }
-)
+ALLOWED_SCENARIOS = frozenset(SCENARIO_CATALOG)
 
 
 class ScenarioController:
@@ -65,8 +54,10 @@ class ScenarioController:
         self.core = client.CoreV1Api()
         self._active_scenario: str | None = None
         self._active_scenario_run_id: str | None = None
+        self._active_started_at: str | None = None
         self._last_scenario: str | None = None
         self._last_scenario_run_id: str | None = None
+        self._last_started_at: str | None = None
         self._last_scenario_until: float = 0.0
         self._run_lock = threading.Lock()
 
@@ -79,15 +70,15 @@ class ScenarioController:
         return None
 
     @property
-    def active_scenario_context(self) -> tuple[str, str] | None:
+    def active_scenario_context(self) -> tuple[str, str, str | None] | None:
         if self._active_scenario and self._active_scenario_run_id:
-            return self._active_scenario, self._active_scenario_run_id
+            return self._active_scenario, self._active_scenario_run_id, self._active_started_at
         if (
             self._last_scenario
             and self._last_scenario_run_id
             and time.monotonic() < self._last_scenario_until
         ):
-            return self._last_scenario, self._last_scenario_run_id
+            return self._last_scenario, self._last_scenario_run_id, self._last_started_at
         return None
 
     @property
@@ -101,15 +92,18 @@ class ScenarioController:
         """Correlate telemetry while a separately hosted demo agent runs."""
         self._active_scenario = scenario_id
         self._active_scenario_run_id = run_id
+        self._active_started_at = datetime.now(timezone.utc).isoformat()
 
     def deactivate_external_context(self) -> None:
         """Retain a short correlation window for Argus reports delivered late."""
         if self._active_scenario and self._active_scenario_run_id:
             self._last_scenario = self._active_scenario
             self._last_scenario_run_id = self._active_scenario_run_id
+            self._last_started_at = self._active_started_at
             self._last_scenario_until = time.monotonic() + _SCENARIO_LINGER_SECONDS
         self._active_scenario = None
         self._active_scenario_run_id = None
+        self._active_started_at = None
 
     def _workload_pod_name(self) -> str:
         pods = self.core.list_namespaced_pod(
@@ -316,6 +310,7 @@ class ScenarioController:
             marker = f"argus-gtc-{scenario_id.replace('-', '_')}-{run_id}"
             self._active_scenario = scenario_id
             self._active_scenario_run_id = run_id
+            self._active_started_at = started
             try:
                 sink_ip = (
                     self._sink_ip()
@@ -354,8 +349,10 @@ class ScenarioController:
             finally:
                 self._last_scenario = scenario_id
                 self._last_scenario_run_id = run_id
+                self._last_started_at = started
                 self._last_scenario_until = (
                     time.monotonic() + _SCENARIO_LINGER_SECONDS
                 )
                 self._active_scenario = None
                 self._active_scenario_run_id = None
+                self._active_started_at = None
