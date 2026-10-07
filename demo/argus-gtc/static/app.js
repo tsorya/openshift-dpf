@@ -102,47 +102,51 @@ const SCENARIO_NATIVE_EVENT_SEVERITIES = {
 };
 
 const STORY_STORAGE_KEY = "argus-demo-selected-story";
-const GUIDED_STAGES = ["Setup", "Action", "Observation", "Result"];
 const GUIDED_STORIES = {
   workload: {
     label: "Workload security",
     workload: "invisible-vm",
     scenes: [
       {
-        stage: 0,
-        title: "Show the environment",
-        description: "This application runs inside an isolated Kata VM. Argus runs separately on the BlueField DPU and observes workload activity without software installed in the guest.",
-        purpose: "Start with the workload and independent observer. Then run a bounded action and review what Argus reports.",
-        action: "Start demo · Show activity inside the VM",
-        hint: "Runs the bounded discovery scenario in invisible-vm.",
+        step: "Environment",
+        title: "See where Argus runs",
+        description: "The application is inside a Kata VM. Argus watches from the BlueField DPU, outside that VM.",
+        purpose: "No security agent is installed inside the guest.",
+        action: "Start demo",
+        hint: "Next, run harmless activity inside invisible-vm.",
+        nextOnly: true,
+      },
+      {
+        step: "Normal activity",
+        title: "Show activity inside the VM",
+        description: "Run a few harmless commands inside invisible-vm. Then look for the matching activity in Argus.",
+        purpose: "The command finishing and Argus seeing it are separate outcomes.",
+        action: "Run harmless commands",
+        hint: "",
         scenario: "discovery",
       },
       {
-        stage: 1,
-        title: "Simulate suspicious activity",
-        description: "We open a short remote shell session inside invisible-vm to a controlled demo destination. The shell runs inside this selected workload.",
-        purpose: "A completed action and a native Argus detection are separate results. A matching HIGH alert appears only if Argus emits it.",
-        action: "Simulate a remote shell",
-        hint: "Uses the existing bounded reverse-shell scenario and local demo sink.",
+        step: "Remote shell",
+        title: "Simulate a remote shell",
+        description: "Run a short shell inside invisible-vm that connects to a controlled demo destination.",
+        purpose: "Argus may report the activity or raise a native HIGH alert. The result below shows what actually arrived.",
+        action: "Run remote shell simulation",
+        hint: "",
         scenario: "reverse-shell",
       },
       {
-        stage: 2,
-        title: "Review the independent observation",
-        description: "Argus observes process and socket activity from the BlueField DPU. OpenShift supplies the workload identity that connects the event to invisible-vm.",
-        purpose: "The evidence card keeps action completion, observed activity, and native alert status separate.",
-        action: "Refresh evidence",
-        hint: "Refreshes status and retained events; it does not repeat the scenario.",
-        refresh: true,
+        step: "Evidence",
+        title: "Explain the evidence",
+        description: "Show the specific Argus record tied to the remote-shell run, or state clearly that none matched.",
+        purpose: "The record identifies the workload, native activity, severity, and time.",
+        evidenceFor: "reverse-shell",
       },
       {
-        stage: 3,
-        title: "Respond and recover",
-        description: "An operator can stop the invisible-vm demo workload and restore it after the response. The DPU observer remains a separate service.",
-        purpose: "The response status follows observed pod state. A scale request by itself is not shown as stopped or restored.",
-        action: "Refresh workload status",
-        hint: "Stop and restore controls name their target below.",
-        refresh: true,
+        step: "Response",
+        title: "Stop and restore invisible-vm",
+        description: "The operator can stop this demo workload, then restore it when the demonstration is over.",
+        purpose: "The status changes only after OpenShift reports the observed pod state.",
+        evidenceFor: "reverse-shell",
         response: true,
       },
     ],
@@ -152,49 +156,46 @@ const GUIDED_STORIES = {
     workload: "argus-gtc-agent",
     scenes: [
       {
-        stage: 0,
+        step: "Normal request",
         title: "Start with a normal request",
-        description: "The separate AI application runs in its own Kata VM. It is an application agent, not a security agent installed inside the guest.",
-        purpose: "A status-summary request is the baseline. No shell-tool call is the expected result, so shell checks are not applicable.",
+        description: "The AI application runs inside its own Kata VM. Ask it for a routine status summary.",
+        purpose: "No shell-tool call is expected for this baseline request.",
         action: "Ask for a status summary",
-        hint: "Runs the baseline profile on argus-gtc-agent.",
+        hint: "",
         profile: "baseline",
       },
       {
-        stage: 1,
-        title: "Request bounded tool use",
-        description: "We explicitly ask the AI agent to open a short demo shell session inside its own isolated workload.",
-        purpose: "The authenticated tool report, listener response, Argus observation, and native alert are recorded as separate facts.",
+        step: "Tool use",
+        title: "Ask the AI agent to use a tool",
+        description: "Ask the AI agent to open a short demo shell in its Kata VM.",
+        purpose: "The fixed demo listener confirms a working shell only if it records the expected id output.",
         action: "Ask the AI agent to open a demo shell",
-        hint: "Uses the fixed demo destination and the agent's bounded shell tool.",
+        hint: "",
         profile: "host-reachability",
       },
       {
-        stage: 2,
-        title: "Review independent evidence",
-        description: "Argus runs separately on the BlueField DPU. It may report process or socket activity from argus-gtc-agent.",
-        purpose: "A TCP connection alone does not prove a working shell. The listener must record the expected response; a native alert must be present in Argus evidence.",
-        action: "Refresh evidence",
-        hint: "Refreshes status and retained events; it does not repeat the agent request.",
-        refresh: true,
+        step: "Argus evidence",
+        title: "See what Argus observed",
+        description: "Review the matching native Argus record from argus-gtc-agent, if one arrived.",
+        purpose: "The tool report, canary response, Argus event, and native alert remain separate facts.",
+        evidenceFor: "host-reachability",
       },
       {
-        stage: 2,
-        title: "Run the pasted-note example",
-        description: "The current workflow asks the agent to complete a pasted maintenance note that requests the same bounded tool use.",
-        purpose: "This is note-driven tool use under the current instructions. It does not establish that the model crossed a trust boundary.",
+        step: "Pasted note",
+        title: "Try the pasted-note example",
+        description: "This note asks the AI application to use the same bounded tool. The current workflow tells it to complete the note.",
+        purpose: "This is note-driven tool use, not a prompt-injection claim.",
         action: "Run the pasted-note example",
-        hint: "Optional comparison run; a missing tool call does not by itself prove a deliberate refusal.",
+        hint: "Optional: compare its outcome with the direct tool request.",
         profile: "note-driven",
+        optional: true,
       },
       {
-        stage: 3,
-        title: "Recap what happened",
-        description: "Separate what the AI agent did, what the controlled listener confirmed, what Argus observed, and whether Argus emitted a native alert.",
-        purpose: "No tool call or missing telemetry remains visible as a missing result; neither is promoted to detection or success.",
-        action: "Refresh evidence",
-        hint: "The response controls for invisible-vm do not apply to the AI workload.",
-        refresh: true,
+        step: "Recap",
+        title: "Explain what happened",
+        description: "Summarize the latest AI request, shell check, and independent Argus observation.",
+        purpose: "Stop and restore controls are available only for invisible-vm in the other story.",
+        evidenceFor: "latest-agent",
       },
     ],
   },
@@ -210,12 +211,16 @@ function readSelectedStory() {
 
 let activeStory = readSelectedStory();
 let activeSceneIndex = 0;
+let storySelectionChanged = false;
 let guidedRuns = { workload: null, agent: null };
+let guidedHistory = { workload: {}, agent: {} };
 let workloadResponseState = "Not requested";
 let streamState = "connecting";
 let streamReconnectTimer = null;
 let agentIsReady = false;
 let appServerInstanceId = null;
+let lastSystemStatus = null;
+let lastAgentStatus = null;
 
 let eventQueue = [];
 let allEvents = [];
@@ -270,6 +275,22 @@ function currentGuidedScene() {
   return scenes[Math.max(0, Math.min(activeSceneIndex, scenes.length - 1))];
 }
 
+function guidedRunKey(run) {
+  return run?.profile || run?.scenarioId || null;
+}
+
+function rememberGuidedRun(run) {
+  guidedRuns[run.story] = run;
+  const key = guidedRunKey(run);
+  if (key) guidedHistory[run.story][key] = run;
+}
+
+function runForScene(scene = currentGuidedScene()) {
+  const key = scene.scenario || scene.profile || scene.evidenceFor;
+  if (key === "latest-agent") return guidedRuns.agent;
+  return key ? guidedHistory[activeStory][key] || null : null;
+}
+
 function readRunReference() {
   try {
     return JSON.parse(sessionStorage.getItem("argus-demo-run-reference") || "null");
@@ -305,6 +326,7 @@ function hydrateServerRun(runState, allowStorySwitch = false) {
   const isAgent = story === "agent";
   const snapshot = runState.result || null;
   const profile = runState.profile || snapshot?.profile || null;
+  const previous = guidedHistory[story][profile || runState.scenario_id];
   const run = {
     kind: isAgent ? "agent" : "scenario",
     story,
@@ -317,8 +339,9 @@ function hydrateServerRun(runState, allowStorySwitch = false) {
     data: snapshot,
     error: runState.phase === "failed" ? runState.message : null,
     actionLabel: runState.message,
+    pinnedProof: previous?.runId === runState.run_id ? previous.pinnedProof : null,
   };
-  guidedRuns[story] = run;
+  rememberGuidedRun(run);
   if (allowStorySwitch) {
     activeStory = story;
     storySelect.value = story;
@@ -348,7 +371,7 @@ async function refreshServerRunState(initial = false) {
     if (initial && reference && (instanceChanged || !runState || runState.run_id !== reference.runId)) {
       const story = reference.story === "agent" ? "agent" : "workload";
       const scenarioId = reference.scenarioId || "unknown";
-      guidedRuns[story] = {
+      rememberGuidedRun({
         story,
         runId: reference.runId,
         scenarioId,
@@ -356,12 +379,12 @@ async function refreshServerRunState(initial = false) {
         workload: story === "agent" ? "argus-gtc-agent" : "invisible-vm",
         kind: story === "agent" ? "agent" : "scenario",
         lost: true,
-      };
-      activeStory = story;
-      storySelect.value = story;
-      const scenes = GUIDED_STORIES[story].scenes;
-      const index = scenes.findIndex((scene) => scene.scenario === scenarioId || scene.profile === reference.profile);
-      activeSceneIndex = index >= 0 ? index : 0;
+      });
+      if (!storySelectionChanged && activeStory === story) {
+        const scenes = GUIDED_STORIES[story].scenes;
+        const index = scenes.findIndex((scene) => scene.scenario === scenarioId || scene.profile === reference.profile);
+        activeSceneIndex = index >= 0 ? index : 0;
+      }
       renderGuidedScene();
       return;
     }
@@ -379,58 +402,81 @@ async function refreshServerRunState(initial = false) {
     const story = storyForServerRun(runState);
     const localRun = guidedRuns[story];
     if (initial || !localRun || localRun.runId === runState.run_id || !localRun.running) {
-      hydrateServerRun(runState, initial);
+      const resumeSelectedRun = initial && !storySelectionChanged && reference?.runId === runState.run_id && activeStory === story;
+      hydrateServerRun(runState, resumeSelectedRun);
     }
   } catch (_error) {
     // Retain the current display; a later poll can recover server-owned progress.
   }
 }
 
+function renderReadiness() {
+  const workload = lastSystemStatus?.kata_vm || "Checking…";
+  const argus = lastSystemStatus?.argus || "Checking…";
+  const feed = lastSystemStatus?.argus_freshness || "Checking…";
+  const values = [
+    ["readiness-workload", workload],
+    ["readiness-argus", argus],
+    ["readiness-feed", feed],
+  ];
+  values.forEach(([id, value]) => {
+    const item = document.getElementById(id);
+    item.textContent = value;
+    item.dataset.state = pillClass(value);
+  });
+}
+
 function renderGuidedScene() {
   const story = currentGuidedStory();
   const scene = currentGuidedScene();
   const isAgent = activeStory === "agent";
-  const friendlyWorkload = isAgent ? "argus-gtc-agent · AI application" : "invisible-vm";
+  const friendlyWorkload = isAgent ? "argus-gtc-agent" : "invisible-vm";
+  document.getElementById("demo-purpose").textContent = isAgent
+    ? "See AI tool activity in its Kata VM and independent Argus evidence from the BlueField DPU."
+    : "Argus watches the Kata VM from the BlueField DPU, without an in-guest security agent.";
   document.getElementById("story-kicker").textContent = `Guided story · ${story.label}`;
   document.getElementById("selected-workload").textContent = friendlyWorkload;
   document.getElementById("result-workload").textContent = friendlyWorkload;
   document.getElementById("response-target").textContent = "invisible-vm";
   document.getElementById("diagram-workload").textContent = story.workload;
   document.getElementById("diagram-workload-detail").textContent = isAgent
-    ? "AI application agent · not a guest security agent"
-    : "Application activity · no in-guest security agent";
-  document.getElementById("diagram-destination").textContent = isAgent
-    ? "No AI workload stop/restore control is available"
-    : "Operator can stop or restore invisible-vm";
-  document.getElementById("diagram-caption").textContent = isAgent
-    ? "The canary is the bounded action destination. Argus observes separately from the DPU."
-    : "The demo listener is an action destination. It is separate from the DPU observer.";
-  document.getElementById("scene-step-label").textContent = scene.stage === 2 && scene.profile === "note-driven"
-    ? "Optional example"
-    : GUIDED_STAGES[scene.stage];
+    ? "AI application · no in-guest security agent"
+    : "No in-guest security agent";
+  document.getElementById("scene-step-label").textContent = `${String(activeSceneIndex + 1).padStart(2, "0")} / ${scene.step}${scene.optional ? " · optional" : ""}`;
   document.getElementById("scene-heading").textContent = scene.title;
   document.getElementById("scene-description").textContent = scene.description;
   document.getElementById("scene-purpose").textContent = scene.purpose;
-  document.getElementById("action-hint").textContent = scene.hint;
-  guidedActionButton.textContent = scene.action;
-  guidedActionButton.hidden = Boolean(scene.response && isAgent);
+  const sceneRun = runForScene(scene);
+  const replay = Boolean(sceneRun?.data && !sceneRun.running && !sceneRun.error);
+  document.getElementById("action-hint").textContent = scene.hint || "";
+  document.getElementById("action-hint").hidden = !scene.hint;
+  guidedActionButton.textContent = replay ? "Run this scene again" : scene.action || "";
+  guidedActionButton.classList.toggle("is-replay", replay);
+  guidedActionButton.hidden = !scene.action;
   guidedActionButton.disabled = demoActionInProgress || hasGuidedRunInProgress() || (isAgent && Boolean(scene.profile) && !agentIsReady);
   document.getElementById("response-panel").hidden = !scene.response || isAgent;
-  document.getElementById("scene-number").textContent = `Scene ${activeSceneIndex + 1} of ${story.scenes.length}`;
+  document.getElementById("readiness-panel").hidden = !scene.nextOnly;
+  document.getElementById("result-panel").hidden = Boolean(scene.nextOnly || scene.response);
+  document.getElementById("scene-number").textContent = `${activeSceneIndex + 1} of ${story.scenes.length}`;
   document.getElementById("scene-prev").disabled = activeSceneIndex === 0;
-  document.getElementById("scene-next").disabled = activeSceneIndex >= story.scenes.length - 1;
+  const nextButton = document.getElementById("scene-next");
+  const nextScene = story.scenes[activeSceneIndex + 1];
+  nextButton.disabled = !nextScene;
+  nextButton.textContent = nextScene ? `Next: ${nextScene.step}` : "End of story";
+  nextButton.classList.toggle("ready-next", Boolean(nextScene && sceneRun?.data && !sceneRun.running && !sceneRun.error));
   const progress = document.getElementById("scene-progress");
   progress.replaceChildren();
-  const activeStage = scene.stage;
-  GUIDED_STAGES.forEach((stage, index) => {
+  story.scenes.forEach((step, index) => {
     const item = document.createElement("li");
     item.dataset.number = String(index + 1);
-    item.textContent = stage;
-    if (index === activeStage) item.setAttribute("aria-current", "step");
-    else if (index < activeStage) item.dataset.complete = "true";
+    item.textContent = step.step;
+    if (index === activeSceneIndex) item.setAttribute("aria-current", "step");
+    else if (index < activeSceneIndex) item.dataset.visited = "true";
     progress.appendChild(item);
   });
+  renderReadiness();
   renderGuidedResult();
+  syncActionButtons();
 }
 
 function setGuidedActionState(state, label) {
@@ -463,199 +509,302 @@ function relevantRunEvents(run) {
   return retainedEvents().filter((event) => event.scenario_run_id === run.runId);
 }
 
-function renderGuidedEvidence(events, fallbackEvent) {
-  if (!guidedEvidenceList) return;
+function formatEvidenceTime(value) {
+  const date = new Date(value || "");
+  if (Number.isNaN(date.getTime())) return "time unavailable";
+  return new Intl.DateTimeFormat(undefined, {
+    hour: "numeric", minute: "2-digit", second: "2-digit",
+  }).format(date);
+}
+
+function meaningfulSceneEvents(run) {
+  if (run.kind !== "scenario") return [];
+  const marker = run.scenarioId === "discovery"
+    ? "argus-gtc-discovery"
+    : "argus-gtc-reverse_shell-" + run.runId;
+  return relevantRunEvents(run).filter((event) => {
+    if (["ovn-acl-audit", "demo-correlation", "canary-listener"].includes(event.evidence_source)) return false;
+    if (!["EVENT", "ALERT"].includes((event.message_type || "").toUpperCase())) return false;
+    if (!podMatchesPrefixes(event.pod_name, [run.workload])) return false;
+    if (!eventHaystack(event).includes(marker)) return false;
+    const activity = event.activity_name || "";
+    return run.scenarioId === "discovery"
+      ? /^Process (Created|Executed|Started)$/i.test(activity)
+      : /^(Reverse Shell Detected|Process (Created|Executed|Started)|Network Connection Created|TCP Network Connection State Change)$/i.test(activity);
+  });
+}
+
+function pickGuidedProof(run) {
+  if (run.pinnedProof) return run.pinnedProof;
+  const data = run.data || {};
+  let event = data.native_alert || data.native_event || null;
+  if (run.kind === "agent") event = data.argus_host_attempt_event || null;
+  if (event && run.kind === "scenario") {
+    const full = relevantRunEvents(run).find((item) =>
+      item.activity_name === event.activity_name &&
+      item.occurred_at === event.occurred_at &&
+      item.pod_name === event.pod_name
+    );
+    event = full || event;
+  }
+  if (!event && run.kind === "scenario") {
+    const candidates = meaningfulSceneEvents(run);
+    event = run.scenarioId === "reverse-shell"
+      ? candidates.find((item) => /Reverse Shell|Network Connection/i.test(item.activity_name || "")) || candidates[0]
+      : candidates[0];
+  }
+  if (!event) return null;
+  const alert = (event.message_type || "").toUpperCase() === "ALERT" &&
+    (event.severity || "").toUpperCase() === "HIGH";
+  let title;
+  let why;
+  if (run.kind === "agent") {
+    title = alert ? "Argus raised a HIGH alert for the AI workload" : "Argus saw activity from the AI workload";
+    why = "This native record matches the current AI tool attempt. The demo listener's check is separate.";
+  } else if (run.scenarioId === "discovery") {
+    title = "Argus saw a demo command inside invisible-vm";
+    why = "A process record from this run shows visibility inside the isolated VM.";
+  } else {
+    title = alert ? "Argus raised a HIGH remote-shell alert" : "Argus saw the shell process or connection";
+    why = alert
+      ? "The alert came from Argus and matches this run."
+      : "This native activity record is separate from a HIGH detection.";
+  }
+  run.pinnedProof = { event, title, why };
+  return run.pinnedProof;
+}
+
+function renderGuidedEvidence(run, proof) {
+  const details = document.getElementById("supporting-evidence");
   guidedEvidenceList.replaceChildren();
-  const visibleEvents = events.length ? events.slice(-5).reverse() : fallbackEvent ? [fallbackEvent] : [];
-  if (!visibleEvents.length) {
-    const empty = document.createElement("p");
-    empty.textContent = "No run-correlated event is available. Open Technical view to inspect retained telemetry and matching criteria.";
-    guidedEvidenceList.appendChild(empty);
+  if (!run || !proof || run.kind !== "scenario") {
+    details.hidden = true;
     return;
   }
-  visibleEvents.forEach((event) => {
-    const row = document.createElement("article");
+  const seen = new Set();
+  const extra = meaningfulSceneEvents(run).filter((event) => {
+    if (event.id && event.id === proof.event.id) return false;
+    if (event.activity_name === proof.event.activity_name &&
+        event.occurred_at === proof.event.occurred_at) return false;
+    const key = [event.activity_name, event.process_name].join("|");
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  }).slice(0, 2);
+  details.hidden = !extra.length;
+  extra.forEach((event) => {
+    const row = document.createElement("div");
     row.className = "guided-evidence-item";
     const title = document.createElement("strong");
     title.textContent = event.activity_name || "Argus activity";
-    const classification = document.createElement("span");
-    classification.textContent = `${event.message_type || "EVENT"} · ${event.severity || "severity unavailable"}`;
-    const context = document.createElement("span");
-    context.textContent = `${event.pod_name || "workload unavailable"} · ${event.occurred_at || event.received_at || "time unavailable"}`;
-    row.append(title, classification, context);
-    if (event.id) {
-      const button = document.createElement("button");
-      button.type = "button";
-      button.className = "secondary compact";
-      button.textContent = "View technical evidence";
-      button.addEventListener("click", () => openEventDialog(event, button));
-      row.appendChild(button);
-    }
+    const meta = document.createElement("span");
+    meta.textContent = (event.severity || "severity unavailable") + " · " + formatEvidenceTime(event.occurred_at || event.received_at);
+    row.append(title, meta);
     guidedEvidenceList.appendChild(row);
   });
 }
 
-function renderGuidedResult() {
-  const run = guidedRuns[activeStory];
-  const isAgent = activeStory === "agent";
-  const response = isAgent ? "Not applicable · AI workload response is unsupported" : workloadResponseState;
+function renderGuidedProof(run, proof) {
+  const card = document.getElementById("proof-card");
+  const button = document.getElementById("proof-raw");
+  card.hidden = !proof;
+  button.hidden = true;
+  button.onclick = null;
+  if (!proof) {
+    renderGuidedEvidence(null, null);
+    return;
+  }
+  const event = proof.event;
+  card.dataset.severity = (event.severity || "").toLowerCase();
+  document.getElementById("proof-title").textContent = proof.title;
+  document.getElementById("proof-why").textContent = proof.why;
+  document.getElementById("proof-meta").textContent = [
+    "DOCA Argus",
+    event.pod_name || "Argus pod name unavailable",
+    event.activity_name || "activity",
+    (event.message_type || "EVENT") + " / " + (event.severity || "severity unavailable"),
+    formatEvidenceTime(event.occurred_at || event.received_at),
+  ].join(" · ");
+  const full = event.id && retainedEvents().find((item) => item.id === event.id);
+  if (full) {
+    button.hidden = false;
+    button.onclick = () => openEventDialog(full, button);
+  }
+  renderGuidedEvidence(run, proof);
+}
+
+function setGuidedFacts(action, observation, alert, response, canary = "Not applicable") {
+  document.getElementById("canary-fact").hidden = activeStory !== "agent";
+  document.getElementById("result-facts").dataset.story = activeStory;
+  setGuidedFact("fact-action", action);
+  setGuidedFact("fact-canary", canary);
+  setGuidedFact("fact-observation", observation);
+  setGuidedFact("fact-alert", alert);
   setGuidedFact("fact-response", response);
+}
+
+function renderGuidedResult() {
+  const scene = currentGuidedScene();
+  const resultPanel = document.getElementById("result-panel");
+  const facts = document.getElementById("result-facts");
+  const outcome = document.getElementById("outcome-sentence");
+  const response = activeStory === "agent" ? "Unavailable for this workload" : workloadResponseState;
+  document.getElementById("response-state").textContent = response === "Not requested"
+    ? "No response requested."
+    : response + ".";
+  if (scene.nextOnly) {
+    resultPanel.hidden = true;
+    setGuidedActionState("ready", "Ready to begin");
+    return;
+  }
+
+  resultPanel.hidden = Boolean(scene.response);
+  document.getElementById("result-kicker").textContent = scene.response
+    ? "Operator response"
+    : scene.evidenceFor ? "Independent evidence" : "Current scene";
+  document.getElementById("result-heading").textContent = scene.response
+    ? "Response status"
+    : scene.evidenceFor ? "What Argus reported" : "What happened";
+  const run = runForScene(scene);
+  const replay = Boolean(run?.data && !run.running && !run.error && (scene.scenario || scene.profile));
+  guidedActionButton.classList.toggle("is-replay", replay);
+  if (replay) guidedActionButton.textContent = "Run this scene again";
+  facts.hidden = true;
+  renderGuidedProof(null, null);
+
+  if (scene.response) {
+    if (response.startsWith("Stopped")) {
+      const dpu = lastSystemStatus?.dpu || "Unavailable";
+      const argus = lastSystemStatus?.argus || "Unavailable";
+      document.getElementById("response-state").textContent = lastSystemStatus?.kata_vm !== "Stopped"
+        ? `The stop action completed, but current workload status is ${lastSystemStatus?.kata_vm || "unavailable"}. Check the workload before presenting it as stopped.`
+        : dpu === "Ready" && argus === "Ready"
+          ? "OpenShift confirmed invisible-vm stopped. DPU and Argus report Ready."
+          : `OpenShift confirmed invisible-vm stopped. DPU: ${dpu}; Argus: ${argus}.`;
+    } else if (response.startsWith("Restored")) {
+      document.getElementById("response-state").textContent = lastSystemStatus?.kata_vm === "Ready"
+        ? "OpenShift confirmed invisible-vm is Ready again."
+        : `The restore action completed, but current workload status is ${lastSystemStatus?.kata_vm || "unavailable"}.`;
+    } else if (response === "Not requested") {
+      document.getElementById("response-state").textContent = lastSystemStatus?.kata_vm === "Stopped"
+        ? "OpenShift reports invisible-vm is stopped. Restore it to continue."
+        : "No response requested yet.";
+    } else {
+      document.getElementById("response-state").textContent = response + ".";
+    }
+    const statusMismatch = (response.startsWith("Stopped") && lastSystemStatus?.kata_vm !== "Stopped") ||
+      (response.startsWith("Restored") && lastSystemStatus?.kata_vm !== "Ready");
+    const statusLabel = statusMismatch
+      ? "Verify workload state"
+      : response === "Not requested"
+        ? lastSystemStatus?.kata_vm === "Stopped" ? "Workload stopped" : "Response available"
+        : response.split(" · ")[0];
+    setGuidedActionState(statusMismatch ? "error" : "ready", statusLabel);
+    return;
+  }
+
   if (!run) {
-    setGuidedActionState("ready", "Ready");
-    setGuidedFact("fact-action", "Not started");
-    setGuidedFact("fact-observation", "Waiting for a run");
-    setGuidedFact("fact-alert", "No alert reported");
-    document.getElementById("outcome-sentence").textContent = isAgent
-      ? "The AI application agent is a separate workload. Choose a scene to make a request and review its independent evidence."
-      : "Ready when you are. The result will separate the requested action from Argus evidence.";
-    renderGuidedEvidence([], null);
+    const agentUnavailable = activeStory === "agent" && scene.profile && lastAgentStatus && !agentIsReady;
+    setGuidedActionState("ready", agentUnavailable ? "Agent not ready" : scene.response ? "Response available" : "Ready for this scene");
+    outcome.textContent = agentUnavailable
+      ? lastAgentStatus.unavailable ? "Agent status is unavailable. Check the deployment in Technical view." : lastAgentStatus.message || "Wait for the AI application to become ready."
+      : scene.evidenceFor
+        ? "No run to explain yet. Return to the action scene, or continue without evidence."
+        : "Use the action above to create a result for this scene.";
     return;
   }
   if (run.lost) {
     setGuidedActionState("error", "Run state unavailable");
-    setGuidedFact("fact-action", "Unknown after reload");
-    setGuidedFact("fact-observation", "Unknown · server no longer has this run");
-    setGuidedFact("fact-alert", "Unknown · no result retained");
-    document.getElementById("outcome-sentence").textContent = "The server no longer has this run state. Its action and Argus result cannot be confirmed.";
-    renderGuidedEvidence([], null);
+    outcome.textContent = "The server no longer has this run. Its action and Argus result cannot be confirmed after the reload.";
     return;
   }
   if (run.running) {
     const state = run.serverState || {};
-    const startedAt = Date.parse(state.started_at || "") || Date.now();
-    const elapsed = Math.max(0, Math.floor((Date.now() - startedAt) / 1000));
-    const elapsedText = `${elapsed}s elapsed`;
-    const actionLabels = {
-      running: "Action running",
-      tool_authorized: "Bounded tool authorized",
-      tool_reported: "Authenticated tool report received",
-      completed: "Action completed",
-      not_performed: "No tool call reported",
-      failed: "Action failed",
-    };
-    const observationLabels = {
-      waiting: `Waiting for matching Argus evidence · ${elapsedText}`,
-      observed: "Matching evidence observed",
-      not_observed: "No matching evidence observed",
-      not_applicable: "Not applicable for this profile",
-      not_checked: "This scenario has no server-side evidence check",
-    };
-    setGuidedActionState("running", `${state.phase === "observation" ? "Checking evidence" : "Action running"} · ${elapsedText}`);
-    setGuidedFact("fact-action", actionLabels[state.action_status] || run.actionLabel || "Action in progress");
-    setGuidedFact("fact-observation", observationLabels[state.observation_status] || "Waiting for server progress");
-    setGuidedFact("fact-alert", "Not available yet");
-    document.getElementById("outcome-sentence").textContent = state.message || `${run.actionLabel || "The request"} is running.`;
-    renderGuidedEvidence([], null);
+    const started = Date.parse(state.started_at || "") || Date.now();
+    const elapsed = Math.max(0, Math.floor((Date.now() - started) / 1000));
+    setGuidedActionState("running", "Running · " + elapsed + "s");
+    outcome.textContent = state.phase === "observation"
+      ? "The action finished. Waiting for matching Argus evidence · " + elapsed + "s elapsed."
+      : "The action is running in " + run.workload + " · " + elapsed + "s elapsed.";
     return;
   }
   if (run.error) {
     setGuidedActionState("error", "Action failed");
-    setGuidedFact("fact-action", `Failed · ${run.error}`);
-    setGuidedFact("fact-observation", "Not evaluated");
-    setGuidedFact("fact-alert", "Not evaluated");
-    document.getElementById("outcome-sentence").textContent = `The request failed: ${run.error}`;
-    renderGuidedEvidence([], null);
+    outcome.textContent = "This scene failed: " + run.error;
     return;
   }
 
   const data = run.data || {};
-  const events = relevantRunEvents(run);
+  const proof = run.profile === "baseline" ? null : pickGuidedProof(run);
+  const event = proof?.event || null;
+  const highAlert = run.kind === "scenario"
+    ? Boolean(data.native_alert)
+    : Boolean(data.native_argus_alert && event &&
+        (event.message_type || "").toUpperCase() === "ALERT" &&
+        (event.severity || "").toUpperCase() === "HIGH");
+  facts.hidden = false;
+  renderGuidedProof(run, proof);
+
   if (run.kind === "scenario") {
-    const nativeEvent = data.native_alert || data.native_event || events.find((event) =>
-      isNativeHighAlert(event) && (SCENARIO_NATIVE_ALERTS[run.scenarioId] || []).includes(event.activity_name)
-    ) || events.find((event) => (event.message_type || "").toUpperCase() === "EVENT");
-    const nativeAlert = data.native_alert || events.find((event) =>
-      isNativeHighAlert(event) && (SCENARIO_NATIVE_ALERTS[run.scenarioId] || []).includes(event.activity_name)
+    const discovery = run.scenarioId === "discovery";
+    setGuidedFacts(
+      discovery ? "Harmless commands finished" : "Remote-shell simulation finished",
+      proof ? "Matching native activity" : "No matching activity visible",
+      highAlert ? "HIGH · " + (event?.activity_name || "native alert")
+        : discovery ? "Not evaluated for this scene" : "No matching HIGH alert in 45s",
+      response
     );
-    setGuidedActionState("complete", "Action complete");
-    setGuidedFact("fact-action", `Completed · ${SCENARIO_LABELS[run.scenarioId] || run.scenarioId}`);
-    setGuidedFact("fact-observation", nativeEvent
-      ? `Observed · ${nativeEvent.message_type || "EVENT"} · ${nativeEvent.severity || "severity unavailable"} · ${nativeEvent.activity_name || "Argus activity"}`
-      : data.status === "no-native-event" || data.status === "no-native-alert"
-        ? "No matching Argus evidence arrived within the wait window"
-        : events.length
-          ? `${events.length} run-correlated Argus record${events.length === 1 ? "" : "s"} available`
-          : "No run-correlated Argus evidence is available in the response");
-    setGuidedFact("fact-alert", nativeAlert
-      ? `${nativeAlert.severity || "HIGH"} · ${nativeAlert.activity_name || "Native alert"}`
-      : (SCENARIO_NATIVE_ALERTS[run.scenarioId] || []).length
-        ? "No matching native ALERT/HIGH observed"
-        : "Not required for this action");
-    document.getElementById("outcome-sentence").textContent = nativeAlert
-      ? `Argus raised a ${nativeAlert.severity || "native"} alert: ${nativeAlert.activity_name}.`
-      : nativeEvent && (SCENARIO_NATIVE_ALERTS[run.scenarioId] || []).length
-        ? `Argus observed ${nativeEvent.activity_name || "activity"}. No matching native ALERT/HIGH was observed.`
-      : data.status === "no-native-event" || data.status === "no-native-alert"
-        ? `The action completed. ${data.message || "No matching Argus evidence arrived within the wait window."}`
-        : nativeEvent
-          ? `Argus observed ${nativeEvent.activity_name || "activity"} from ${nativeEvent.pod_name || run.workload}.`
-          : events.length
-            ? `The action completed. ${events.length} run-correlated Argus record${events.length === 1 ? " is" : "s are"} available below.`
-            : "The action completed. No run-correlated Argus record is available in the response.";
-    if (!run.pinnedEvidenceIds?.length && events.length) run.pinnedEvidenceIds = events.slice(-5).map((event) => event.id).filter(Boolean);
-    const pinned = run.pinnedEvidenceIds.length
-      ? events.filter((event) => run.pinnedEvidenceIds.includes(event.id))
-      : events;
-    renderGuidedEvidence(pinned, nativeEvent);
+    if (discovery) {
+      outcome.textContent = proof
+        ? "Harmless commands finished in invisible-vm. Argus reported matching process activity."
+        : "Harmless commands finished in invisible-vm. A matching Argus process record is not visible yet.";
+      setGuidedActionState("complete", proof ? "Activity observed" : "Action finished");
+    } else if (highAlert) {
+      outcome.textContent = "The simulation finished. Argus raised a matching native HIGH alert.";
+      setGuidedActionState("complete", "HIGH alert observed");
+    } else if (proof) {
+      outcome.textContent = "The simulation finished. Argus reported matching activity; no native HIGH alert arrived within 45 seconds.";
+      setGuidedActionState("complete", "Activity observed");
+    } else {
+      outcome.textContent = "The simulation finished. No matching Argus record is visible in the current feed.";
+      setGuidedActionState("complete", "Action finished");
+    }
     return;
   }
 
   const baseline = run.profile === "baseline";
-  const toolCalled = Boolean(data.authenticated_tool_report_observed && data.tool_result?.source_port);
-  const argusEvent = data.argus_host_attempt_event || events.find((event) =>
-    ["EVENT", "ALERT"].includes((event.message_type || "").toUpperCase())
-  );
-  const nativeAlert = Boolean(data.native_argus_alert) && argusEvent &&
-    (argusEvent.message_type || "").toUpperCase() === "ALERT" &&
-    (argusEvent.severity || "").toUpperCase() === "HIGH";
+  const toolReported = Boolean(data.authenticated_tool_report_observed);
   const workingShell = Boolean(data.working_shell);
-  setGuidedActionState("complete", "Request complete");
-  setGuidedFact("fact-action", baseline
-    ? data.status === "no-tool-call"
-      ? "No shell-tool call recorded · expected baseline"
-      : "Unexpected shell-tool activity · inspect details"
-    : toolCalled
-      ? `Authenticated tool report · ${data.tool_result.outcome || "outcome unavailable"}`
-      : "No authenticated shell-tool report recorded");
-  setGuidedFact("fact-observation", baseline
-    ? "Not applicable · no shell action was requested"
-    : argusEvent
-      ? `Observed · ${argusEvent.message_type || "EVENT"} · ${argusEvent.severity || "severity unavailable"} · ${argusEvent.activity_name || "Argus activity"}`
-      : data.policy_drop_observed
-        ? "No matching Argus event · OVN recorded a separate policy deny"
-        : "No matching Argus event observed during this run");
-  setGuidedFact("fact-alert", baseline
-    ? "Not applicable · baseline did not request a shell"
-    : nativeAlert
-      ? `HIGH · ${argusEvent.activity_name}`
-      : argusEvent
-        ? `No native HIGH alert · Argus reported ${argusEvent.message_type || "EVENT"}/${argusEvent.severity || "unknown"}`
-        : "No matching native alert confirmed");
-  let sentence;
-  if (baseline && data.status === "no-tool-call") {
-    sentence = "No shell-tool call was recorded. Shell-specific checks are not applicable to this normal request.";
-  } else if (workingShell && argusEvent) {
-    sentence = "The canary confirmed the shell session. Argus independently observed matching workload activity.";
+  setGuidedFacts(
+    baseline
+      ? data.status === "no-tool-call" ? "No shell tool used · expected" : "Unexpected tool activity"
+      : toolReported ? "Authenticated tool report received" : "No authenticated tool report",
+    baseline ? "Not applicable" : proof ? "Matching native activity" :
+      data.policy_drop_observed ? "OVN deny · separate evidence" : "No matching Argus activity",
+    baseline ? "Not applicable" : highAlert ? "HIGH · " + (event?.activity_name || "native alert") : "No matching HIGH alert",
+    "Unavailable for AI workload",
+    baseline ? "Not applicable" : workingShell ? "Confirmed · id output" : "No id output"
+  );
+  if (baseline) {
+    outcome.textContent = data.status === "no-tool-call"
+      ? "The routine request completed without a shell-tool call, as expected."
+      : "The baseline had unexpected shell-tool activity. Inspect the technical result.";
+  } else if (highAlert && workingShell) {
+    outcome.textContent = "The demo listener confirmed a working shell. Argus raised a matching native HIGH alert.";
+  } else if (highAlert) {
+    outcome.textContent = "Argus raised a native HIGH alert. The demo listener did not confirm a working shell.";
+  } else if (workingShell && proof) {
+    outcome.textContent = "The demo listener confirmed a working shell. Argus independently reported matching activity.";
   } else if (workingShell) {
-    sentence = "The canary confirmed the shell session. No matching Argus event arrived during this run.";
-  } else if (argusEvent) {
-    sentence = `Argus observed ${argusEvent.activity_name || "activity"}. The listener did not confirm a working shell.`;
+    outcome.textContent = "The demo listener confirmed a working shell. No matching Argus event arrived during this run.";
   } else if (data.policy_drop_observed) {
-    sentence = "OVN recorded a matching policy deny. A network timeout alone would not prove a policy block.";
-  } else if (data.status === "no-tool-call") {
-    sentence = "No shell-tool call was recorded. The agent response is available in Technical view; this alone does not establish a deliberate refusal.";
-  } else if (toolCalled) {
-    sentence = "An authenticated tool report was recorded. The listener did not confirm a working shell.";
+    outcome.textContent = "OVN recorded a matching deny. No working shell was confirmed.";
+  } else if (toolReported) {
+    outcome.textContent = "The tool reported an attempt. The demo listener did not confirm a working shell.";
   } else {
-    sentence = data.message || "The run did not produce enough evidence to confirm a shell action or Argus observation.";
+    outcome.textContent = "No authenticated shell-tool call was recorded. This alone does not establish a deliberate refusal.";
   }
-  if (nativeAlert) sentence = `Argus raised a HIGH alert: ${argusEvent.activity_name}.`;
-  document.getElementById("outcome-sentence").textContent = sentence;
-  if (!run.pinnedEvidenceIds?.length && events.length) run.pinnedEvidenceIds = events.slice(-5).map((event) => event.id).filter(Boolean);
-  const pinned = run.pinnedEvidenceIds.length
-    ? events.filter((event) => run.pinnedEvidenceIds.includes(event.id))
-    : events;
-  renderGuidedEvidence(pinned, argusEvent);
+  setGuidedActionState("complete", baseline ? "Baseline complete" : proof ? "Evidence available" : "Request complete");
 }
 
 function pillClass(value) {
@@ -668,6 +817,7 @@ function pillClass(value) {
 }
 
 function updateRibbon(status) {
+  lastSystemStatus = status;
   document.querySelectorAll(".pill").forEach((pill) => {
     const key = pill.dataset.key;
     const value = status[key] || "—";
@@ -684,6 +834,8 @@ function updateRibbon(status) {
   document.getElementById("argus-pods").textContent = argus ? `${argus.running}/${argus.total} ready` : "—";
   updateCoverage(status.details?.coverage);
   updateFeedFreshness(status.argus_freshness || "Unknown");
+  renderReadiness();
+  if (activeStory === "workload" && currentGuidedScene().response) renderGuidedResult();
 }
 
 function fillList(id, items) {
@@ -1123,7 +1275,7 @@ function flushEventQueue() {
   incoming.forEach(rememberEvent);
   trimBuffers();
   renderTimeline();
-  const currentRun = guidedRuns[activeStory];
+  const currentRun = runForScene();
   if (currentRun?.runId && incoming.some((event) => event.scenario_run_id === currentRun.runId)) {
     renderGuidedResult();
   }
@@ -1136,7 +1288,7 @@ function scheduleFlush() {
 }
 
 function queueEvent(event) {
-  const currentRun = guidedRuns[activeStory];
+  const currentRun = runForScene();
   if (currentRun?.runId && event?.scenario_run_id === currentRun.runId) {
     rememberEvent(event);
     trimBuffers();
@@ -1215,7 +1367,10 @@ async function refreshStatus() {
     const data = await parseJsonResponse(res);
     updateRibbon(data);
   } catch (_error) {
+    lastSystemStatus = { kata_vm: "Unavailable", argus: "Unavailable", argus_freshness: "Unavailable" };
     updateFeedFreshness("Unavailable");
+    renderReadiness();
+    if (activeStory === "workload" && currentGuidedScene().response) renderGuidedResult();
   }
 }
 
@@ -1225,6 +1380,7 @@ async function refreshAgentStatus() {
   try {
     const res = await fetch("/api/agent/status");
     const data = await parseJsonResponse(res);
+    lastAgentStatus = data;
     const ready = Boolean(data.ready && data.model_configured);
     agentIsReady = ready;
     badge.textContent = ready
@@ -1238,21 +1394,27 @@ async function refreshAgentStatus() {
     buttons.forEach((button) => { button.disabled = !ready || demoActionInProgress || hasGuidedRunInProgress(); });
     if (activeStory === "agent" && currentGuidedScene().profile) {
       guidedActionButton.disabled = !ready || demoActionInProgress || hasGuidedRunInProgress();
-      if (!ready) document.getElementById("action-hint").textContent = data.message || badge.textContent;
-      else document.getElementById("action-hint").textContent = currentGuidedScene().hint;
+      const hint = document.getElementById("action-hint");
+      hint.hidden = ready && !currentGuidedScene().hint;
+      hint.textContent = ready ? currentGuidedScene().hint : data.message || badge.textContent;
     }
     if (!ready) {
       document.getElementById("agent-log").textContent = data.message;
     }
   } catch (error) {
+    lastAgentStatus = { unavailable: true };
     agentIsReady = false;
     badge.textContent = "Agent status unavailable";
     badge.className = "agent-state warn";
     buttons.forEach((button) => { button.disabled = true; });
     if (activeStory === "agent" && currentGuidedScene().profile) {
       guidedActionButton.disabled = true;
-      document.getElementById("action-hint").textContent = "Agent readiness could not be checked. Refresh status before running this scene.";
+      const hint = document.getElementById("action-hint");
+      hint.hidden = false;
+      hint.textContent = "Agent readiness could not be checked. Refresh status before running this scene.";
     }
+  } finally {
+    if (activeStory === "agent") renderGuidedResult();
   }
 }
 
@@ -1262,15 +1424,15 @@ async function runScenario(id, options = {}) {
   setScenarioFilter(id, scenarioRunId);
   demoActionInProgress = true;
   if (options.fromGuided) {
-    guidedRuns.workload = {
+    rememberGuidedRun({
       kind: "scenario",
       story: "workload",
       scenarioId: id,
       runId: scenarioRunId,
       workload,
       running: true,
-      actionLabel: SCENARIO_LABELS[id] || id,
-    };
+      actionLabel: id === "discovery" ? "Harmless commands" : "Remote-shell simulation",
+    });
     saveRunReference(guidedRuns.workload);
     renderGuidedResult();
   }
@@ -1300,13 +1462,13 @@ async function runScenario(id, options = {}) {
       renderTimeline();
     }
     if (options.fromGuided) {
-      guidedRuns.workload = {
+      rememberGuidedRun({
         ...guidedRuns.workload,
         running: false,
         data,
         finishedAt: Date.now(),
-      };
-      renderGuidedResult();
+      });
+      renderGuidedScene();
     }
     actionLog.className = data.status === "native-alert" || data.status === "native-event"
       ? "result-success"
@@ -1343,12 +1505,12 @@ async function runScenario(id, options = {}) {
     actionLog.className = "result-failed";
     actionLog.textContent = `Scenario failed: ${error.message}`;
     if (options.fromGuided) {
-      guidedRuns.workload = {
+      rememberGuidedRun({
         ...guidedRuns.workload,
         running: false,
         error: error.message,
-      };
-      renderGuidedResult();
+      });
+      renderGuidedScene();
     }
   } finally {
     demoActionInProgress = false;
@@ -1399,7 +1561,7 @@ async function runAgentProfile(profile, options = {}) {
   const result = document.getElementById("agent-log");
   demoActionInProgress = true;
   if (options.fromGuided) {
-    guidedRuns.agent = {
+    rememberGuidedRun({
       kind: "agent",
       story: "agent",
       profile,
@@ -1408,7 +1570,7 @@ async function runAgentProfile(profile, options = {}) {
       workload: "argus-gtc-agent",
       running: true,
       actionLabel: GUIDED_STORIES.agent.scenes[activeSceneIndex]?.action || "AI agent request",
-    };
+    });
     saveRunReference(guidedRuns.agent);
     renderGuidedResult();
   }
@@ -1468,20 +1630,20 @@ async function runAgentProfile(profile, options = {}) {
       `Agent response: ${typeof data.agent_response === "string" ? data.agent_response : JSON.stringify(data.agent_response)}`,
     ].join("\n\n");
     if (options.fromGuided) {
-      guidedRuns.agent = {
+      rememberGuidedRun({
         ...guidedRuns.agent,
         running: false,
         data,
         finishedAt: Date.now(),
-      };
-      renderGuidedResult();
+      });
+      renderGuidedScene();
     }
   } catch (error) {
     result.className = "result-failed";
     result.textContent = `Agent run failed: ${error.message}`;
     if (options.fromGuided) {
-      guidedRuns.agent = { ...guidedRuns.agent, running: false, error: error.message };
-      renderGuidedResult();
+      rememberGuidedRun({ ...guidedRuns.agent, running: false, error: error.message });
+      renderGuidedScene();
     }
   } finally {
     demoActionInProgress = false;
@@ -1564,8 +1726,8 @@ async function runControlAction(path) {
     document.getElementById("response-target").textContent = target;
     actionLog.className = "";
     actionLog.textContent = `${data.message || "Response state updated."}\nObserved pod state: ${JSON.stringify(data.observed || {})}`;
-    if (activeStory === "workload") renderGuidedResult();
     await refreshStatus();
+    if (activeStory === "workload") renderGuidedResult();
   } catch (error) {
     workloadResponseState = `Response failed · ${error.message}`;
     actionLog.className = "result-failed";
@@ -1596,16 +1758,19 @@ document.getElementById("guided-reset-btn").addEventListener("click", () => {
 document.getElementById("scene-prev").addEventListener("click", () => {
   if (activeSceneIndex === 0) return;
   activeSceneIndex -= 1;
+  document.getElementById("supporting-evidence").open = false;
   renderGuidedScene();
 });
 
 document.getElementById("scene-next").addEventListener("click", () => {
   if (activeSceneIndex >= currentGuidedStory().scenes.length - 1) return;
   activeSceneIndex += 1;
+  document.getElementById("supporting-evidence").open = false;
   renderGuidedScene();
 });
 
 storySelect.addEventListener("change", () => {
+  storySelectionChanged = true;
   activeStory = storySelect.value === "agent" ? "agent" : "workload";
   activeSceneIndex = 0;
   try {
@@ -1613,6 +1778,7 @@ storySelect.addEventListener("change", () => {
   } catch (_error) {
     // The selection remains active for this page even when storage is unavailable.
   }
+  document.getElementById("supporting-evidence").open = false;
   renderGuidedScene();
   refreshAgentStatus();
 });
@@ -1620,6 +1786,11 @@ storySelect.addEventListener("change", () => {
 guidedActionButton.addEventListener("click", async () => {
   if (demoActionInProgress) return;
   const scene = currentGuidedScene();
+  if (scene.nextOnly) {
+    activeSceneIndex += 1;
+    renderGuidedScene();
+    return;
+  }
   if (scene.scenario) {
     runScenario(scene.scenario, { fromGuided: true });
     return;
@@ -1628,12 +1799,6 @@ guidedActionButton.addEventListener("click", async () => {
     runAgentProfile(scene.profile, { fromGuided: true });
     return;
   }
-  setGuidedActionState("running", "Refreshing status");
-  guidedActionButton.disabled = true;
-  await Promise.allSettled([refreshStatus(), loadTimelineHistory()]);
-  setGuidedActionState("ready", "Ready");
-  guidedActionButton.disabled = false;
-  renderGuidedResult();
 });
 
 pauseBtn.addEventListener("click", () => {

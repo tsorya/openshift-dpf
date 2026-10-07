@@ -12,10 +12,10 @@ The AI application in the second story is itself an agent. That does not mean it
 - **Observer:** DOCA Argus on the BlueField DPU
 - **Response target:** `invisible-vm` only
 
-1. **Show the environment.** “This application runs in an isolated VM. Its security observer runs separately on the BlueField card.” Point out the workload, DPU observer, and actual feed freshness.
-2. **Show normal activity.** Start the demo to run bounded discovery in `invisible-vm`. “Argus can see the activity without software installed in the VM.”
-3. **Simulate suspicious activity.** Advance to the next scene, then explicitly start the remote-shell simulation. “This shell runs inside `invisible-vm` and connects only to the controlled demo listener.”
-4. **Review the result.** Read the action, observation, and native-alert facts separately. A controller response is not sensor evidence; a process or socket event is not automatically an alert. Say “HIGH alert” only when the matching native Argus record contains `message_type=ALERT` and `severity=HIGH`.
+1. **Environment.** “This application runs in an isolated VM. Its security observer runs separately on the BlueField card.” Point out the live workload and observer readiness, then select **Start demo** to move to Normal activity. Start does not run a scenario.
+2. **Normal activity.** Select **Run harmless commands** to run bounded discovery in `invisible-vm`. Show the current-run process record if Argus reports one; if none is visible, say so.
+3. **Remote shell.** Advance to the next scene, then explicitly start the remote-shell simulation. “This shell runs inside `invisible-vm` and connects only to the controlled demo listener.”
+4. **Evidence.** Explain the single pinned Argus record and its workload, time, and severity. A controller response is not sensor evidence; a process or socket event is not automatically an alert. Say “HIGH alert” only when the matching native Argus record contains `message_type=ALERT` and `severity=HIGH`.
 5. **Respond and recover.** Stop `invisible-vm`, then restore it. The UI reports Stopping/Restoring until Kubernetes shows pod termination/readiness. Argus health is independent of the workload response.
 
 Scene navigation changes the displayed scene only. Each action is started separately and never repeats when moving backward or forward.
