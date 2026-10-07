@@ -3,11 +3,132 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#111318" />
   <title>Invisible VM, Visible Threat — Argus GTC Demo</title>
-  <link rel="stylesheet" href="/assets/style.css?v=27" />
+  <link rel="stylesheet" href="/assets/style.css?v=29" />
 </head>
-<body>
-  <header class="hero">
+<body class="guided-page">
+  <header class="demo-header">
+    <div class="demo-brand" aria-label="NVIDIA and Red Hat technology demonstration">
+      <img src="/assets/brand/nvidia-logo.svg" alt="NVIDIA" />
+      <span aria-hidden="true">×</span>
+      <img src="/assets/brand/redhat-logo.svg" alt="Red Hat" />
+      <span class="demo-badge">GTC demonstration</span>
+    </div>
+    <div class="header-controls">
+      <label class="story-picker" for="story-select">
+        <span>Choose a story</span>
+        <select id="story-select">
+          <option value="workload">Workload security · invisible-vm</option>
+          <option value="agent">AI agent behavior · argus-gtc-agent</option>
+        </select>
+      </label>
+      <div class="live-status" aria-label="Live connection and evidence freshness">
+        <span class="connection-chip" id="connection-state" data-state="connecting">
+          <span class="status-dot" aria-hidden="true"></span><span>Connecting</span>
+        </span>
+        <span class="freshness-chip">Argus feed <strong id="feed-freshness">Checking…</strong></span>
+      </div>
+    </div>
+    <div class="demo-title">
+      <p class="eyebrow">DOCA Argus · BlueField DPU · OpenShift DPF · Kata Containers</p>
+      <h1>Invisible VM. <span>Visible Threat.</span></h1>
+      <p>Argus observes activity from the BlueField DPU, outside the isolated workload. The guest has no installed security agent; OpenShift identifies the workload so an operator can respond.</p>
+    </div>
+  </header>
+
+  <main class="guided-main">
+    <section class="guided-card" aria-labelledby="scene-heading">
+      <div class="guided-toolbar">
+        <div>
+          <span class="section-kicker" id="story-kicker">Guided story · Workload security</span>
+          <p class="selected-workload">Selected workload <strong id="selected-workload">invisible-vm</strong></p>
+        </div>
+        <span class="run-state" id="run-state" aria-live="polite">Ready</span>
+      </div>
+
+      <ol class="scene-progress" id="scene-progress" aria-label="Demo progress"></ol>
+
+      <div class="scene-grid">
+        <section class="scene-copy" aria-live="polite">
+          <span class="scene-kicker" id="scene-step-label">Setup</span>
+          <h2 id="scene-heading">Show the environment</h2>
+          <p id="scene-description">This application runs inside an isolated Kata VM. Argus runs separately on the BlueField DPU and observes workload activity without software installed in the guest.</p>
+          <p class="scene-purpose" id="scene-purpose">Start with the workload and independent observer. Then run a bounded action and review what Argus reports.</p>
+          <button type="button" class="primary-action" id="guided-action">Start demo · Show activity inside the VM</button>
+          <p class="action-hint" id="action-hint">Runs the bounded discovery scenario in invisible-vm.</p>
+        </section>
+
+        <figure class="architecture-card" aria-label="Selected isolated workload observed by Argus on the BlueField DPU">
+          <div class="architecture-title">Independent observation</div>
+          <div class="architecture-lanes">
+            <div class="architecture-boundary workload-boundary">
+              <span class="boundary-label">Isolated workload · Kata VM</span>
+              <strong id="diagram-workload">invisible-vm</strong>
+              <small id="diagram-workload-detail">Application activity · no in-guest security agent</small>
+            </div>
+            <div class="architecture-link" aria-hidden="true"><span>activity observed</span><i></i></div>
+            <div class="architecture-boundary dpu-boundary">
+              <span class="boundary-label">BlueField DPU</span>
+              <strong>DOCA Argus</strong>
+              <small>Independent security observer</small>
+            </div>
+          </div>
+          <div class="architecture-context">
+            <span><b>OpenShift</b> supplies workload identity</span>
+            <span id="diagram-destination"><b>Operator</b> can stop or restore invisible-vm</span>
+          </div>
+          <figcaption id="diagram-caption">The demo listener is an action destination. It is separate from the DPU observer.</figcaption>
+        </figure>
+      </div>
+
+      <section class="result-panel" aria-labelledby="result-heading">
+        <div class="result-heading-row">
+          <div>
+            <span class="section-kicker">Independent evidence</span>
+            <h3 id="result-heading">What Argus observed</h3>
+          </div>
+          <span class="result-workload" id="result-workload">invisible-vm</span>
+        </div>
+        <p class="outcome-sentence" id="outcome-sentence" role="status" aria-live="polite">Ready when you are. The result will separate the requested action from Argus evidence.</p>
+        <dl class="result-facts" id="result-facts">
+          <div><dt>Action</dt><dd id="fact-action">Not started</dd></div>
+          <div><dt>Observation</dt><dd id="fact-observation">Waiting for a run</dd></div>
+          <div><dt>Alert</dt><dd id="fact-alert">Not reported</dd></div>
+          <div><dt>Response</dt><dd id="fact-response">Not requested</dd></div>
+        </dl>
+        <details class="supporting-evidence">
+          <summary>More evidence</summary>
+          <div id="guided-evidence-list" class="guided-evidence-list">
+            <p>No result for this run yet. Raw retained records are available in Technical view.</p>
+          </div>
+        </details>
+      </section>
+
+      <section class="response-panel" id="response-panel" hidden aria-label="Operator response for invisible-vm">
+        <div>
+          <span class="section-kicker">OpenShift operator response</span>
+          <h3>Stop the selected demo workload</h3>
+          <p>These controls target <strong id="response-target">invisible-vm</strong>. DPU and Argus remain separate.</p>
+        </div>
+        <div class="response-controls">
+          <button type="button" class="danger" id="guided-contain-btn">Stop demo workload</button>
+          <button type="button" class="secondary" id="guided-reset-btn">Restore demo workload</button>
+        </div>
+      </section>
+
+      <nav class="scene-navigation" aria-label="Guided scene navigation">
+        <button type="button" class="secondary" id="scene-prev" disabled>Previous</button>
+        <span id="scene-number">Scene 1 of 4</span>
+        <button type="button" class="secondary" id="scene-next">Next</button>
+      </nav>
+    </section>
+  </main>
+
+  <details id="technical-view" class="technical-view">
+    <summary>Technical view <span>Topology, scenarios, health, filters, metrics, raw events, and exact agent prompts</span></summary>
+    <div class="technical-content">
+        <header class="hero">
     <div class="hero-copy">
       <div class="brand-lockup" aria-label="NVIDIA and Red Hat technology demonstration">
         <span class="brand-card">
@@ -48,7 +169,7 @@
           <span>Environment</span>
           <strong>Live system health</strong>
         </div>
-        <span class="status-live"><span class="live-dot" aria-hidden="true"></span> connected</span>
+        <span class="status-live" id="legacy-connection-state"><span class="live-dot" aria-hidden="true"></span><span>Connecting</span></span>
       </div>
       <div class="ribbon" id="status-ribbon">
         <div class="pill" data-key="cluster"><span>Management cluster</span><strong>—</strong></div>
@@ -61,7 +182,7 @@
     </div>
   </header>
 
-  <main class="layout">
+  <div class="layout">
     <section class="panel topology">
       <div class="panel-heading">
         <div>
@@ -138,14 +259,14 @@
       <div class="panel-heading">
         <div>
           <span class="section-kicker">Safe and repeatable</span>
-          <h2>Bounded attack scenarios</h2>
+          <h2>Explore scenarios</h2>
         </div>
         <span class="recommended-badge">Demo path: 4 scenes</span>
       </div>
       <p class="note action-note">Present Discovery → Executable Memory → Phone Home → Reverse Shell. The controller triggers allowlisted actions in the management-cluster Kata VM. Argus observes from the HyperShift-hosted DPU cluster. Evidence-gated results show the matching native event and its actual severity; only alert scenarios require <strong>ALERT / HIGH</strong>.</p>
       <div class="buttons">
         <div class="scenario-action">
-          <button data-scenario="discovery">Run Discovery</button>
+          <button data-scenario="discovery">Show activity inside the VM</button>
           <button type="button" class="info-sign" aria-expanded="false" aria-controls="info-discovery" data-info="discovery" title="What this scenario does">i</button>
           <div id="info-discovery" class="scenario-info" hidden role="dialog" aria-labelledby="info-discovery-title">
             <h3 id="info-discovery-title">Discovery</h3>
@@ -154,7 +275,7 @@
           </div>
         </div>
         <div class="scenario-action">
-          <button data-scenario="exec-memory">Inject Executable Memory</button>
+          <button data-scenario="exec-memory">Simulate suspicious memory activity</button>
           <button type="button" class="info-sign" aria-expanded="false" aria-controls="info-exec-memory" data-info="exec-memory" title="What this scenario does">i</button>
           <div id="info-exec-memory" class="scenario-info" hidden role="dialog" aria-labelledby="info-exec-memory-title">
             <h3 id="info-exec-memory-title">Executable Memory</h3>
@@ -163,7 +284,7 @@
           </div>
         </div>
         <div class="scenario-action">
-          <button data-scenario="phone-home">Phone Home</button>
+          <button data-scenario="phone-home">Connect to a demo destination</button>
           <button type="button" class="info-sign" aria-expanded="false" aria-controls="info-phone-home" data-info="phone-home" title="What this scenario does">i</button>
           <div id="info-phone-home" class="scenario-info" hidden role="dialog" aria-labelledby="info-phone-home-title">
             <h3 id="info-phone-home-title">Phone Home</h3>
@@ -190,7 +311,7 @@
           </div>
         </div>
         <div class="scenario-action">
-          <button data-scenario="reverse-shell">Reverse Shell Simulation</button>
+          <button data-scenario="reverse-shell">Simulate a remote shell</button>
           <button type="button" class="info-sign" aria-expanded="false" aria-controls="info-reverse-shell" data-info="reverse-shell" title="What this scenario does">i</button>
           <div id="info-reverse-shell" class="scenario-info" hidden role="dialog" aria-labelledby="info-reverse-shell-title">
             <h3 id="info-reverse-shell-title">Reverse Shell Simulation</h3>
@@ -227,8 +348,8 @@
         </div>
       </div>
       <div class="contain-row">
-        <button class="danger" id="contain-btn">Contain Workload</button>
-        <button class="secondary" id="reset-btn">Restore Workload</button>
+        <button class="danger" id="contain-btn">Stop demo workload (invisible-vm)</button>
+        <button class="secondary" id="reset-btn">Restore demo workload (invisible-vm)</button>
       </div>
       <pre id="action-log"></pre>
     </section>
@@ -237,7 +358,7 @@
       <div class="panel-heading">
         <div>
           <span class="section-kicker">AI agent in Kata VM · NeMo Agent Toolkit</span>
-          <h2>Scenario: attacker-controlled content steers a tool-enabled agent</h2>
+          <h2>AI agent behavior · independent workload</h2>
         </div>
         <span class="agent-state" id="agent-readiness">Checking agent…</span>
       </div>
@@ -255,9 +376,9 @@
           <dd>Bash inside that Kata pod, to the in-cluster canary on TCP/31999, at most 20s. The canary sends <code>id</code>. Not the worker OS. Not <code>invisible-vm</code>.</dd>
         </div>
       </dl>
-      <p class="note agent-note">Untrusted content steers this Kata agent to open a remote shell. Bash runs in the agent pod. The canary proves the session with <code>id</code>. Argus on the DPU reports the native process, socket, and executable hash — we do not invent that alert.</p>
+      <p class="note agent-note">The pasted-note example asks the AI agent to use its bounded demo-shell tool. This is note-driven tool use under the current instructions, not a prompt-injection result. Bash runs in the agent pod. The canary proves the session with <code>id</code>. Argus may report native process and socket activity; show an alert only when the native Argus record contains it.</p>
       <div class="agent-flow" aria-label="AI agent and security evidence flow">
-        <div class="agent-flow-node"><span>Input</span>Baseline / we ask / untrusted note</div>
+        <div class="agent-flow-node"><span>Input</span>Status request / authorized request / pasted note</div>
         <div class="agent-flow-link" aria-hidden="true">→</div>
         <div class="agent-flow-node"><span>Kata agent</span>NeMo tool call</div>
         <div class="agent-flow-link" aria-hidden="true">→</div>
@@ -269,7 +390,7 @@
       </div>
       <ol class="agent-chain" id="agent-chain" aria-label="Agent evidence chain"></ol>
       <div class="agent-evidence-paths">
-        <span>1 Baseline · 2 we ask the agent to open the shell · 3 untrusted note asks for the same tool.</span>
+        <span>Baseline, authorized tool use, and a note-driven example are separate runs on argus-gtc-agent.</span>
         <span>The timeline shows the native Argus event and its real severity.</span>
       </div>
       <div class="agent-controls">
@@ -282,13 +403,13 @@
           <small>We ask the agent to open the bounded shell. About one minute.</small>
         </div>
         <div class="agent-control">
-          <button class="danger" data-agent-profile="prompt-injection">3. Untrusted note</button>
-          <small>Attacker-shaped text that tells the agent to open a shell.</small>
+          <button class="danger" data-agent-profile="note-driven">3. Run the pasted-note example</button>
+          <small>The current workflow asks the agent to complete the pasted maintenance note.</small>
         </div>
       </div>
       <p class="note agent-footnote">Look for: tool call → <code>id</code> from the canary → native Argus event on the timeline.</p>
       <div class="agent-prompt-block">
-        <span class="section-kicker">Exact prompt sent to the Kata agent</span>
+        <span class="section-kicker">Technical detail · exact prompt sent to the Kata agent</span>
         <pre id="agent-prompt">Click a button above. This box shows the exact text we send to the model — nothing is hidden.</pre>
       </div>
       <pre id="agent-log" aria-live="polite">Configure ARGUS_GTC_MODEL_BASE_URL and ARGUS_GTC_MODEL_NAME, then wait for the AI agent pod.</pre>
@@ -298,9 +419,9 @@
       <div class="timeline-header">
         <div>
           <span class="section-kicker">Out-of-band security telemetry</span>
-          <h2>Live security evidence</h2>
+          <h2>What Argus observed</h2>
         </div>
-        <span class="evidence-live"><span class="live-dot" aria-hidden="true"></span> Streaming</span>
+        <span class="evidence-live" id="legacy-feed-state" data-state="connecting"><span class="live-dot" aria-hidden="true"></span><span id="legacy-stream-label">Connecting</span><span aria-hidden="true"> · </span><span id="legacy-freshness">Checking…</span></span>
         <p class="note timeline-note">Argus telemetry and OVN ACL drops are labeled as distinct sources. Scenario filters keep unrelated host alerts out of the current run; changing views never deletes events.</p>
         <div class="timeline-controls">
           <select id="timeline-filter" aria-label="Filter timeline">
@@ -367,8 +488,12 @@
       <h2>DTS Health</h2>
       <div class="metric-grid" id="metric-grid"></div>
     </section>
-  </main>
+  </div>
+    </div>
+  </details>
 
-  <script src="/assets/app.js?v=30"></script>
+
+
+  <script src="/assets/app.js?v=32"></script>
 </body>
 </html>

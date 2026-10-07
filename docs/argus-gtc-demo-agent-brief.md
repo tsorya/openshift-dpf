@@ -1,172 +1,43 @@
-# Argus GTC Demo — Agent Handoff Brief
+# Argus GTC Demo — Presenter Brief
 
-## Objective
+## Audience takeaway
 
-Build a polished GTC demonstration titled **“Invisible VM, Visible Threat.”**
-The story is that a Kata workload has no in-guest security agent, while a
-separate AI agent runs in its own management-cluster pod. The BlueField DPU
-observes worker activity out of band through DOCA Argus; OpenShift/DPF provides
-workload and policy context.
+Argus can observe activity inside an isolated workload without a security agent installed in that workload. Argus runs separately on the BlueField DPU. OpenShift supplies workload identity so an operator can understand what ran and choose a response.
 
-The demo must be safe, deterministic, repeatable, and visually compelling.
-Do not use real malware, internet C2, external scanning, privilege
-escalation, or attacks against shared infrastructure.
+The AI application in the second story is itself an agent. That does not mean it is a security agent installed inside its Kata VM.
 
-## Current repository state
+## Story 1: Workload security
 
-- Argus is installed by `scripts/enable-argus.sh` as a DPUService.
-- Argus configuration is in `manifests/argus/03-configuration.yaml`.
-- Kata SR-IOV VFs must be carved from PF0 for Argus.
-- The kata pool is now always regenerated and force-applied from the current
-  environment by `scripts/enable-kata.sh`.
-- Argus output currently lands on the DPU host under:
-  - `/var/log/doca_argus_activity_report/`
-  - `/var/log/doca_argus/`
-- There is no Argus HTTP API or ServiceMonitor in this repository. The demo
-  server reads Argus activity reports by execing into the native `doca-argus`
-  pod through the hosted-cluster kubeconfig.
-- The current `manifests/argus/04-log-cleaner.yaml` deletes Argus logs every
-  five minutes. This must be removed or replaced with bounded retention before
-  the demo; it would erase evidence during a presentation.
+- **Workload:** `invisible-vm` (Kata VM)
+- **Observer:** DOCA Argus on the BlueField DPU
+- **Response target:** `invisible-vm` only
 
-## Recommended architecture
+1. **Show the environment.** “This application runs in an isolated VM. Its security observer runs separately on the BlueField card.” Point out the workload, DPU observer, and actual feed freshness.
+2. **Show normal activity.** Start the demo to run bounded discovery in `invisible-vm`. “Argus can see the activity without software installed in the VM.”
+3. **Simulate suspicious activity.** Advance to the next scene, then explicitly start the remote-shell simulation. “This shell runs inside `invisible-vm` and connects only to the controlled demo listener.”
+4. **Review the result.** Read the action, observation, and native-alert facts separately. A controller response is not sensor evidence; a process or socket event is not automatically an alert. Say “HIGH alert” only when the matching native Argus record contains `message_type=ALERT` and `severity=HIGH`.
+5. **Respond and recover.** Stop `invisible-vm`, then restore it. The UI reports Stopping/Restoring until Kubernetes shows pod termination/readiness. Argus health is independent of the workload response.
 
-The demo server is the read-only event reader. It uses the hosted kubeconfig to
-list the native `doca-argus` pod, exec `find`/`tail` inside that container, and
-parse the documented common fields: `message_type`, `severity`,
-`occurred_message_time_iso_8601_ns`, `workload_information`,
-`container_context`, and `activity_data`. It publishes normalized events over
-SSE for the UI. No hostPath collector DaemonSet is required.
-- The prompt-injection demo uses a separate Kata pod with NeMo Agent Toolkit.
-  Its only extra tool opens a bounded Bash session to a demo canary on the
-  hosting node's `status.hostIP` TCP/31999. The canary sends `id`. The tool
-  accepts no model-supplied destination. A scoped AdminNetworkPolicy allows
-  that canary port and denies other node egress.
-- Argus may report process/TCP activity from the agent pod, including a native
-  reverse-shell alert if the sensor emits one. The UI must show that native
-  event and its real severity and must not synthesize an Argus alert.
+Scene navigation changes the displayed scene only. Each action is started separately and never repeats when moving backward or forward.
 
-1. **Kubernetes status adapter**
-   - Watch DPUDeployment/DPUService readiness.
-   - Watch the demo Pod's Kata runtime, DPU connection annotations, node, and
-     VF/resource identity.
-   - Expose a read-only status endpoint to the UI.
+## Story 2: AI agent behavior
 
-2. **DPU health adapter**
-   - Query the existing Thanos/Prometheus DTS metrics for link speed/width,
-     packets, bytes, errors, and drops.
-   - Keep infrastructure health visible while the workload is contained.
+- **Workload:** `argus-gtc-agent` (a separate Kata VM)
+- **Observer:** DOCA Argus on the BlueField DPU
+- **Response:** no AI-workload stop control is provided by this demo
 
-3. **Static UI**
-   - Top status ribbon: Cluster, DPU, Argus, Kata VM, VF/link.
-   - Center topology: `Pod → Kata VM → VF → BlueField → Argus`.
-   - Live event timeline with severity, activity, process, pod, node, and
-     scenario label.
-   - DTS sparklines for traffic/errors.
-   - Allowlisted scenario buttons plus `Contain Workload` and `Restore Workload`;
-     the API never accepts arbitrary commands.
-   - Separate agent-baseline and prompt-injection buttons; existing Kata
-     scenarios remain available.
+1. **Normal request.** Ask for a status summary. No shell-tool call is the expected baseline; shell-specific checks are Not applicable.
+2. **Authorized tool use.** Explicitly ask the AI application to open its bounded demo shell. Its tool connects to the configured `argus-gtc-canary` Service on TCP/31999. The canary sends `id`; that listener output is the evidence that a working shell was confirmed.
+3. **Independent observation.** Show the matching native Argus event from `argus-gtc-agent`, if present. Show a HIGH alert only when the native record itself is `ALERT/HIGH`.
+4. **Pasted-note example.** Optional. The current workflow instructs the AI application to complete the pasted maintenance note, so describe this as note-driven tool use. A missing tool call does not by itself establish a deliberate refusal. This path does not demonstrate a prompt-injection exploit.
+5. **Recap.** State separately whether an authenticated tool report was recorded, whether the canary confirmed `id`, what Argus observed, whether a native alert appeared, and whether OVN recorded a matching deny.
 
-4. **AI agent simulation**
-   - Schedule a new runc pod on the same DPU-attached worker as the Kata
-     workload; keep the agent outside the guest.
-   - Run NeMo Agent Toolkit's tool-calling agent against an operator-provided
-     OpenAI-compatible model endpoint. Keep any model credential in a Secret.
-   - Expose exactly one extra tool, `open_demo_shell`, with a fixed host IP/port
-     configured by the pod. The agent pod's normal egress is limited to the
-     demo server, cluster DNS, TCP/443 for the model, and the canary port.
-   - Use an AdminNetworkPolicy scoped to the agent pod to allow TCP/31999 to
-     nodes and deny other node peers. Preflight the API and priority collision
-     before deployment.
-   - Correlate Argus records during the run by agent pod, socket tuple, and
-     `argus-gtc-agent-shell-<run-id>`. A working shell is confirmed by canary
-     `id` output; Argus detection requires a matching native event.
+## Evidence language
 
-## Demo flow
+- A request or completed controller action is not proof that Argus observed it.
+- A TCP connection is not proof of a working shell; the canary must record `id` output.
+- A matching process/socket event is native Argus visibility, not automatically a native alert.
+- A network timeout is not proof of a policy block. Use “OVN recorded a deny” only when matching OVN ACL evidence exists.
+- Keep the current workload and run identity visible. Never combine `invisible-vm` evidence with `argus-gtc-agent` evidence.
 
-### 1. Healthy baseline
-
-- Start a purpose-built, digest-pinned Kata demo image.
-- Show the workload Ready, Kata runtime active, PF0 VF allocated, Argus Ready,
-  and DPU link/traffic healthy.
-- Make the “no agent in the guest” point explicit.
-
-### 2. Safe, bounded scenarios
-
-The scenario controller must accept scenario IDs, never arbitrary shell input.
-Each scenario runs only in a dedicated namespace and has a NetworkPolicy that
-allows traffic only to a local sink pod.
-
-- **Discovery:** run bounded `id`, `uname`, `ps`, and reads of planted decoy
-  files. Use this to populate the process/file timeline with Argus events.
-- **Audit evasion attempt:** run interactive Bash history disable/clear actions,
-  wait up to 45 seconds, and report success only for native `ALERT/HIGH`
-  activity named `Shell History Disabled` or `Shell History Cleared`.
-- **Reverse-shell simulation:** create a short-lived connection from the demo
-  workload to the dedicated sink pod. Argus 3.5 documents `Reverse Shell
-  Detected` as a HIGH alert; do not claim that native alert unless the event
-  `message_type`/`severity` show ALERT/HIGH. Live runs here have mostly been
-  `INFO · EVENT` (TCP/process).
-- **Shell-history tampering:** run the pre-scripted history-disable/clear
-  scenario. Argus documents HIGH alerts for those actions; treat them as
-  documented capabilities, not guaranteed output of each button click.
-- **Decoy modification:** modify a planted file and show file-descriptor
-  activity. A content-change alert is optional, not assumed.
-- **Optional network burst:** send bounded data only to the sink pod. An
-  excessive-data alert is documented, not guaranteed.
-
-Do not claim ATT&CK mappings are native Argus output; apply any demo labels in
-the controller and label them as demo-side classifications. The UI demonstrates
-Argus visibility and correlation. It must not claim that every scenario
-generated a native Argus alert.
-
-### 3. Correlation and containment
-
-- Correlate Argus events with Pod/VF identity and DTS traffic.
-- Keep Argus telemetry distinct from OVN ACL policy evidence in the timeline.
-- Click `Contain Workload` to scale only the demo Deployment to zero.
-- Show the process/event stream stop, the VF return to the pool, and DPU
-  services/link health remain green.
-
-## Important implementation constraints
-
-- Preserve Argus event files long enough for UI history and audit review.
-  Prefer Argus's native `log_threshold_size` and `log_max_files_count` or
-  documented logrotate behavior over recursive deletion.
-- Wait for Argus container readiness and successful service/host
-  initialization before showing a green status.
-- Use a pinned demo image; do not use `latest`.
-- Keep all routes private/authenticated for the demo cluster.
-- Keep the hosted kubeconfig read-only and limited to listing Argus pods and
-  reading their activity reports through `pods/exec`.
-- Add a reset action or documented cleanup that removes only demo resources.
-- Capture real Argus report samples and measure detection latency before
-  finalizing the UI. Do not fabricate event fields or detection semantics.
-
-## Acceptance criteria
-
-- A single command deploys the demo stack and a single command cleans up only
-  demo resources.
-- The UI shows Kubernetes readiness, Argus freshness, VF identity, and DTS
-  health in one view.
-- At least two bounded scenarios produce real Argus events visible in the UI.
-- Demo classification labels are visibly distinct from native Argus ALERT/HIGH.
-- Audit-evasion success requires both raw `message_type=ALERT` and
-  `severity=HIGH`; a timeout is shown as `no-native-alert` without synthesis.
-- The UI and runbook do not claim every scenario generated a native Argus alert.
-- The AI agent is a separate pod; the Kata guest still has no security agent.
-- The agent tool accepts no destination from the model and attempts only one
-  connection to the configured reserved node port.
-- The UI does not present a timeout as proof of an OVN deny or an Argus alert;
-  confirmed policy evidence requires a matching OVN ACL drop record.
-- Containment scales down only the demo workload and leaves DPU services
-  healthy.
-- No event deletion occurs during the demo window.
-- The implementation includes a short operator runbook and a safety note.
-
-## Authoritative reference
-
-Use the DOCA Argus version matching the deployed image. For the current
-`1.5.0-doca3.5.0` image, consult the [DOCA Argus 3.5 Service Guide](https://docs.nvidia.com/doca/sdk/DOCA-Argus-Service-Guide/index.html),
-especially the output/logging, message schema, and alerts sections.
+For setup, configuration, troubleshooting, and raw event criteria, see the [operator runbook](argus-gtc-demo-runbook.md). This brief describes the source-supported workflow; it does not certify the current deployed cluster or live sensor behavior.
