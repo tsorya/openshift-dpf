@@ -12,6 +12,7 @@ RUN dnf install -y --setopt=install_weak_deps=false \
         findutils \
         nmap-ncat \
         procps-ng \
+        python3 \
         util-linux \
     && if ! command -v nc >/dev/null 2>&1 && command -v ncat >/dev/null 2>&1; then \
          ln -s /usr/bin/ncat /usr/bin/nc; \
@@ -20,5 +21,7 @@ RUN dnf install -y --setopt=install_weak_deps=false \
     && rm -rf /var/cache/dnf
 
 ENV HOME=/root
+
+COPY scripts/exec-memory.py /scripts/exec-memory.py
 
 CMD ["/usr/bin/sleep", "infinity"]

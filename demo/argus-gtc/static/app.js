@@ -40,6 +40,8 @@ const CLICK_WINDOW_NOISE = new Set([
 const SCENARIO_SIGNATURES = {
   "audit-evasion": ["argus-gtc-audit_evasion", "argus-gtc-audit-evasion", "argus-demo-before-clear"],
   discovery: ["argus-gtc-discovery", "uname", "decoys", "credentials.txt", "runbook.txt", "ps aux", "argus-gtc-discovery-uname", "argus-gtc-discovery-decoys"],
+  "exec-memory": ["argus-gtc-exec_memory"],
+  "phone-home": ["argus-gtc-phone_home"],
   "reverse-shell": ["argus-gtc-reverse_shell", "argus-gtc-reverse-shell", "/dev/tcp/", "bash -i"],
   "shell-history": ["argus-gtc-shell_history", "argus-gtc-shell-history", "histfile", "history -c"],
   "decoy-modify": ["argus-gtc-decoy_modify", "argus-gtc-decoy-modify", "tampered-by-demo"],
@@ -52,6 +54,8 @@ const SCENARIO_SIGNATURES = {
 const SCENARIO_LABELS = {
   "audit-evasion": "Audit Evasion Attempt (demo correlation)",
   discovery: "Discovery (demo classification)",
+  "exec-memory": "Executable Memory (demo correlation)",
+  "phone-home": "Phone Home (demo correlation)",
   "reverse-shell": "Reverse Shell Simulation (demo classification)",
   "shell-history": "Shell History Tampering (demo classification)",
   "decoy-modify": "Decoy File Modification (demo classification)",
@@ -64,6 +68,8 @@ const SCENARIO_LABELS = {
 const SCENARIO_POD_PREFIXES = {
   "audit-evasion": ["invisible-vm"],
   discovery: ["invisible-vm"],
+  "exec-memory": ["invisible-vm"],
+  "phone-home": ["invisible-vm", "scenario-sink"],
   "compute-simulation": ["invisible-vm"],
   "shell-history": ["invisible-vm"],
   "decoy-modify": ["invisible-vm"],
@@ -76,6 +82,14 @@ const DEMO_POD_PREFIXES = ["invisible-vm", "scenario-sink", "argus-gtc-agent"];
 const SCENARIO_NATIVE_ALERTS = {
   "audit-evasion": ["Shell History Disabled", "Shell History Cleared"],
   "reverse-shell": ["Reverse Shell Detected"],
+};
+const SCENARIO_NATIVE_EVENTS = {
+  "exec-memory": "New Executable Anonymous Memory Mapped",
+  "phone-home": "Network Connection Created",
+};
+const SCENARIO_NATIVE_EVENT_SEVERITIES = {
+  "exec-memory": "WARNING",
+  "phone-home": "INFO",
 };
 
 let eventQueue = [];
@@ -91,6 +105,7 @@ let timelinePaused = false;
 let lastClickAt = 0;
 let lastClickScenario = null;
 let activeScenarioRunId = null;
+let activeScenarioTarget = null;
 let scenarioRunBaselineIds = new Set();
 let demoActionInProgress = false;
 
@@ -226,6 +241,29 @@ function matchesNativeScenario(event, scenarioId) {
   return lastClickScenario === scenarioId && inClickWindow(event);
 }
 
+function matchesNativeEventScenario(event, scenarioId) {
+  if (!SCENARIO_NATIVE_EVENTS[scenarioId]) return false;
+  if ((event.message_type || "").toUpperCase() !== "EVENT") return false;
+  if ((event.severity || "").toUpperCase() !== SCENARIO_NATIVE_EVENT_SEVERITIES[scenarioId]) return false;
+  if (event.activity_name !== SCENARIO_NATIVE_EVENTS[scenarioId]) return false;
+  if (!podMatchesPrefixes(event.pod_name, ["invisible-vm"])) return false;
+  if (scenarioId === lastClickScenario && activeScenarioRunId) {
+    const occurred = Date.parse(event.occurred_at || "");
+    if (!occurred || occurred < (activeScenarioTarget?.startedAt || lastClickAt)) return false;
+    if (activeScenarioTarget?.pod && event.pod_name !== activeScenarioTarget.pod) return false;
+    const markerRun = eventHaystack(event).match(/argus-gtc-(?:exec_memory|phone_home)-([0-9a-f]{12})/);
+    if (markerRun && markerRun[1] !== activeScenarioRunId) return false;
+    if (scenarioId === "exec-memory" && !eventHaystack(event).includes(`argus-gtc-exec_memory-${activeScenarioRunId}`)) return false;
+  }
+  if (scenarioId === "phone-home") {
+    if (!["TCP", "6"].includes(String(event.protocol || "").toUpperCase())) return false;
+    if (Number(event.destination_port) !== (activeScenarioTarget?.sinkPort || 4444)) return false;
+    if (activeScenarioTarget?.sinkIP && event.destination_ip !== activeScenarioTarget.sinkIP) return false;
+  }
+  return event.scenario_id === scenarioId ||
+    (lastClickScenario === scenarioId && (activeScenarioRunId ? true : inClickWindow(event)));
+}
+
 function isDemoRelevant(event) {
   if (event.scenario_id || event.demo_label) return true;
   if (!isDemoWorkload(event)) return false;
@@ -253,10 +291,14 @@ function matchesScenario(event, scenarioId) {
     }
   }
   const expectedNativeAlerts = SCENARIO_NATIVE_ALERTS[scenarioId] || [];
+  if (SCENARIO_NATIVE_EVENTS[scenarioId] && event.activity_name === SCENARIO_NATIVE_EVENTS[scenarioId]) {
+    return matchesNativeEventScenario(event, scenarioId);
+  }
   if (isNativeAlert(event) && expectedNativeAlerts.length) {
     return matchesNativeScenario(event, scenarioId);
   }
   if (matchesNativeScenario(event, scenarioId)) return true;
+  if (matchesNativeEventScenario(event, scenarioId)) return true;
   if (matchesSignature(event, scenarioId)) return true;
 
   if (event.scenario_id === scenarioId) return true;
@@ -545,6 +587,7 @@ function setScenarioFilter(scenarioId, scenarioRunId) {
   lastClickScenario = scenarioId;
   lastClickAt = Date.now();
   activeScenarioRunId = scenarioRunId;
+  activeScenarioTarget = null;
   scenarioRunBaselineIds = new Set([
     ...knownEventIds,
     ...eventQueue.map((event) => event?.id).filter(Boolean),
@@ -632,7 +675,9 @@ async function runScenario(id) {
   actionLog.className = "result-running";
   actionLog.textContent = SCENARIO_NATIVE_ALERTS[id]
     ? `Running ${id}. Waiting up to 45 seconds for a native Argus ALERT/HIGH.`
-    : `Running ${id}. Timeline filtered for correlation. Demo labels are not native Argus alerts.`;
+    : SCENARIO_NATIVE_EVENTS[id]
+      ? `Running ${id}. Waiting for ${SCENARIO_NATIVE_EVENTS[id]} from Argus; the controller checks for up to 15 seconds after the action.`
+      : `Running ${id}. Timeline filtered for correlation. Demo labels are not native Argus alerts.`;
   try {
     const res = await fetch(
       `/api/scenarios/${id}?scenario_run_id=${encodeURIComponent(scenarioRunId)}`,
@@ -642,12 +687,46 @@ async function runScenario(id) {
     if (data.scenario_run_id && data.scenario_run_id !== scenarioRunId) {
       throw new Error("scenario run correlation mismatch");
     }
-    actionLog.className = data.status === "native-alert"
+    if (SCENARIO_NATIVE_EVENTS[id]) {
+      activeScenarioTarget = {
+        pod: data.workload_pod || null,
+        sinkIP: data.sink_ip || null,
+        sinkPort: Number(data.sink_port) || null,
+        startedAt: Date.parse(data.started_at || "") || lastClickAt,
+      };
+      renderTimeline();
+    }
+    actionLog.className = data.status === "native-alert" || data.status === "native-event"
       ? "result-success"
-      : data.status === "no-native-alert"
+      : data.status === "no-native-alert" || data.status === "no-native-event"
         ? "result-failed"
         : "";
-    actionLog.textContent = JSON.stringify(data, null, 2);
+    if (SCENARIO_NATIVE_EVENTS[id]) {
+      const event = data.native_event;
+      const summary = event
+        ? [
+            event.message_type || "EVENT",
+            event.severity || "severity unavailable",
+            event.activity_name || SCENARIO_NATIVE_EVENTS[id],
+            event.pod_name ? `pod=${event.pod_name}` : null,
+            event.process_command || event.process_name || null,
+            event.source_ip && event.source_port
+              ? `source=${event.source_ip}:${event.source_port}`
+              : null,
+            event.destination_ip && event.destination_port
+              ? `destination=${event.destination_ip}:${event.destination_port}`
+              : null,
+          ].filter(Boolean).join(" · ")
+        : "Matching event summary unavailable; inspect the current-run timeline.";
+      const verdict = data.status === "native-event"
+        ? `Native evidence observed: ${summary}`
+        : data.status === "no-native-event"
+          ? `No native event observed: ${data.message || SCENARIO_NATIVE_EVENTS[id]}`
+          : `Scenario execution: ${data.message || data.status}`;
+      actionLog.textContent = `${verdict}\n\n${JSON.stringify(data, null, 2)}`;
+    } else {
+      actionLog.textContent = JSON.stringify(data, null, 2);
+    }
   } catch (error) {
     actionLog.className = "result-failed";
     actionLog.textContent = `Scenario failed: ${error.message}`;

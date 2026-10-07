@@ -25,9 +25,9 @@ shell-history events. Build and push the workload image for the x86 worker:
 
 ```bash
 docker build --platform linux/amd64 \
-  -t quay.io/<user>/argus-gtc-demo:workload-ubi9-v1 \
+  -t quay.io/itsoiref/argus-gtc-demo:workload-ubi9-v2 \
   -f demo/argus-gtc-workload/Containerfile demo/argus-gtc-workload
-docker push quay.io/<user>/argus-gtc-demo:workload-ubi9-v1
+docker push quay.io/itsoiref/argus-gtc-demo:workload-ubi9-v2
 ```
 
 Build and push the demo server from the repository root, then set
@@ -35,9 +35,9 @@ Build and push the demo server from the repository root, then set
 
 ```bash
 docker build --platform linux/amd64 \
-  -t quay.io/itsoiref/argus-gtc-demo:v27-host-boundary \
+  -t quay.io/itsoiref/argus-gtc-demo:v47-memory-phonehome \
   -f demo/argus-gtc/Containerfile demo/argus-gtc
-docker push quay.io/itsoiref/argus-gtc-demo:v27-host-boundary
+docker push quay.io/itsoiref/argus-gtc-demo:v47-memory-phonehome
 ```
 
 The server image contains Python 3.11, `requirements.txt`, and the `server/` +
@@ -72,7 +72,8 @@ ARGUS_GTC_MODEL_API_KEY=<OpenAI-API-key>
 Set the image in `.env` (or export it), then deploy:
 
 ```bash
-ARGUS_GTC_SERVER_IMAGE=quay.io/itsoiref/argus-gtc-demo:v27-host-boundary \
+ARGUS_GTC_DEMO_IMAGE=quay.io/itsoiref/argus-gtc-demo:workload-ubi9-v2 \
+ARGUS_GTC_SERVER_IMAGE=quay.io/itsoiref/argus-gtc-demo:v47-memory-phonehome \
 ARGUS_GTC_AGENT_IMAGE=quay.io/itsoiref/argus-gtc-agent:nat-1.8.0-v8-kata \
 make deploy-argus-gtc-demo
 ```
@@ -91,8 +92,8 @@ This command:
 
 | Variable | Default | Purpose |
 |----------|---------|---------|
-| `ARGUS_GTC_DEMO_IMAGE` | `quay.io/itsoiref/argus-gtc-demo:workload-ubi9-v1` | Kata workload + sink image; UBI9/glibc Bash is required for native shell-history alerts |
-| `ARGUS_GTC_SERVER_IMAGE` | `quay.io/itsoiref/argus-gtc-demo:v27-host-boundary` | Demo server and UI image |
+| `ARGUS_GTC_DEMO_IMAGE` | `quay.io/itsoiref/argus-gtc-demo:workload-ubi9-v2` | Kata workload + sink image; UBI9 Bash and Python 3 support the scenarios |
+| `ARGUS_GTC_SERVER_IMAGE` | `quay.io/itsoiref/argus-gtc-demo:v47-memory-phonehome` | Demo server and UI image |
 | `ARGUS_GTC_AGENT_IMAGE` | `quay.io/itsoiref/argus-gtc-agent:nat-1.8.0-v8-kata` | Pre-built NeMo Agent Toolkit image |
 | `ARGUS_GTC_MODEL_BASE_URL` | *(empty)* | OpenAI-compatible API base URL; for OpenAI use `https://api.openai.com/v1` |
 | `ARGUS_GTC_MODEL_NAME` | `gpt-6-luna` | OpenAI API model ID; must be enabled for your API account |
@@ -101,6 +102,21 @@ This command:
 | `ARGUS_LOG_MAX_FILES_COUNT` | `10` | Argus rotated log file cap |
 
 ## Demo flow
+
+### Invisible VM presenter path
+
+Use the first five steps for the security story: Discovery → Executable Memory → Phone Home → Reverse Shell. The two new scenes require their own native Argus `EVENT` records; a demo label or a process marker alone is insufficient. The [DOCA Argus 3.5 event reference](https://networking-docs.nvidia.com/doca/archive/3-5-0/doca-argus-service-guide) documents the mapping event as `WARNING` and connection creation as `INFO`; present the actual severity from each captured record.
+
+1. **Baseline** — Open the Route URL printed at deploy (`https://<route>/`). No port-forward. Confirm ribbon: Cluster, DPU, Argus, Kata VM, VF/link are green. Check that `invisible-vm` uses the configured Kata RuntimeClass and that Argus is reporting for its VF.
+2. **Run Discovery** — Bounded recon in the Kata VM. Expect real Argus `INFO · EVENT` process/file activity correlated as Discovery. Do not expect a native HIGH alert.
+3. **Inject Executable Memory** — The Python process writes inert bytes into an anonymous executable mapping and holds it for 45 seconds. Pass only when the result says `native-event` and the raw timeline record for `invisible-vm` and this run has `activity_name=New Executable Anonymous Memory Mapped`, `message_type=EVENT`, and `severity=WARNING`. The process does not execute the bytes. A process event alone does not satisfy this scene.
+4. **Phone Home** — Bash sends this run ID to the in-namespace `scenario-sink` on TCP/4444, then holds the socket for 20 seconds without attaching shell input or output. Pass only when the result says `native-event` and the raw record for `invisible-vm` and this run has `activity_name=Network Connection Created`, `message_type=EVENT`, `severity=INFO`, and the sink IP/port 4444 as destination. This shows guest process and socket visibility, not a reverse-shell detection.
+5. **Reverse Shell Simulation** — Opens a roughly 20-second `/dev/tcp` connection only to the in-namespace sink pod. This is the native-HIGH path; pass only for raw `ALERT/HIGH` activity named `Reverse Shell Detected`.
+6. **Audit Evasion Attempt** — Runs a bounded interactive Bash session on a real Kubernetes exec PTY. It establishes a history baseline across one Argus scan, clears history while history remains enabled, then disables history across another scan. After the action finishes, the server waits up to 45 seconds for the native event, so the full request can take about 80 seconds. Pass only when `/api/events` and the timeline show `Shell History Disabled` or `Shell History Cleared` with `message_type=ALERT` and `severity=HIGH`. `no-native-alert` is a valid failed/indeterminate outcome; keep the underlying telemetry for troubleshooting.
+7. **Shell History Tampering** — The original non-interactive telemetry/correlation scenario. Do not use its demo label as native-alert proof.
+8. **Decoy Modification** — Modifies planted files. File-descriptor events are the typical signal.
+9. **Contain Workload** — Scales only `invisible-vm` to zero. Event stream from that VM stops; DPU/Argus remain healthy.
+10. **Restore Workload** — Brings the demo Deployment back to one replica.
 
 ### Kata agent host-boundary scenario
 
@@ -187,6 +203,8 @@ and Kata infrastructure are untouched. It also deletes only the named
 | Agent timed out but no policy evidence appears | Start `make watch-argus-gtc-acl` before clicking. Check the AdminNetworkPolicy status and OVN ACL audit logging. A timeout alone is inconclusive. |
 | OVN denied but Argus did not show the attempt | Inspect native Argus logs for `TCP Network Connection State Change` or `Network Connection Created` with the agent pod and TCP/31999. Check that Argus is scanning the agent's Kata VF on PF0 and that its network event collection is enabled. The UI does not mark this run as Argus observed without a matching native event. |
 | Argus report tailing fails | Check the demo server logs and verify the hosted kubeconfig has `get/list` access to Argus pods and `create` access to `pods/exec` in `dpf-operator-system` |
+| Executable Memory returns `no-native-event` | Confirm the Python action completed and held the mapping for 45 seconds. Inspect native Argus reports for `New Executable Anonymous Memory Mapped` on `invisible-vm` with the run marker; confirm the live memory collector is enabled. A process event by itself is insufficient. |
+| Phone Home returns `no-native-event` | Confirm `scenario-sink` has a Pod IP and the connection reached that IP on TCP/4444. Inspect native Argus reports for `Network Connection Created` from `invisible-vm` with the correct destination; confirm the live network collector is enabled. Other socket events do not satisfy this scene. |
 | Audit Evasion returns `no-native-alert` | Confirm the live Argus config has `shell_command.disable_scan=false`, `shell_history_cleared=true`, and `shell_history_disabled=true`; inspect `/var/log/doca_argus/` for profile or collection failures. A correlated `Executable Permissions Removed` MEDIUM alert does not satisfy this scenario. |
 
 ## Measuring detection latency
