@@ -155,6 +155,15 @@ class ScenarioController:
             ):
                 return context.scenario_id, context.run_id, context.started_at.isoformat()
 
+        # A native WARNING/MEDIUM alert must carry a run marker to belong to a
+        # demo action. Workload identity and timestamp alone would mislabel
+        # unrelated guest activity, such as hostnamectl's memory mapping.
+        if (
+            (event.message_type or "").upper() == "ALERT"
+            and not is_native_high_alert(event)
+        ):
+            return None
+
         occurred = _parse_event_time(event.occurred_at)
         if occurred is None:
             return None
