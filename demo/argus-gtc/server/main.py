@@ -335,6 +335,7 @@ async def lifespan(app: FastAPI):
             settings,
             store,
             scenario_lookup=lambda: app.state.scenarios.active_scenario_context,
+            event_context_lookup=app.state.scenarios.scenario_context_for_event,
         )
         app.state.collector = hosted_tailer
         tasks.append(asyncio.create_task(hosted_tailer.run(stop_event)))
@@ -374,6 +375,7 @@ def create_app() -> FastAPI:
         settings,
         app.state.store,
         scenario_lookup=lambda: app.state.scenarios.active_scenario_context,
+        event_context_lookup=app.state.scenarios.scenario_context_for_event,
     )
 
     static_dir = Path(settings.static_dir)

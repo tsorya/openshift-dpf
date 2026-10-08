@@ -27,6 +27,7 @@ MAX_SSE_REPLAY = 500
 
 ScenarioContext = tuple[str, str] | tuple[str, str, str | None]
 ScenarioLookup = Callable[[], ScenarioContext | str | None]
+EventScenarioLookup = Callable[[NormalizedEvent], ScenarioContext | str | None]
 
 
 class CollectorHealth:
@@ -388,8 +389,13 @@ class EventStore:
 
 
 class ArgusLogParser:
-    def __init__(self, scenario_lookup: ScenarioLookup | None = None) -> None:
+    def __init__(
+        self,
+        scenario_lookup: ScenarioLookup | None = None,
+        event_context_lookup: EventScenarioLookup | None = None,
+    ) -> None:
         self.scenario_lookup = scenario_lookup or (lambda: None)
+        self.event_context_lookup = event_context_lookup
         self._seen_ids: set[str] = set()
         self._remainders: dict[str, str] = {}
 
@@ -428,13 +434,31 @@ class ArgusLogParser:
             self._seen_ids.add(message_id)
 
         event = normalize_argus_message(payload, source_file=source_file)
-        active_scenario, active_run_id, started_at = _scenario_context(self.scenario_lookup())
+        context_value = (
+            self.event_context_lookup(event)
+            if self.event_context_lookup
+            else self.scenario_lookup()
+        )
+        active_scenario, active_run_id, started_at = _scenario_context(context_value)
+        resolved_for_event = self.event_context_lookup is not None and context_value is not None
+        if (
+            self.event_context_lookup is None
+            and active_scenario
+            and started_at
+            and not _occurred_during_run(event, started_at)
+        ):
+            # Don't let an old timestamp inherit whichever run happens to be
+            # active when the collector catches up with its log.
+            active_scenario = None
+            active_run_id = None
         classified = classify_scenario(event, active_scenario)
         if classified:
             event.scenario_id = classified
             marker_run_id = scenario_run_id_from_event(event, classified)
             if marker_run_id:
                 event.scenario_run_id = marker_run_id
+            elif resolved_for_event and classified == active_scenario:
+                event.scenario_run_id = active_run_id
             elif classified == active_scenario and _occurred_during_run(event, started_at):
                 event.scenario_run_id = active_run_id
             event.demo_label = SCENARIO_LABELS.get(classified)
@@ -456,10 +480,11 @@ class ArgusLogTailer:
         settings: Settings,
         store: EventStore,
         scenario_lookup: ScenarioLookup | None = None,
+        event_context_lookup: EventScenarioLookup | None = None,
     ) -> None:
         self.settings = settings
         self.store = store
-        self.parser = ArgusLogParser(scenario_lookup)
+        self.parser = ArgusLogParser(scenario_lookup, event_context_lookup)
         self._offsets: dict[str, int] = {}
         self.health = CollectorHealth("local Argus log files")
 
@@ -540,10 +565,11 @@ class HostedArgusPodTailer:
         settings: Settings,
         store: EventStore,
         scenario_lookup: ScenarioLookup | None = None,
+        event_context_lookup: EventScenarioLookup | None = None,
     ) -> None:
         self.settings = settings
         self.store = store
-        self.parser = ArgusLogParser(scenario_lookup)
+        self.parser = ArgusLogParser(scenario_lookup, event_context_lookup)
         self._offsets: dict[str, int] = {}
         self.health = CollectorHealth("hosted Argus pod logs")
 
@@ -665,10 +691,12 @@ class RemoteCollectorClient:
         settings: Settings,
         store: EventStore,
         scenario_lookup: ScenarioLookup | None = None,
+        event_context_lookup: EventScenarioLookup | None = None,
     ) -> None:
         self.settings = settings
         self.store = store
         self.scenario_lookup = scenario_lookup or (lambda: None)
+        self.event_context_lookup = event_context_lookup
 
     async def ingest_events(self, events: list[dict[str, Any]]) -> int:
         added = 0
@@ -678,7 +706,21 @@ class RemoteCollectorClient:
                 payload,
                 source_file=item.get("source_file"),
             )
-            active_scenario, active_run_id, started_at = _scenario_context(self.scenario_lookup())
+            context_value = (
+                self.event_context_lookup(event)
+                if self.event_context_lookup
+                else self.scenario_lookup()
+            )
+            active_scenario, active_run_id, started_at = _scenario_context(context_value)
+            resolved_for_event = self.event_context_lookup is not None and context_value is not None
+            if (
+                self.event_context_lookup is None
+                and active_scenario
+                and started_at
+                and not _occurred_during_run(event, started_at)
+            ):
+                active_scenario = None
+                active_run_id = None
             classified = classify_scenario(
                 event,
                 active_scenario or item.get("scenario_id"),
@@ -689,10 +731,20 @@ class RemoteCollectorClient:
                 marker_run_id = scenario_run_id_from_event(event, classified)
                 if marker_run_id:
                     event.scenario_run_id = marker_run_id
-                elif classified == active_scenario and _occurred_during_run(event, started_at):
-                    event.scenario_run_id = active_run_id if item_run_id in (None, active_run_id) else item_run_id
+                elif resolved_for_event and classified == active_scenario:
+                    event.scenario_run_id = active_run_id
+                elif (
+                    self.event_context_lookup is None
+                    and classified == active_scenario
+                    and _occurred_during_run(event, started_at)
+                ):
+                    event.scenario_run_id = (
+                        active_run_id if item_run_id in (None, active_run_id) else item_run_id
+                    )
                 else:
-                    event.scenario_run_id = item_run_id
+                    event.scenario_run_id = (
+                        None if self.event_context_lookup else item_run_id
+                    )
                 event.demo_label = item.get("demo_label") or SCENARIO_LABELS.get(classified)
             if await self.store.add(event):
                 added += 1

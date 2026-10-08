@@ -372,14 +372,30 @@ def classify_scenario(
     if is_runtime_noise(event):
         return None
     text = _event_signature_text(event)
-    if active_scenario and is_native_high_alert(event):
-        expected = SCENARIO_NATIVE_ALERTS.get(active_scenario, ())
-        if event.activity_name in expected:
-            return active_scenario
+    for scenario_id in SCENARIO_SIGNATURES:
+        if scenario_run_id_from_event(event, scenario_id):
+            return scenario_id
+    if re.search(r"\bargus-gtc-agent-shell-[0-9a-f]{12}\b", text, re.IGNORECASE):
+        return "host-access-attempt"
     if active_scenario:
         for token in SCENARIO_SIGNATURES.get(active_scenario, ()):
             if token.lower() in text:
                 return active_scenario
+    if active_scenario and is_native_high_alert(event):
+        expected = SCENARIO_NATIVE_ALERTS.get(active_scenario, ())
+        if event.activity_name in expected:
+            return active_scenario
+    if is_native_high_alert(event):
+        # A native detection must not inherit the currently selected demo
+        # scenario just because it came from the same Kata workload.
+        candidates = [
+            scenario_id
+            for scenario_id, activities in SCENARIO_NATIVE_ALERTS.items()
+            if event.activity_name in activities and is_demo_workload(event, scenario_id)
+        ]
+        return candidates[0] if len(candidates) == 1 else None
+    if (event.message_type or "").upper() == "ALERT":
+        return None
     for scenario_id, tokens in SCENARIO_SIGNATURES.items():
         if any(token.lower() in text for token in tokens):
             return scenario_id
