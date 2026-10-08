@@ -1578,15 +1578,10 @@ body.guided-page [hidden] { display: none !important; }
 .monitor-health strong[data-state="quiet"] { color: #ffd195; }
 
 .monitor-scenario-tabs { display: flex; align-items: center; gap: .45rem; min-width: 0; }
-.monitor-primary-scenarios, .monitor-more > div { display: flex; flex-wrap: wrap; gap: .35rem; }
-.monitor-choice, .monitor-more > summary { border: 1px solid #40556e; border-radius: 6px; padding: .42rem .72rem; background: #111f2e; color: #d4e0ec; font: inherit; font-size: .8rem; font-weight: 700; cursor: pointer; }
-.monitor-choice:hover, .monitor-more > summary:hover { border-color: #84b83d; }
+.monitor-primary-scenarios { display: flex; flex-wrap: wrap; gap: .35rem; }
+.monitor-choice { border: 1px solid #40556e; border-radius: 6px; padding: .42rem .72rem; background: #111f2e; color: #d4e0ec; font: inherit; font-size: .8rem; font-weight: 700; cursor: pointer; }
+.monitor-choice:hover { border-color: #84b83d; }
 .monitor-choice.selected { border-color: #9bd732; background: #23351d; color: #f5ffe6; }
-.monitor-more { position: relative; z-index: 3; }
-.monitor-more > summary { list-style: none; white-space: nowrap; }
-.monitor-more > summary::-webkit-details-marker { display: none; }
-.monitor-more > summary::after { content: " ▾"; }
-.monitor-more > div { position: absolute; top: calc(100% + .25rem); right: 0; width: min(560px, 80vw); padding: .55rem; border: 1px solid #536a83; border-radius: 8px; background: #101d2b; box-shadow: 0 12px 25px #0008; }
 
 .monitor-explanation { min-width: 0; padding: .55rem .75rem; border: 1px solid #3c536c; border-left: 3px solid #9bd732; border-radius: 8px; background: #0a1420; }
 .monitor-explanation h2 { margin: .08rem 0 0; font-size: 1.13rem; line-height: 1.15; }
