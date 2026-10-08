@@ -1915,6 +1915,7 @@ setInterval(() => refreshServerRunState(false), 2000);
 window.argusDemo = {
   get story() { return activeStory; },
   get events() { return retainedEvents(); },
+  get queuedEvents() { return eventQueue.slice(); },
   get streamState() { return streamState; },
   get status() { return lastSystemStatus; },
   get agentStatus() { return lastAgentStatus; },

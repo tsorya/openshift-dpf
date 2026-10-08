@@ -47,6 +47,7 @@
   let renderedFeedKey = "";
   let alertBaselineIds = new Set();
   let alertViewReset = false;
+  let alertSelectionAt = 0;
   let renderTimer = null;
 
   // A modal must remain usable while Technical view is collapsed.
@@ -69,17 +70,20 @@
     showStory(story);
     if (story === "agent") selectedAgentAction = id;
     else selectedWorkloadAction = id;
-    if (!storyChanged && currentAction !== id) resetAlertViewForSelection();
+    if (storyChanged || currentAction !== id) resetAlertViewForSelection();
     renderChoices();
     renderConsole();
   }
 
   function resetAlertViewForSelection() {
-    const visibleRecords = paused ? (frozenRecords || []).filter(scopedRecord) : api.events.filter(scopedRecord);
+    const visibleRecords = paused
+      ? (frozenRecords || []).filter(scopedRecord)
+      : [...api.events, ...(api.queuedEvents || [])].filter(scopedRecord);
     alertBaselineIds = new Set(visibleRecords
       .filter((event) => (event.message_type || "").toUpperCase() === "ALERT" && !api.isRuntimeNoise(event))
       .map((event) => event.id)
       .filter(Boolean));
+    alertSelectionAt = Date.now();
     alertViewReset = true;
     renderedFeedKey = "";
   }
@@ -413,8 +417,32 @@
 
   function association(event) {
     const run = displayRun();
-    if (!event.scenario_run_id) return "No run association";
-    if (!run?.runId || event.scenario_run_id !== run.runId) return `Earlier run ${event.scenario_run_id}`;
+    const selectedScenarioId = api.story === "agent"
+      ? selectedAgentAction === "baseline" ? "agent-baseline" : "host-access-attempt"
+      : selectedWorkloadAction;
+    const runScenarioId = run?.scenarioId || run?.scenario_id ||
+      (run?.profile === "baseline" ? "agent-baseline" : run?.profile ? "host-access-attempt" : null);
+    const runActionLabel = run ? runLabel(run) : "previous action";
+    if (event.scenario_run_id && (!run?.runId || event.scenario_run_id !== run.runId)) {
+      const earlier = markers.find((marker) => marker.runId === event.scenario_run_id);
+      return `Earlier run${earlier?.label ? ` · ${earlier.label}` : ` ${event.scenario_run_id}`}`;
+    }
+    if (event.scenario_run_id && runScenarioId && runScenarioId !== selectedScenarioId) {
+      return `Previous action · ${runActionLabel}`;
+    }
+    if (!event.scenario_run_id) {
+      if (event.scenario_id && event.scenario_id !== selectedScenarioId) {
+        const previous = api.story === "agent"
+          ? event.scenario_id === "agent-baseline" ? "Normal request" : "Authorized demo shell"
+          : workloadCatalog.get(event.scenario_id)?.label || event.scenario_id;
+        return `Other scenario · ${previous}`;
+      }
+      const occurred = Date.parse(event.occurred_at || "");
+      if (alertSelectionAt && occurred && occurred < alertSelectionAt - 2000) {
+        return "Late Argus alert · occurred before this action was selected";
+      }
+      return "No run association";
+    }
     const result = run.data || run.serverState?.result || {};
     const validated = result.native_alert || result.native_event || (
       result.native_argus_alert ? result.argus_host_attempt_event : null

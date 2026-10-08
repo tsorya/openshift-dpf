@@ -5,19 +5,33 @@ import re
 import shlex
 import threading
 import time
-from datetime import datetime, timezone
+from collections import deque
+from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 
 from kubernetes import client, config
 from kubernetes.stream import stream
 
 from .config import Settings
-from .models import SCENARIO_LABELS, ScenarioResult
+from .models import (
+    SCENARIO_LABELS,
+    SCENARIO_NATIVE_ALERTS,
+    SCENARIO_SIGNATURES,
+    NormalizedEvent,
+    ScenarioResult,
+    agent_shell_marker,
+    is_demo_workload,
+    is_native_high_alert,
+    scenario_run_id_from_event,
+)
 from .scenario_catalog import SCENARIO_CATALOG
 
 # Argus logs can land after exec returns; keep the scenario id long enough
 # for the hosted tailer to classify Kata guest events, not host daemons.
 _SCENARIO_LINGER_SECONDS = 50.0
+_EVENT_CONTEXT_GRACE_SECONDS = 5.0
+_EVENT_CONTEXT_HISTORY_LIMIT = 100
 _AUDIT_REMOTE_TIMEOUT_SECONDS = 32
 _AUDIT_CONTROLLER_TIMEOUT_SECONDS = 38.0
 _AUDIT_EVASION_INPUT = "\n".join(
@@ -44,6 +58,27 @@ logger = logging.getLogger(__name__)
 ALLOWED_SCENARIOS = frozenset(SCENARIO_CATALOG)
 
 
+@dataclass
+class _ScenarioEventContext:
+    scenario_id: str
+    run_id: str
+    marker: str
+    started_at: datetime
+    finished_at: datetime | None = None
+
+
+def _parse_event_time(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        return None
+    return parsed.astimezone(timezone.utc)
+
+
 class ScenarioController:
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
@@ -60,6 +95,118 @@ class ScenarioController:
         self._last_started_at: str | None = None
         self._last_scenario_until: float = 0.0
         self._run_lock = threading.Lock()
+        self._event_context_lock = threading.RLock()
+        self._event_context_history: deque[_ScenarioEventContext] = deque(
+            maxlen=_EVENT_CONTEXT_HISTORY_LIMIT
+        )
+        self._active_event_context: _ScenarioEventContext | None = None
+
+    def _ensure_event_context_storage(self) -> None:
+        # Keep helpers safe for lightweight controller instances used by callers.
+        if not hasattr(self, "_event_context_lock"):
+            self._event_context_lock = threading.RLock()
+        if not hasattr(self, "_event_context_history"):
+            self._event_context_history = deque(maxlen=_EVENT_CONTEXT_HISTORY_LIMIT)
+        if not hasattr(self, "_active_event_context"):
+            self._active_event_context = None
+
+    def _begin_event_context(
+        self,
+        scenario_id: str,
+        run_id: str,
+        marker: str,
+        started_at: str,
+    ) -> _ScenarioEventContext:
+        self._ensure_event_context_storage()
+        started = _parse_event_time(started_at) or datetime.now(timezone.utc)
+        context = _ScenarioEventContext(scenario_id, run_id, marker, started)
+        with self._event_context_lock:
+            self._event_context_history.append(context)
+            self._active_event_context = context
+        return context
+
+    def _finish_event_context(self, context: _ScenarioEventContext | None) -> None:
+        if context is None:
+            return
+        self._ensure_event_context_storage()
+        with self._event_context_lock:
+            context.finished_at = datetime.now(timezone.utc)
+            if self._active_event_context is context:
+                self._active_event_context = None
+
+    def scenario_context_for_event(
+        self, event: NormalizedEvent
+    ) -> tuple[str, str, str] | None:
+        """Resolve a native record against the run active when it occurred."""
+        self._ensure_event_context_storage()
+        with self._event_context_lock:
+            contexts = tuple(self._event_context_history)
+
+        process_text = " ".join(
+            part for part in (event.process_name, event.process_command) if part
+        ).lower()
+        # Explicit run markers are stronger than timestamps and remain useful
+        # if Argus delivers a record long after its originating action ended.
+        for context in reversed(contexts):
+            if (
+                context.marker.lower() in process_text
+                or agent_shell_marker(context.run_id) in process_text
+                or scenario_run_id_from_event(event, context.scenario_id) == context.run_id
+            ):
+                return context.scenario_id, context.run_id, context.started_at.isoformat()
+
+        occurred = _parse_event_time(event.occurred_at)
+        if occurred is None:
+            return None
+
+        matching: list[_ScenarioEventContext] = []
+        grace_matching: list[_ScenarioEventContext] = []
+        for context in contexts:
+            if is_native_high_alert(event):
+                explicit_for_context = (
+                    event.activity_name in SCENARIO_NATIVE_ALERTS.get(context.scenario_id, ())
+                    or any(
+                        signature.lower() in process_text
+                        for signature in SCENARIO_SIGNATURES.get(context.scenario_id, ())
+                    )
+                )
+                if not explicit_for_context:
+                    continue
+            if event.pod_name:
+                if not is_demo_workload(event, context.scenario_id):
+                    continue
+            elif (
+                event.scenario_id != context.scenario_id
+                and event.activity_name not in SCENARIO_NATIVE_ALERTS.get(context.scenario_id, ())
+            ):
+                continue
+            if event.scenario_id and event.scenario_id != context.scenario_id:
+                continue
+            end = context.finished_at or datetime.now(timezone.utc)
+            if context.started_at <= occurred <= end:
+                matching.append(context)
+            elif end < occurred <= end + timedelta(seconds=_EVENT_CONTEXT_GRACE_SECONDS):
+                grace_matching.append(context)
+
+        candidates = matching if matching else grace_matching
+        if len(candidates) > 1:
+            activity = event.activity_name or ""
+            process_text = " ".join(
+                part for part in (event.process_name, event.process_command) if part
+            ).lower()
+            explicit = [
+                context for context in candidates
+                if activity in SCENARIO_NATIVE_ALERTS.get(context.scenario_id, ())
+                or any(
+                    signature.lower() in process_text
+                    for signature in SCENARIO_SIGNATURES.get(context.scenario_id, ())
+                )
+            ]
+            candidates = explicit if len(explicit) == 1 else []
+        if len(candidates) != 1:
+            return None
+        context = candidates[0]
+        return context.scenario_id, context.run_id, context.started_at.isoformat()
 
     @property
     def active_scenario(self) -> str | None:
@@ -93,6 +240,9 @@ class ScenarioController:
         self._active_scenario = scenario_id
         self._active_scenario_run_id = run_id
         self._active_started_at = datetime.now(timezone.utc).isoformat()
+        self._begin_event_context(
+            scenario_id, run_id, agent_shell_marker(run_id), self._active_started_at
+        )
 
     def deactivate_external_context(self) -> None:
         """Retain a short correlation window for Argus reports delivered late."""
@@ -101,6 +251,7 @@ class ScenarioController:
             self._last_scenario_run_id = self._active_scenario_run_id
             self._last_started_at = self._active_started_at
             self._last_scenario_until = time.monotonic() + _SCENARIO_LINGER_SECONDS
+        self._finish_event_context(self._active_event_context)
         self._active_scenario = None
         self._active_scenario_run_id = None
         self._active_started_at = None
@@ -308,6 +459,9 @@ class ScenarioController:
         with self._run_lock:
             started = datetime.now(timezone.utc).isoformat()
             marker = f"argus-gtc-{scenario_id.replace('-', '_')}-{run_id}"
+            event_context = self._begin_event_context(
+                scenario_id, run_id, marker, started
+            )
             self._active_scenario = scenario_id
             self._active_scenario_run_id = run_id
             self._active_started_at = started
@@ -347,6 +501,7 @@ class ScenarioController:
                     target_ip=sink_ip or None,
                 )
             finally:
+                self._finish_event_context(event_context)
                 self._last_scenario = scenario_id
                 self._last_scenario_run_id = run_id
                 self._last_started_at = started
