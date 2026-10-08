@@ -1665,6 +1665,24 @@ body.guided-page [hidden] { display: none !important; }
 .monitor-operator button { min-height: 30px; padding: .28rem .55rem; font-size: .72rem; }
 .monitor-operator button:disabled { opacity: .55; cursor: wait; }
 
+.story-nav { display: flex; gap: .35rem; align-items: center; }
+.story-nav a { display: inline-flex; align-items: center; min-height: 34px; padding: .4rem .7rem; border: 1px solid #40556e; border-radius: 7px; background: #111f2e; color: #d4e0ec; font-size: .78rem; font-weight: 700; text-decoration: none; white-space: nowrap; }
+.story-nav a:hover { border-color: #9bd732; color: #f4fbe8; }
+.story-nav a[aria-current="page"] { border-color: #9bd732; background: #24351f; color: #f2ffe1; }
+.monitor-agent-checks { display: grid; grid-template-columns: repeat(5, minmax(0,1fr)); gap: .35rem; }
+.monitor-agent-checks > div { min-width: 0; padding: .35rem .5rem; border: 1px solid #344b62; border-radius: 6px; background: #142333; }
+.monitor-agent-checks span { display: block; color: #a6bbd0; font-size: .64rem; text-transform: uppercase; letter-spacing: .04em; }
+.monitor-agent-checks strong { display: block; margin-top: .12rem; color: #e6eef7; font-size: .73rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.monitor-agent-checks strong[data-state="observed"] { color: #b8e878; }
+.monitor-agent-checks strong[data-state="missing"] { color: #ffd195; }
+body.agent-page .monitor-console { grid-template-rows: auto auto auto auto auto minmax(0, 1fr); }
+body.agent-page .technical-content .hero,
+body.agent-page .technical-content .topology,
+body.agent-page .technical-content .coverage,
+body.agent-page .technical-content .actions,
+body.agent-page .technical-content .agent-controls,
+body:not(.agent-page) .technical-content .agent-demo { display: none; }
+
 @media (min-width: 1001px) {
   .monitor-main { height: calc(100dvh - 112px); min-height: 540px; }
   .monitor-console { height: 100%; }
@@ -1676,6 +1694,9 @@ body.guided-page [hidden] { display: none !important; }
   .monitor-evidence-grid { min-height: 430px; }
 }
 @media (max-width: 760px) {
+  .story-nav { flex-wrap: wrap; }
+  .monitor-agent-checks { grid-template-columns: repeat(2, minmax(0,1fr)); }
+  .monitor-agent-checks > div:last-child { grid-column: 1 / -1; }
   .monitor-scenario-tabs, .monitor-operator { align-items: stretch; flex-direction: column; }
   .monitor-explanation-grid { grid-template-columns: 1fr; gap: .45rem; }
   .monitor-explanation-title, .monitor-action-line, .monitor-run-strip { align-items: flex-start; flex-wrap: wrap; }

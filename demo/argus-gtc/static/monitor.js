@@ -286,6 +286,58 @@
     }
   }
 
+  function renderAgentChecks() {
+    const checks = byId("monitor-agent-checks");
+    checks.hidden = api.story !== "agent";
+    if (checks.hidden) return;
+
+    const setCheck = (name, value, state = "neutral") => {
+      const item = byId(`agent-check-${name}`);
+      item.textContent = value;
+      item.dataset.state = state;
+    };
+    const setAll = (value) => {
+      ["tool", "listener", "argus", "alert", "ovn"].forEach((name) => setCheck(name, value));
+    };
+    const run = currentRun();
+    if (!run) {
+      setAll("No run yet");
+      return;
+    }
+    if (run.lost) {
+      setAll("Run state unavailable");
+      return;
+    }
+    const serverState = run.serverState || {};
+    const phase = serverState.phase || (run.pending || run.running ? "action" : run.error ? "failed" : "complete");
+    const data = run.data || serverState.result || {};
+    if (phase === "failed") {
+      setAll("Run failed");
+      return;
+    }
+    if (phase !== "complete") {
+      setCheck("tool", serverState.action_status === "tool_reported" ? "Report recorded" : "Waiting for report",
+        serverState.action_status === "tool_reported" ? "observed" : "neutral");
+      ["listener", "argus", "alert", "ovn"].forEach((name) => setCheck(name, "Waiting for result"));
+      return;
+    }
+    if (run.profile === "baseline" && data.status === "no-tool-call") {
+      setCheck("tool", "No shell call (expected)", "observed");
+      ["listener", "argus", "alert", "ovn"].forEach((name) => setCheck(name, "Not applicable"));
+      return;
+    }
+    setCheck("tool", data.authenticated_tool_report_observed ? "Report recorded" : "No authenticated report",
+      data.authenticated_tool_report_observed ? "observed" : "missing");
+    setCheck("listener", data.working_shell ? "id output confirmed" : "No shell proof",
+      data.working_shell ? "observed" : "missing");
+    setCheck("argus", data.argus_host_attempt_observed ? "Matching native event" : "No matching event",
+      data.argus_host_attempt_observed ? "observed" : "missing");
+    setCheck("alert", data.native_argus_alert ? "Native HIGH alert" : "No matching alert",
+      data.native_argus_alert ? "observed" : "neutral");
+    setCheck("ovn", data.policy_drop_observed ? "Matching deny" : "No matching deny",
+      data.policy_drop_observed ? "observed" : "neutral");
+  }
+
   function nativeRecord(event) {
     const source = event.evidence_source || "";
     return !["ovn-acl-audit", "demo-correlation", "canary-listener"].includes(source) &&
@@ -592,6 +644,7 @@
     renderHealth();
     renderDescription();
     renderRun();
+    renderAgentChecks();
     renderPanels();
   }
 
@@ -678,6 +731,16 @@
     renderConsole();
   });
   storyPicker.addEventListener("change", () => {
+    scopePicker.value = "selected";
+    if (paused) {
+      paused = false;
+      frozenRecords = null;
+      frozenMarkers = null;
+      frozenRun = null;
+      pauseBaselineIds = null;
+      byId("monitor-pause").textContent = "Pause";
+      byId("monitor-pause").setAttribute("aria-pressed", "false");
+    }
     selectedEventId = null;
     renderedFeedKey = "";
     renderChoices();

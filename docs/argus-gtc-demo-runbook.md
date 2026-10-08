@@ -121,7 +121,7 @@ The stream scope defaults to the selected workload. **All demo workloads** and *
 
 The AI story uses only `argus-gtc-agent`, a separate Kata workload on the management cluster. It is not `invisible-vm`, and the UI does not present the scripted workload's stop control as an AI response. The agent's configured target is the `argus-gtc-canary` Service name on TCP/31999; the listener is a controlled action destination, separate from the DPU observer.
 
-Select **AI agent behavior** in the story picker; the same stream and alerts layout now scopes to `argus-gtc-agent`. Selecting an AI request shows its description without sending it.
+Open `/agent` directly or choose **AI agent behavior** in the header navigation. This page uses the same stream and alerts layout scoped to `argus-gtc-agent`. Its five evidence checks summarize the latest run without treating a tool report, listener response, native Argus event, native alert, and OVN deny as interchangeable. Selecting an AI request shows its description without sending it. Use the **Workload security** link to return to `/` and `invisible-vm`.
 
 1. **Normal request.** Select and run the status-summary baseline. A run with no recorded shell-tool call is the expected baseline. Shell connection, listener, and shell-specific Argus checks are Not applicable.
 2. **Authorized demo shell.** Explicitly ask the agent to open one bounded demo shell. Keep the evidence separate: authenticated tool report; canary `id` output; matching native Argus process/socket event; native alert, if any; OVN deny, if any. A connected socket without listener output is not a confirmed working shell.

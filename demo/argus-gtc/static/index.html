@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="theme-color" content="#111318" />
   <title>Invisible VM, Visible Threat — Argus GTC Demo</title>
-  <link rel="stylesheet" href="/assets/style.css?v=34" />
+  <link rel="stylesheet" href="/assets/style.css?v=35" />
 </head>
 <body class="guided-page">
   <header class="demo-header">
@@ -16,26 +16,27 @@
       <span class="demo-badge">GTC demonstration</span>
     </div>
     <div class="header-controls">
-      <label class="story-picker" for="story-select">
-        <span>Choose a story</span>
-        <select id="story-select">
-          <option value="workload">Workload security · invisible-vm</option>
-          <option value="agent">AI agent behavior · argus-gtc-agent</option>
-        </select>
-      </label>
+      <nav class="story-nav" aria-label="Demo pages">
+        <a href="/" id="workload-page-link">Workload security</a>
+        <a href="/agent" id="agent-page-link">AI agent behavior</a>
+      </nav>
+      <select id="story-select" hidden aria-hidden="true" tabindex="-1">
+        <option value="workload">Workload security · invisible-vm</option>
+        <option value="agent">AI agent behavior · argus-gtc-agent</option>
+      </select>
     </div>
     <div class="demo-title">
       <p class="eyebrow">DOCA Argus · BlueField DPU · OpenShift DPF · Kata Containers</p>
-      <h1>Invisible VM. <span>Visible Threat.</span></h1>
+      <h1 id="demo-title">Invisible VM. <span>Visible Threat.</span></h1>
       <p id="demo-purpose">Argus watches the Kata VM from the BlueField DPU, without an in-guest security agent.</p>
     </div>
   </header>
 
-  <main class="monitor-main">
+  <main class="monitor-main" id="monitor-main">
     <section class="monitor-console" aria-label="Argus monitoring console">
       <div class="monitor-context">
         <div>
-          <span class="section-kicker">Continuous workload monitoring</span>
+          <span class="section-kicker" id="monitor-context-kicker">Continuous workload monitoring</span>
           <strong id="monitor-workload">invisible-vm</strong>
           <span class="monitor-location">Kata VM · DOCA Argus on BlueField DPU</span>
         </div>
@@ -79,6 +80,14 @@
         <span id="monitor-run-identity">Monitoring continues before and after a run.</span>
         <span id="monitor-run-evidence"></span>
       </div>
+
+      <section class="monitor-agent-checks" id="monitor-agent-checks" aria-label="AI agent evidence checks" hidden>
+        <div><span>Tool report</span><strong id="agent-check-tool">No run yet</strong></div>
+        <div><span>Demo listener</span><strong id="agent-check-listener">No run yet</strong></div>
+        <div><span>Argus observation</span><strong id="agent-check-argus">No run yet</strong></div>
+        <div><span>Native alert</span><strong id="agent-check-alert">No run yet</strong></div>
+        <div><span>OVN policy</span><strong id="agent-check-ovn">No run yet</strong></div>
+      </section>
 
       <div class="monitor-evidence-grid">
         <section class="monitor-stream-panel" aria-labelledby="monitor-stream-heading">
@@ -222,7 +231,7 @@
   </div>
 
   <details id="technical-view" class="technical-view">
-    <summary>Technical view <span>Topology, scenarios, health, filters, metrics, raw events, and exact agent prompts</span></summary>
+    <summary>Technical view <span id="technical-view-description">Topology, scenarios, health, filters, metrics, and raw events</span></summary>
     <div class="technical-content">
         <header class="hero">
     <div class="hero-copy">
@@ -506,7 +515,7 @@
       <p class="note agent-footnote">Look for: tool call → <code>id</code> from the canary → native Argus event on the timeline.</p>
       <div class="agent-prompt-block">
         <span class="section-kicker">Technical detail · exact prompt sent to the Kata agent</span>
-        <pre id="agent-prompt">Click a button above. This box shows the exact text we send to the model — nothing is hidden.</pre>
+        <pre id="agent-prompt">Run an AI request in the console above to see the exact text sent to the model.</pre>
       </div>
       <pre id="agent-log" aria-live="polite">Configure ARGUS_GTC_MODEL_BASE_URL and ARGUS_GTC_MODEL_NAME, then wait for the AI agent pod.</pre>
     </section>
@@ -590,7 +599,7 @@
 
 
 
-  <script src="/assets/app.js?v=41"></script>
-  <script src="/assets/monitor.js?v=5"></script>
+  <script src="/assets/app.js?v=42"></script>
+  <script src="/assets/monitor.js?v=6"></script>
 </body>
 </html>

@@ -101,7 +101,6 @@ const SCENARIO_NATIVE_EVENT_SEVERITIES = {
   "phone-home": "INFO",
 };
 
-const STORY_STORAGE_KEY = "argus-demo-selected-story";
 const GUIDED_STORIES = {
   workload: {
     label: "Workload security",
@@ -202,11 +201,7 @@ const GUIDED_STORIES = {
 };
 
 function readSelectedStory() {
-  try {
-    return localStorage.getItem(STORY_STORAGE_KEY) === "agent" ? "agent" : "workload";
-  } catch (_error) {
-    return "workload";
-  }
+  return window.location.pathname.replace(/\/$/, "") === "/agent" ? "agent" : "workload";
 }
 
 let activeStory = readSelectedStory();
@@ -436,6 +431,20 @@ function renderGuidedScene() {
   const scene = currentGuidedScene();
   const isAgent = activeStory === "agent";
   const friendlyWorkload = isAgent ? "argus-gtc-agent" : "invisible-vm";
+  document.body.classList.toggle("agent-page", isAgent);
+  document.title = isAgent ? "AI Agent Behavior — Argus GTC Demo" : "Invisible VM, Visible Threat — Argus GTC Demo";
+  const heading = document.getElementById("demo-title");
+  const highlight = document.createElement("span");
+  highlight.textContent = isAgent ? "Visible Actions." : "Visible Threat.";
+  heading.replaceChildren(document.createTextNode(isAgent ? "AI Agent. " : "Invisible VM. "), highlight);
+  document.getElementById("workload-page-link").setAttribute("aria-current", isAgent ? "false" : "page");
+  document.getElementById("agent-page-link").setAttribute("aria-current", isAgent ? "page" : "false");
+  document.getElementById("monitor-context-kicker").textContent = isAgent
+    ? "Continuous AI workload monitoring"
+    : "Continuous workload monitoring";
+  document.getElementById("technical-view-description").textContent = isAgent
+    ? "Agent flow, exact prompts, raw events, and metrics"
+    : "Topology, scenarios, health, filters, metrics, and raw events";
   document.getElementById("demo-purpose").textContent = isAgent
     ? "See AI tool activity in its Kata VM and independent Argus evidence from the BlueField DPU."
     : "Argus watches the Kata VM from the BlueField DPU, without an in-guest security agent.";
@@ -1783,14 +1792,29 @@ storySelect.addEventListener("change", () => {
   storySelectionChanged = true;
   activeStory = storySelect.value === "agent" ? "agent" : "workload";
   activeSceneIndex = 0;
-  try {
-    localStorage.setItem(STORY_STORAGE_KEY, activeStory);
-  } catch (_error) {
-    // The selection remains active for this page even when storage is unavailable.
-  }
+  const path = activeStory === "agent" ? "/agent" : "/";
+  if (window.location.pathname !== path) window.history.pushState(null, "", path);
   document.getElementById("supporting-evidence").open = false;
   renderGuidedScene();
   refreshAgentStatus();
+});
+
+document.querySelectorAll(".story-nav a").forEach((link) => {
+  link.addEventListener("click", (event) => {
+    if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+    event.preventDefault();
+    const story = link.id === "agent-page-link" ? "agent" : "workload";
+    if (activeStory === story) return;
+    storySelect.value = story;
+    storySelect.dispatchEvent(new Event("change", { bubbles: true }));
+  });
+});
+
+window.addEventListener("popstate", () => {
+  const story = readSelectedStory();
+  if (activeStory === story) return;
+  storySelect.value = story;
+  storySelect.dispatchEvent(new Event("change", { bubbles: true }));
 });
 
 guidedActionButton.addEventListener("click", async () => {
