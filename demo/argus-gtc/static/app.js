@@ -1918,6 +1918,7 @@ window.argusDemo = {
   get actionInProgress() { return demoActionInProgress || hasGuidedRunInProgress(); },
   get responseState() { return workloadResponseState; },
   createRunId: createScenarioRunId,
+  isRuntimeNoise,
   runScenario,
   runAgentProfile,
   runControlAction,
