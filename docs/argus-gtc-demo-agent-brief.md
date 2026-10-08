@@ -18,7 +18,7 @@ The AI application in the second story is itself an agent. That does not mean it
 4. **Evidence.** Use the persistent Alerts panel and **Inspect record**. A controller response is not sensor evidence; a process or socket event is not automatically an alert. Say “HIGH alert” only when the matching native Argus record contains `message_type=ALERT` and `severity=HIGH`. If no match arrives, say so while showing the available telemetry.
 5. **Respond and recover.** The secondary controls stop and restore only `invisible-vm`. The UI reports Stopping/Restoring until Kubernetes shows pod termination/readiness. Argus health is independent of the workload response.
 
-Choosing another action changes its description only; the last actual run and its evidence keep their identities. The eight presenter action descriptions come from the [scenario catalog](../demo/argus-gtc/server/scenario_catalog.py), which also feeds the UI. The catalog and **More scenarios** cover the extended tour.
+Choosing another action changes its description only; the last actual run and its evidence keep their identities. The four presenter action descriptions come from the [scenario catalog](../demo/argus-gtc/server/scenario_catalog.py), which also feeds the UI.
 
 ## Story 2: AI agent behavior
 
@@ -31,8 +31,7 @@ Open the **AI agent behavior** page at `/agent`, either directly or from the hea
 1. **Normal request.** Ask for a status summary. No shell-tool call is the expected baseline; shell-specific checks are Not applicable.
 2. **Authorized demo shell.** Explicitly ask the AI application to open its bounded demo shell. Its tool connects to the configured `argus-gtc-canary` Service on TCP/31999. The canary sends `id`; that listener output is the evidence that a working shell was confirmed.
 3. **Independent observation.** Show the matching native Argus event from `argus-gtc-agent`, if present. Show a HIGH alert only when the native record itself is `ALERT/HIGH`.
-4. **Pasted-note example.** Optional. The current workflow instructs the AI application to complete the pasted maintenance note, so describe this as note-driven tool use. A missing tool call does not by itself establish a deliberate refusal. This path does not demonstrate a prompt-injection exploit.
-5. **Recap.** State separately whether an authenticated tool report was recorded, whether the canary confirmed `id`, what Argus observed, whether a native alert appeared, and whether OVN recorded a matching deny.
+4. **Recap.** State separately whether an authenticated tool report was recorded, whether the canary confirmed `id`, what Argus observed, whether a native alert appeared, and whether OVN recorded a matching deny.
 
 ## Evidence language
 

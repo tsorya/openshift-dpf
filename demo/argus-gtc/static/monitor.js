@@ -7,7 +7,6 @@
   const storyPicker = byId("story-select");
   const rawDialog = byId("event-dialog");
   const primaryChoices = byId("monitor-primary-scenarios");
-  const moreChoices = byId("monitor-more-scenarios");
   const runButton = byId("monitor-run-button");
   const stream = byId("monitor-stream");
   const alerts = byId("monitor-alerts");
@@ -26,13 +25,6 @@
       why: "Shows an authorized tool action and separates the tool report from independent observation.",
       watch: "The controlled listener must record the identity-command output to prove a working shell. Argus activity and any native alert are separate.",
       duration: "A bounded shell; allow additional time for native Argus evidence.",
-    },
-    {
-      id: "note-driven", label: "Pasted-note example",
-      what: "Provide the same demo-shell request through a pasted maintenance note.",
-      why: "Compares note-driven tool use with the directly authorized request. Current instructions allow acting on the note.",
-      watch: "Authenticated tool report, listener check, and native Argus evidence. This is not a prompt-injection claim.",
-      duration: "The request duration depends on the configured model and evidence wait.",
     },
   ];
 
@@ -73,7 +65,6 @@
     showStory(story);
     if (story === "agent") selectedAgentAction = id;
     else selectedWorkloadAction = id;
-    byId("monitor-more").open = false;
     renderChoices();
     renderConsole();
   }
@@ -104,14 +95,9 @@
 
   function renderChoices() {
     primaryChoices.replaceChildren();
-    moreChoices.replaceChildren();
     const story = api.story;
     const actions = story === "agent" ? AI_ACTIONS : [...workloadCatalog.values()];
-    actions.forEach((item) => {
-      const destination = story === "agent" || item.primary ? primaryChoices : moreChoices;
-      destination.appendChild(choiceButton(item, story));
-    });
-    byId("monitor-more").hidden = story === "agent" || !moreChoices.childElementCount;
+    actions.forEach((item) => primaryChoices.appendChild(choiceButton(item, story)));
   }
 
   function actionReadiness() {

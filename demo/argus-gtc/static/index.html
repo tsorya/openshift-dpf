@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="theme-color" content="#111318" />
   <title>Invisible VM, Visible Threat — Argus GTC Demo</title>
-  <link rel="stylesheet" href="/assets/style.css?v=35" />
+  <link rel="stylesheet" href="/assets/style.css?v=36" />
 </head>
 <body class="guided-page">
   <header class="demo-header">
@@ -49,10 +49,6 @@
 
       <div class="monitor-scenario-tabs" aria-label="Choose an action">
         <div class="monitor-primary-scenarios" id="monitor-primary-scenarios"></div>
-        <details class="monitor-more" id="monitor-more">
-          <summary>More scenarios</summary>
-          <div id="monitor-more-scenarios"></div>
-        </details>
       </div>
 
       <section class="monitor-explanation" aria-labelledby="monitor-scenario-title">
@@ -389,24 +385,6 @@
           </div>
         </div>
         <div class="scenario-action">
-          <button data-scenario="phone-home">Connect to a demo destination</button>
-          <button type="button" class="info-sign" aria-expanded="false" aria-controls="info-phone-home" data-info="phone-home" title="What this scenario does">i</button>
-          <div id="info-phone-home" class="scenario-info" hidden role="dialog" aria-labelledby="info-phone-home-title">
-            <h3 id="info-phone-home-title">Phone Home</h3>
-            <p class="info-does"><strong>What it does.</strong> Bash in <code>invisible-vm</code> opens a TCP connection to the in-namespace <code>scenario-sink</code> on port <code>4444</code>, sends this run ID, and holds the connection for 20 seconds. Shell input and output stay off the socket. NetworkPolicy confines traffic to the demo namespace.</p>
-            <p class="info-expect"><strong>Native evidence.</strong> Look for <code>Network Connection Created</code> with <code>message_type=EVENT</code> and <code>severity=INFO</code>, originating from this Kata workload and reaching the sink IP on port <code>4444</code>. This is process-to-network visibility, not a reverse-shell alert. The result reports whether a matching native Argus event arrived.</p>
-          </div>
-        </div>
-        <div class="scenario-action">
-          <button data-scenario="compute-simulation">Run Compute Simulation</button>
-          <button type="button" class="info-sign" aria-expanded="false" aria-controls="info-compute-simulation" data-info="compute-simulation" title="What this scenario does">i</button>
-          <div id="info-compute-simulation" class="scenario-info" hidden role="dialog" aria-labelledby="info-compute-title">
-            <h3 id="info-compute-title">Compute Simulation</h3>
-            <p class="info-does"><strong>What it does.</strong> A short CPU loop in the guest (5,000 integer squares to <code>/dev/null</code>). No network and no decoy writes. Marker processes <code>argus-gtc-compute_simulation-start/end</code> wrap it.</p>
-            <p class="info-expect"><strong>On the Kata timeline.</strong> Sparse by design: process start/end for those markers on <code>invisible-vm</code>. That is the story — Argus still sees guest compute with no in-guest agent. Expect <code>INFO · EVENT</code> process lifecycle, not a native alert.</p>
-          </div>
-        </div>
-        <div class="scenario-action">
           <button data-scenario="audit-evasion">Audit Evasion Attempt</button>
           <button type="button" class="info-sign" aria-expanded="false" aria-controls="info-audit-evasion" data-info="audit-evasion" title="What this scenario does">i</button>
           <div id="info-audit-evasion" class="scenario-info" hidden role="dialog" aria-labelledby="info-audit-evasion-title">
@@ -422,24 +400,6 @@
             <h3 id="info-reverse-shell-title">Reverse Shell Simulation</h3>
             <p class="info-does"><strong>What it does.</strong> Opens interactive bash (<code>bash -i</code>) and redirects stdin/stdout over <code>/dev/tcp</code> to the in-namespace <code>scenario-sink</code> for about 20 seconds. NetworkPolicy keeps the traffic inside the demo namespace — no internet C2.</p>
             <p class="info-expect"><strong>On the Kata timeline.</strong> Filter includes both <code>invisible-vm</code> and <code>scenario-sink</code>. Look for process events (<code>bash -i</code> / <code>argus-gtc-reverse_shell-*</code>) and TCP connect events to the sink. Demo label is not a native alert. Argus 3.5 documents “Reverse Shell Detected” as HIGH — call that out only if the same event contains both <code>message_type=ALERT</code> and <code>severity=HIGH</code>.</p>
-          </div>
-        </div>
-        <div class="scenario-action">
-          <button data-scenario="decoy-modify">Decoy Modification</button>
-          <button type="button" class="info-sign" aria-expanded="false" aria-controls="info-decoy-modify" data-info="decoy-modify" title="What this scenario does">i</button>
-          <div id="info-decoy-modify" class="scenario-info" hidden role="dialog" aria-labelledby="info-decoy-title">
-            <h3 id="info-decoy-title">Decoy Modification</h3>
-            <p class="info-does"><strong>What it does.</strong> Appends <code>tampered-by-demo</code> to the planted file <code>/decoys/credentials.txt</code> and cats it. Bounded write to a decoy, not a real secret.</p>
-            <p class="info-expect"><strong>On the Kata timeline.</strong> File-descriptor open/write activity for <code>/decoys/credentials.txt</code> plus process markers <code>argus-gtc-decoy_modify-*</code> on <code>invisible-vm</code>. Typical signal is file events at <code>INFO · EVENT</code>. A content-change HIGH is optional, not assumed.</p>
-          </div>
-        </div>
-        <div class="scenario-action">
-          <button data-scenario="network-burst">Network Burst</button>
-          <button type="button" class="info-sign" aria-expanded="false" aria-controls="info-network-burst" data-info="network-burst" title="What this scenario does">i</button>
-          <div id="info-network-burst" class="scenario-info" hidden role="dialog" aria-labelledby="info-network-burst-title">
-            <h3 id="info-network-burst-title">Network Burst</h3>
-            <p class="info-does"><strong>What it does.</strong> Sends 5 MiB of zeros (<code>dd if=/dev/zero | nc</code>) from the Kata VM to the in-namespace sink. Bounded; NetworkPolicy blocks anything outside the demo namespace.</p>
-            <p class="info-expect"><strong>On the Kata timeline.</strong> TCP and process events for <code>dd</code>/<code>nc</code> / <code>argus-gtc-network_burst-*</code> on <code>invisible-vm</code>, plus sink-side receive on <code>scenario-sink</code>. DTS RX/TX sparklines may tick up. Demo label “Network Burst”. An excessive-data HIGH is documented by Argus, not guaranteed per click.</p>
           </div>
         </div>
       </div>
@@ -472,9 +432,9 @@
           <dd>Bash inside that Kata pod, to the in-cluster canary on TCP/31999, at most 20s. The canary sends <code>id</code>. Not the worker OS. Not <code>invisible-vm</code>.</dd>
         </div>
       </dl>
-      <p class="note agent-note">The pasted-note example asks the AI agent to use its bounded demo-shell tool. This is note-driven tool use under the current instructions, not a prompt-injection result. Bash runs in the agent pod. The canary proves the session with <code>id</code>. Argus may report native process and socket activity; show an alert only when the native Argus record contains it.</p>
+      <p class="note agent-note">The authorized demo shell runs inside the agent pod. The canary proves the session with <code>id</code>. Argus may report native process and socket activity; show an alert only when the native Argus record contains it.</p>
       <div class="agent-flow" aria-label="AI agent and security evidence flow">
-        <div class="agent-flow-node"><span>Input</span>Status request / authorized request / pasted note</div>
+        <div class="agent-flow-node"><span>Input</span>Status request / authorized request</div>
         <div class="agent-flow-link" aria-hidden="true">→</div>
         <div class="agent-flow-node"><span>Kata agent</span>NeMo tool call</div>
         <div class="agent-flow-link" aria-hidden="true">→</div>
@@ -486,7 +446,7 @@
       </div>
       <ol class="agent-chain" id="agent-chain" aria-label="Agent evidence chain"></ol>
       <div class="agent-evidence-paths">
-        <span>Baseline, authorized tool use, and a note-driven example are separate runs on argus-gtc-agent.</span>
+        <span>Baseline and authorized tool use are separate runs on argus-gtc-agent.</span>
         <span>The timeline shows the native Argus event and its real severity.</span>
       </div>
       <div class="agent-controls">
@@ -497,10 +457,6 @@
         <div class="agent-control">
           <button class="danger" data-agent-profile="host-reachability">2. Authorized demo shell</button>
           <small>We ask the agent to open the bounded shell. About one minute.</small>
-        </div>
-        <div class="agent-control">
-          <button class="danger" data-agent-profile="note-driven">3. Run the pasted-note example</button>
-          <small>The current workflow asks the agent to complete the pasted maintenance note.</small>
         </div>
       </div>
       <p class="note agent-footnote">Look for: tool call → <code>id</code> from the canary → native Argus event on the timeline.</p>
@@ -525,12 +481,8 @@
             <option value="demo">All demo workload events</option>
             <option value="discovery">Discovery</option>
             <option value="exec-memory">Executable Memory</option>
-            <option value="phone-home">Phone Home</option>
-            <option value="compute-simulation">Compute Simulation</option>
             <option value="audit-evasion">Audit Evasion Attempt</option>
             <option value="reverse-shell">Reverse Shell</option>
-            <option value="decoy-modify">Decoy Modification</option>
-            <option value="network-burst">Network Burst</option>
             <option value="agent-baseline">AI Agent Baseline</option>
             <option value="host-access-attempt">Kata Agent / Demo Shell</option>
             <option value="raw">All retained events + raw Argus feed</option>
@@ -589,7 +541,7 @@
 
 
 
-  <script src="/assets/app.js?v=42"></script>
-  <script src="/assets/monitor.js?v=6"></script>
+  <script src="/assets/app.js?v=43"></script>
+  <script src="/assets/monitor.js?v=7"></script>
 </body>
 </html>

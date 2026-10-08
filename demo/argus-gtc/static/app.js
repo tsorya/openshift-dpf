@@ -180,16 +180,6 @@ const GUIDED_STORIES = {
         evidenceFor: "host-reachability",
       },
       {
-        step: "Pasted note",
-        title: "Try the pasted-note example",
-        description: "This note asks the AI application to use the same bounded tool. The current workflow tells it to complete the note.",
-        purpose: "This is note-driven tool use, not a prompt-injection claim.",
-        action: "Run the pasted-note example",
-        hint: "Optional: compare its outcome with the direct tool request.",
-        profile: "note-driven",
-        optional: true,
-      },
-      {
         step: "Recap",
         title: "Explain what happened",
         description: "Summarize the latest AI request, shell check, and independent Argus observation.",
