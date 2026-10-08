@@ -381,6 +381,7 @@ def create_app() -> FastAPI:
         app.mount("/assets", StaticFiles(directory=static_dir), name="assets")
 
     @app.get("/")
+    @app.get("/agent")
     async def index() -> FileResponse:
         index_path = static_dir / "index.html"
         if not index_path.is_file():

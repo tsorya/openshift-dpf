@@ -26,7 +26,7 @@ Choosing another action changes its description only; the last actual run and it
 - **Observer:** DOCA Argus on the BlueField DPU
 - **Response:** no AI-workload stop control is provided by this demo
 
-Select **AI agent behavior** in the story picker. The stream and persistent Alerts panel now show `argus-gtc-agent`; selection still precedes Run.
+Open the **AI agent behavior** page at `/agent`, either directly or from the header navigation. The stream and persistent Alerts panel show `argus-gtc-agent`; selecting an AI request still precedes Run. The five checks above the stream summarize the tool report, canary listener, Argus event, native alert, and OVN deny for the latest run.
 
 1. **Normal request.** Ask for a status summary. No shell-tool call is the expected baseline; shell-specific checks are Not applicable.
 2. **Authorized demo shell.** Explicitly ask the AI application to open its bounded demo shell. Its tool connects to the configured `argus-gtc-canary` Service on TCP/31999. The canary sends `id`; that listener output is the evidence that a working shell was confirmed.
