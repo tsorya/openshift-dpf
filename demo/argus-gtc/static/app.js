@@ -914,6 +914,15 @@ function isRuntimeNoise(event) {
   if (isHypervisorNoise(event)) return true;
   const hay = [event.process_name, event.process_command].filter(Boolean).join(" ").toLowerCase();
   if (/multiprocessing[.-]fork|multiprocessing\.spawn|spawn_main\(|resource_tracker/.test(hay)) return true;
+  // Keep benign teardown records from short-lived demo wrappers in the raw
+  // activity stream without presenting each one as a security alert.
+  const process = (event.process_name || "").split(/[\\/]/).pop().toLowerCase();
+  if (
+    event.activity_name === "Executable Permissions Removed" &&
+    (event.severity || "").toUpperCase() === "MEDIUM" &&
+    ["bash", "sh", "sleep", "timeout"].includes(process) &&
+    (event.pod_name || "").toLowerCase().startsWith("invisible-vm")
+  ) return true;
   if ((event.activity_name || "") === "Reverse Shell Detected") {
     if (/argus-gtc-agent-shell-|\/dev\/tcp\//.test(hay)) return false;
     if (/nat serve|\/usr\/bin\/pod(?:\s|$)/.test(hay)) return true;
@@ -1918,6 +1927,7 @@ window.argusDemo = {
   get actionInProgress() { return demoActionInProgress || hasGuidedRunInProgress(); },
   get responseState() { return workloadResponseState; },
   createRunId: createScenarioRunId,
+  isRuntimeNoise,
   runScenario,
   runAgentProfile,
   runControlAction,

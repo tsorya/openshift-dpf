@@ -45,6 +45,8 @@
   let selectedEventId = null;
   let expandedGroups = new Set();
   let renderedFeedKey = "";
+  let alertBaselineIds = new Set();
+  let alertViewReset = false;
   let renderTimer = null;
 
   // A modal must remain usable while Technical view is collapsed.
@@ -62,11 +64,24 @@
   }
 
   function selectAction(story, id) {
+    const storyChanged = api.story !== story;
+    const currentAction = story === "agent" ? selectedAgentAction : selectedWorkloadAction;
     showStory(story);
     if (story === "agent") selectedAgentAction = id;
     else selectedWorkloadAction = id;
+    if (!storyChanged && currentAction !== id) resetAlertViewForSelection();
     renderChoices();
     renderConsole();
+  }
+
+  function resetAlertViewForSelection() {
+    const visibleRecords = paused ? (frozenRecords || []).filter(scopedRecord) : api.events.filter(scopedRecord);
+    alertBaselineIds = new Set(visibleRecords
+      .filter((event) => (event.message_type || "").toUpperCase() === "ALERT" && !api.isRuntimeNoise(event))
+      .map((event) => event.id)
+      .filter(Boolean));
+    alertViewReset = true;
+    renderedFeedKey = "";
   }
 
   window.selectMonitorScenario = (id) => {
@@ -348,6 +363,14 @@
     return Date.parse(event.occurred_at || event.received_at || "") || 0;
   }
 
+  function routineMemoryNoise(event) {
+    const process = (event.process_name || "").split(/[\\/]/).pop().toLowerCase();
+    return event.activity_name === "Executable Permissions Removed" &&
+      (event.severity || "").toUpperCase() === "MEDIUM" &&
+      ["bash", "sh", "sleep", "timeout"].includes(process) &&
+      (event.pod_name || "").toLowerCase().startsWith("invisible-vm");
+  }
+
   function isLate(event) {
     const occurred = Date.parse(event.occurred_at || "");
     const received = Date.parse(event.received_at || "");
@@ -393,15 +416,18 @@
     if (!event.scenario_run_id) return "No run association";
     if (!run?.runId || event.scenario_run_id !== run.runId) return `Earlier run ${event.scenario_run_id}`;
     const result = run.data || run.serverState?.result || {};
-    const validated = result.native_alert || (
+    const validated = result.native_alert || result.native_event || (
       result.native_argus_alert ? result.argus_host_attempt_event : null
     );
     const sameAlert = validated &&
       validated.activity_name === event.activity_name &&
       validated.occurred_at === event.occurred_at &&
-      (!validated.pod_name || validated.pod_name === event.pod_name);
-    return sameAlert && (event.message_type || "").toUpperCase() === "ALERT"
-      ? "Current run · verified detection" : "Current run activity";
+      (!validated.pod_name || validated.pod_name === event.pod_name) &&
+      (!validated.message_type || validated.message_type === event.message_type) &&
+      (!validated.severity || validated.severity === event.severity);
+    return sameAlert
+      ? "Current run · verified Argus evidence"
+      : "Run window association · not verified";
   }
 
   function isLowValue(event) {
@@ -432,6 +458,27 @@
     return groups;
   }
 
+  function groupAlertRecords(records) {
+    const groups = [];
+    const repeatedMemoryAlerts = new Map();
+    const sorted = [...records].sort((a, b) => sourceTime(b) - sourceTime(a));
+    sorted.forEach((event) => {
+      if (event.activity_name !== "Executable Permissions Removed") {
+        groups.push({ events: [event] });
+        return;
+      }
+      const key = [event.severity || "", event.pod_name || ""].join("|");
+      let group = repeatedMemoryAlerts.get(key);
+      if (!group) {
+        group = { events: [] };
+        repeatedMemoryAlerts.set(key, group);
+        groups.push(group);
+      }
+      group.events.push(event);
+    });
+    return groups;
+  }
+
   function recordButton(event, label = "Inspect record") {
     const button = element("button", "secondary compact monitor-inspect", label);
     button.type = "button";
@@ -451,7 +498,7 @@
     const severity = (event.severity || "UNKNOWN").toUpperCase();
     row.dataset.type = type;
     row.dataset.severity = severity;
-    if (event.scenario_run_id && displayRun()?.runId === event.scenario_run_id) row.classList.add("current-run");
+    if (association(event) === "Current run · verified Argus evidence") row.classList.add("current-run");
     if (event.id === selectedEventId) row.classList.add("selected-record");
     const top = element("div", "monitor-event-top");
     const time = element("time", "", shortTime(event.occurred_at || event.received_at));
@@ -546,6 +593,27 @@
     return card;
   }
 
+  function repeatedAlertGroup(group) {
+    const newest = group.events[0];
+    const oldest = group.events[group.events.length - 1];
+    const details = element("details", "monitor-event-group monitor-alert-repeat-group");
+    const summary = element("summary");
+    const processNames = [...new Set(group.events.map((event) => event.process_name || event.process_command || "Process unavailable"))];
+    const processText = processNames.length > 3
+      ? `${processNames.slice(0, 3).join(", ")} +${processNames.length - 3} more`
+      : processNames.join(", ");
+    summary.append(
+      element("span", "monitor-group-count", `${group.events.length} records`),
+      element("strong", "", newest.activity_name || "Executable Permissions Removed"),
+      element("span", "", `${shortTime(oldest.occurred_at || oldest.received_at)}–${shortTime(newest.occurred_at || newest.received_at)}`),
+      element("small", "", `${newest.pod_name || "Pod unavailable"} · ${processText} · expand to inspect every Argus record`)
+    );
+    const records = element("div", "monitor-group-originals");
+    group.events.forEach((event) => records.append(alertCard(event)));
+    details.append(summary, records);
+    return details;
+  }
+
   function historyText() {
     const retention = api.retention;
     const pieces = [];
@@ -563,9 +631,20 @@
     const visibleMarkers = (paused ? frozenMarkers || [] : markers).filter((marker) =>
       scopePicker.value !== "selected" || marker.story === api.story
     );
-    const nativeAlerts = records.filter((event) => (event.message_type || "").toUpperCase() === "ALERT");
+    const nativeAlerts = records.filter((event) =>
+      (event.message_type || "").toUpperCase() === "ALERT" &&
+      !api.isRuntimeNoise(event) && !alertBaselineIds.has(event.id)
+    );
+    const hiddenMemoryNoise = records.filter((event) =>
+      (event.message_type || "").toUpperCase() === "ALERT" &&
+      routineMemoryNoise(event) && !alertBaselineIds.has(event.id)
+    );
+    const alertGroups = groupAlertRecords(nativeAlerts);
     byId("monitor-event-count").textContent = `${records.length} native record${records.length === 1 ? "" : "s"} in scope`;
-    byId("monitor-alert-count").textContent = String(nativeAlerts.length);
+    const alertCount = byId("monitor-alert-count");
+    alertCount.textContent = String(alertGroups.length);
+    alertCount.title = `${nativeAlerts.length} visible native alert records; ${hiddenMemoryNoise.length} routine workload memory teardown records remain in Activity`;
+    alertCount.setAttribute("aria-label", `${alertGroups.length} alert groups containing ${nativeAlerts.length} native alert records`);
     byId("monitor-history-state").textContent = historyText();
     const newlyReceived = pauseBaselineIds
       ? api.events.filter((event) => !pauseBaselineIds.has(event.id)).length : 0;
@@ -617,11 +696,21 @@
     }
 
     const alertFragment = document.createDocumentFragment();
+    if (hiddenMemoryNoise.length) {
+      alertFragment.append(element(
+        "p", "monitor-empty monitor-filter-note",
+        `${hiddenMemoryNoise.length} routine memory teardown alert${hiddenMemoryNoise.length === 1 ? " is" : "s are"} hidden from Alerts; raw Argus records remain in Activity.`
+      ));
+    }
     if (!nativeAlerts.length) {
-      alertFragment.append(element("p", "monitor-empty", "No native alerts in this view. Monitoring is still active."));
+      alertFragment.append(element("p", "monitor-empty", alertViewReset
+        ? "No new relevant native alerts in this view. Earlier records remain in the activity feed."
+        : "No relevant native alerts in this view. Monitoring is active; known runtime noise remains in the activity feed."));
     } else {
-      nativeAlerts.sort((a, b) => sourceTime(b) - sourceTime(a))
-        .forEach((event) => alertFragment.append(alertCard(event)));
+      alertGroups.forEach((group) => alertFragment.append(
+        group.events.length > 1 && group.events[0].activity_name === "Executable Permissions Removed"
+          ? repeatedAlertGroup(group) : alertCard(group.events[0])
+      ));
     }
     alerts.replaceChildren(alertFragment);
   }
@@ -727,6 +816,7 @@
       byId("monitor-pause").textContent = "Pause";
       byId("monitor-pause").setAttribute("aria-pressed", "false");
     }
+    resetAlertViewForSelection();
     selectedEventId = null;
     renderedFeedKey = "";
     renderChoices();

@@ -129,6 +129,7 @@ _AGENT_RUNTIME_NOISE_RE = re.compile(
     r"resource_tracker",
     re.IGNORECASE,
 )
+_WORKLOAD_MEMORY_NOISE_PROCESSES = frozenset({"bash", "sh", "sleep", "timeout"})
 _FALSE_REVERSE_SHELL_RE = re.compile(
     r"nat serve|/usr/bin/pod(?:\s|$)",
     re.IGNORECASE,
@@ -320,13 +321,24 @@ def is_hypervisor_noise(event: NormalizedEvent) -> bool:
 
 
 def is_runtime_noise(event: NormalizedEvent) -> bool:
-    """Hypervisor helpers, NAT fork workers, and piped false reverse shells."""
+    """Known hypervisor, workload-wrapper, and agent runtime noise."""
     if is_hypervisor_noise(event):
         return True
     text = " ".join(
         part for part in (event.process_name, event.process_command) if part
     )
     if _AGENT_RUNTIME_NOISE_RE.search(text):
+        return True
+    # Short-lived demo shell helpers can produce a medium permissions-removed
+    # record as their executable mappings disappear at process exit. Keep the
+    # native record in history, but don't classify it as meaningful evidence.
+    process = re.split(r"[/\\]", event.process_name or "")[-1].lower()
+    if (
+        event.activity_name == "Executable Permissions Removed"
+        and (event.severity or "").upper() == "MEDIUM"
+        and process in _WORKLOAD_MEMORY_NOISE_PROCESSES
+        and (event.pod_name or "").lower().startswith("invisible-vm")
+    ):
         return True
     if (event.activity_name or "") == "Reverse Shell Detected":
         lowered = text.lower()
