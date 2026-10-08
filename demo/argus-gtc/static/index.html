@@ -425,15 +425,6 @@
           </div>
         </div>
         <div class="scenario-action">
-          <button data-scenario="shell-history">Shell History Tampering</button>
-          <button type="button" class="info-sign" aria-expanded="false" aria-controls="info-shell-history" data-info="shell-history" title="What this scenario does">i</button>
-          <div id="info-shell-history" class="scenario-info" hidden role="dialog" aria-labelledby="info-shell-history-title">
-            <h3 id="info-shell-history-title">Shell History Tampering</h3>
-            <p class="info-does"><strong>What it does.</strong> Pre-scripted history wipe in the Kata VM: <code>set +o history</code>, <code>HISTFILE=/dev/null</code>, <code>history -c</code>, then <code>history -w</code>. The session does not persist commands.</p>
-            <p class="info-expect"><strong>On the Kata timeline.</strong> Process markers <code>argus-gtc-shell_history-*</code> on <code>invisible-vm</code>. You may also see file activity if Argus samples <code>HISTFILE</code>. Demo classification only unless a native HIGH/ALERT for history tampering shows up on the event.</p>
-          </div>
-        </div>
-        <div class="scenario-action">
           <button data-scenario="decoy-modify">Decoy Modification</button>
           <button type="button" class="info-sign" aria-expanded="false" aria-controls="info-decoy-modify" data-info="decoy-modify" title="What this scenario does">i</button>
           <div id="info-decoy-modify" class="scenario-info" hidden role="dialog" aria-labelledby="info-decoy-title">
@@ -538,7 +529,6 @@
             <option value="compute-simulation">Compute Simulation</option>
             <option value="audit-evasion">Audit Evasion Attempt</option>
             <option value="reverse-shell">Reverse Shell</option>
-            <option value="shell-history">Shell History</option>
             <option value="decoy-modify">Decoy Modification</option>
             <option value="network-burst">Network Burst</option>
             <option value="agent-baseline">AI Agent Baseline</option>

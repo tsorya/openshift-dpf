@@ -18,7 +18,7 @@ The AI application in the second story is itself an agent. That does not mean it
 4. **Evidence.** Use the persistent Alerts panel and **Inspect record**. A controller response is not sensor evidence; a process or socket event is not automatically an alert. Say “HIGH alert” only when the matching native Argus record contains `message_type=ALERT` and `severity=HIGH`. If no match arrives, say so while showing the available telemetry.
 5. **Respond and recover.** The secondary controls stop and restore only `invisible-vm`. The UI reports Stopping/Restoring until Kubernetes shows pod termination/readiness. Argus health is independent of the workload response.
 
-Choosing another action changes its description only; the last actual run and its evidence keep their identities. The nine action descriptions come from the [scenario catalog](../demo/argus-gtc/server/scenario_catalog.py), which also feeds the UI. The catalog and **More scenarios** cover the extended tour.
+Choosing another action changes its description only; the last actual run and its evidence keep their identities. The eight presenter action descriptions come from the [scenario catalog](../demo/argus-gtc/server/scenario_catalog.py), which also feeds the UI. The catalog and **More scenarios** cover the extended tour.
 
 ## Story 2: AI agent behavior
 

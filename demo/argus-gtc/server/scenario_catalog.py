@@ -45,14 +45,6 @@ SCENARIO_CATALOG = {
         "watch": "Native INFO EVENT ‘Network Connection Created’ with the matching demo destination. This is not a reverse-shell alert.",
         "duration": "About 20 seconds, plus up to 15 seconds for native evidence.",
     },
-    "shell-history": {
-        "label": "Legacy shell-history test",
-        "primary": False,
-        "what": "Runs the original non-interactive script that disables history, redirects its history file, and attempts to clear it.",
-        "why": "Keeps the older telemetry example; interactive Audit evasion is the preferred history-alert demonstration.",
-        "watch": "Process telemetry for the run. A scenario label or successful script is not native-alert proof.",
-        "duration": "Short action; process records may arrive later.",
-    },
     "decoy-modify": {
         "label": "Modify a demo file",
         "primary": False,
