@@ -45,6 +45,8 @@
   let selectedEventId = null;
   let expandedGroups = new Set();
   let renderedFeedKey = "";
+  let alertBaselineIds = new Set();
+  let alertViewReset = false;
   let renderTimer = null;
 
   // A modal must remain usable while Technical view is collapsed.
@@ -62,11 +64,24 @@
   }
 
   function selectAction(story, id) {
+    const storyChanged = api.story !== story;
+    const currentAction = story === "agent" ? selectedAgentAction : selectedWorkloadAction;
     showStory(story);
     if (story === "agent") selectedAgentAction = id;
     else selectedWorkloadAction = id;
+    if (!storyChanged && currentAction !== id) resetAlertViewForSelection();
     renderChoices();
     renderConsole();
+  }
+
+  function resetAlertViewForSelection() {
+    const visibleRecords = paused ? (frozenRecords || []).filter(scopedRecord) : api.events.filter(scopedRecord);
+    alertBaselineIds = new Set(visibleRecords
+      .filter((event) => (event.message_type || "").toUpperCase() === "ALERT" && !api.isRuntimeNoise(event))
+      .map((event) => event.id)
+      .filter(Boolean));
+    alertViewReset = true;
+    renderedFeedKey = "";
   }
 
   window.selectMonitorScenario = (id) => {
@@ -563,7 +578,10 @@
     const visibleMarkers = (paused ? frozenMarkers || [] : markers).filter((marker) =>
       scopePicker.value !== "selected" || marker.story === api.story
     );
-    const nativeAlerts = records.filter((event) => (event.message_type || "").toUpperCase() === "ALERT");
+    const nativeAlerts = records.filter((event) =>
+      (event.message_type || "").toUpperCase() === "ALERT" &&
+      !api.isRuntimeNoise(event) && !alertBaselineIds.has(event.id)
+    );
     byId("monitor-event-count").textContent = `${records.length} native record${records.length === 1 ? "" : "s"} in scope`;
     byId("monitor-alert-count").textContent = String(nativeAlerts.length);
     byId("monitor-history-state").textContent = historyText();
@@ -618,7 +636,9 @@
 
     const alertFragment = document.createDocumentFragment();
     if (!nativeAlerts.length) {
-      alertFragment.append(element("p", "monitor-empty", "No native alerts in this view. Monitoring is still active."));
+      alertFragment.append(element("p", "monitor-empty", alertViewReset
+        ? "No new relevant native alerts in this view. Earlier records remain in the activity feed."
+        : "No relevant native alerts in this view. Monitoring is active; known runtime noise remains in the activity feed."));
     } else {
       nativeAlerts.sort((a, b) => sourceTime(b) - sourceTime(a))
         .forEach((event) => alertFragment.append(alertCard(event)));
@@ -727,6 +747,7 @@
       byId("monitor-pause").textContent = "Pause";
       byId("monitor-pause").setAttribute("aria-pressed", "false");
     }
+    resetAlertViewForSelection();
     selectedEventId = null;
     renderedFeedKey = "";
     renderChoices();
