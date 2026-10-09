@@ -54,6 +54,27 @@ AGENT_ARGUS_WAIT_SECONDS = 90.0
 CANARY_WAIT_SECONDS = 5.0
 
 
+def _expected_native_for_scenario(scenario_id: str) -> dict[str, Any] | None:
+    alert_names = SCENARIO_NATIVE_ALERTS.get(scenario_id)
+    if alert_names:
+        return {
+            "activity_names": list(alert_names),
+            "message_type": "ALERT",
+            "severity": "HIGH",
+            "wait_seconds": int(NATIVE_ALERT_TIMEOUT_SECONDS),
+        }
+    native_event = SCENARIO_NATIVE_EVENTS.get(scenario_id)
+    if native_event:
+        activity_name, message_type, severity = native_event
+        return {
+            "activity_names": [activity_name],
+            "message_type": message_type,
+            "severity": severity,
+            "wait_seconds": int(NATIVE_EVENT_TIMEOUT_SECONDS),
+        }
+    return None
+
+
 class IngestBody(BaseModel):
     events: list[dict[str, Any]]
 
@@ -693,7 +714,11 @@ def create_app() -> FastAPI:
         return {
             "target": settings.workload_name,
             "scenarios": [
-                {"id": sid, **SCENARIO_CATALOG[sid]}
+                {
+                    "id": sid,
+                    **SCENARIO_CATALOG[sid],
+                    "expected_native": _expected_native_for_scenario(sid),
+                }
                 for sid in SCENARIO_CATALOG
             ]
         }

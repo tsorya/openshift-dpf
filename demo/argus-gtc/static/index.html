@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="theme-color" content="#111318" />
   <title>Invisible VM, Visible Threat — Argus GTC Demo</title>
-  <link rel="stylesheet" href="/assets/style.css?v=36" />
+  <link rel="stylesheet" href="/assets/style.css?v=37" />
 </head>
 <body class="guided-page">
   <header class="demo-header">
@@ -76,6 +76,26 @@
         <span id="monitor-run-identity">Monitoring continues before and after a run.</span>
         <span id="monitor-run-evidence"></span>
       </div>
+
+      <section class="monitor-run-comparison" id="monitor-run-comparison" aria-labelledby="monitor-comparison-title" hidden>
+        <div class="monitor-comparison-heading">
+          <h2 id="monitor-comparison-title">Last run evidence <span id="monitor-comparison-scenario"></span></h2>
+          <span id="monitor-comparison-run-id"></span>
+        </div>
+        <div class="monitor-comparison-grid">
+          <div class="monitor-comparison-item">
+            <span>Expected from Argus</span>
+            <strong id="monitor-expected-native"></strong>
+            <small id="monitor-expected-detail"></small>
+          </div>
+          <div class="monitor-comparison-item" id="monitor-observed-item">
+            <span>Observed by Argus</span>
+            <strong id="monitor-observed-native"></strong>
+            <small id="monitor-observed-detail"></small>
+          </div>
+        </div>
+        <p id="monitor-comparison-explanation"></p>
+      </section>
 
       <section class="monitor-agent-checks" id="monitor-agent-checks" aria-label="AI agent evidence checks" hidden>
         <div><span>Tool report</span><strong id="agent-check-tool">No run yet</strong></div>
@@ -542,6 +562,6 @@
 
 
   <script src="/assets/app.js?v=46"></script>
-  <script src="/assets/monitor.js?v=12"></script>
+  <script src="/assets/monitor.js?v=13"></script>
 </body>
 </html>

@@ -274,13 +274,15 @@
     byId("monitor-run-status").textContent = statusText;
     byId("monitor-run-status").dataset.phase = phase;
     byId("monitor-run-identity").textContent = identity;
-    byId("monitor-run-evidence").textContent = phase === "failed"
+    const evidenceHint = phase === "failed"
       ? state.message || run.error || "Inspect Technical view for the action error."
       : phase === "complete" && state.observation_status === "not_checked"
         ? "Native telemetry remains visible below; this action has no gated detection result."
         : phase === "complete" && data.status === "no-native-alert"
           ? "Underlying process and network events remain visible."
           : "";
+    byId("monitor-run-evidence").textContent = api.story === "workload" && phase !== "failed"
+      ? "" : evidenceHint;
     if (run.runId && started && !markers.some((marker) => marker.runId === run.runId)) {
       markers.push({
         runId: run.runId, story: run.story, label: runLabel(run),
@@ -289,6 +291,96 @@
       });
       markers = markers.slice(-20);
     }
+  }
+
+  function renderRunComparison() {
+    const panel = byId("monitor-run-comparison");
+    const run = currentRun();
+    panel.hidden = api.story !== "workload" || !run;
+    panel.closest(".monitor-console").classList.toggle("has-comparison", !panel.hidden);
+    if (panel.hidden) return;
+
+    const scenarioId = run.scenarioId || run.serverState?.scenario_id;
+    const catalogItem = workloadCatalog.get(scenarioId);
+    const expectationKnown = catalogItem && Object.prototype.hasOwnProperty.call(catalogItem, "expected_native");
+    const expected = expectationKnown ? catalogItem.expected_native : undefined;
+    const state = run.serverState || {};
+    const phase = state.phase || (run.pending ? "action" : run.error ? "failed" : "complete");
+    const data = run.data || state.result || {};
+    const observedItem = byId("monitor-observed-item");
+
+    byId("monitor-comparison-scenario").textContent = `· ${runLabel(run)}`;
+    byId("monitor-comparison-run-id").textContent = run.runId ? `Run ${run.runId}` : "Run ID unavailable";
+    if (!expectationKnown) {
+      byId("monitor-expected-native").textContent = "Expectation unavailable";
+      byId("monitor-expected-detail").textContent = "Scenario catalog has not supplied native evidence criteria.";
+    } else if (expected) {
+      byId("monitor-expected-native").textContent = expected.activity_names.join(" or ");
+      byId("monitor-expected-detail").textContent =
+        `${expected.message_type} · ${expected.severity} · ${expected.wait_seconds}-second observation window`;
+    } else {
+      byId("monitor-expected-native").textContent = "No specific native detection required";
+      byId("monitor-expected-detail").textContent = "Routine process and file telemetry may appear in Activity.";
+    }
+
+    let observed = "";
+    let detail = "";
+    let explanation = "";
+    let observationState = "pending";
+    const verified = data.status === "native-alert" ? data.native_alert
+      : data.status === "native-event" ? data.native_event : null;
+    const exactMatch = expected && verified &&
+      expected.activity_names.includes(verified.activity_name) &&
+      expected.message_type === verified.message_type &&
+      expected.severity === verified.severity;
+
+    if (run.lost) {
+      observed = "Run result unavailable";
+      detail = "The server no longer has this run's result.";
+      observationState = "unavailable";
+    } else if (phase === "failed" || run.error) {
+      observed = "No sensor verdict";
+      detail = "The action failed before a verified result was returned.";
+      explanation = state.message || run.error || "Inspect the action error in the run status above.";
+      observationState = "failed";
+    } else if (phase === "action") {
+      observed = "Action in progress";
+      detail = "The evidence check begins after the action completes.";
+    } else if (phase === "observation") {
+      observed = "Checking Argus records";
+      detail = "The server is waiting for evidence from this run.";
+    } else if (!expectationKnown) {
+      observed = "Result unavailable";
+      detail = "The expected native evidence could not be loaded.";
+      observationState = "unavailable";
+    } else if (!expected) {
+      observed = "Native detection not checked";
+      detail = "Discovery has no required native alert.";
+      explanation = "The action completed. Inspect Activity for ordinary process and file records.";
+      observationState = "ungated";
+    } else if (exactMatch) {
+      observed = verified.activity_name;
+      detail = `${verified.message_type} · ${verified.severity} · ${shortTime(verified.occurred_at)} · ` +
+        (verified.pod_name ? `pod ${verified.pod_name}` : "pod not supplied in record");
+      explanation = "This native record satisfied the server's checks for the last run.";
+      observationState = "matched";
+    } else if (data.status === "no-native-alert" || data.status === "no-native-event") {
+      observed = `No matching record verified within ${expected.wait_seconds} seconds`;
+      detail = "The action completed; no record satisfied the expected criteria during the wait window.";
+      explanation = "Other Activity records are separate observations. A later record remains visible there without changing this wait-window result.";
+      observationState = "unmatched";
+    } else {
+      observed = "Sensor verdict unavailable";
+      detail = "The server did not return a verified native record for this run.";
+      observationState = "unavailable";
+    }
+
+    observedItem.dataset.state = observationState;
+    byId("monitor-observed-native").textContent = observed;
+    byId("monitor-observed-detail").textContent = detail;
+    const explanationNode = byId("monitor-comparison-explanation");
+    explanationNode.textContent = explanation;
+    explanationNode.hidden = !explanation;
   }
 
   function renderAgentChecks() {
@@ -747,6 +839,7 @@
     renderHealth();
     renderDescription();
     renderRun();
+    renderRunComparison();
     renderAgentChecks();
     renderPanels();
   }
