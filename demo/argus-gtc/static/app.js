@@ -1459,7 +1459,7 @@ async function runScenario(id, options = {}) {
   actionLog.textContent = SCENARIO_NATIVE_ALERTS[id]
     ? `Running ${id}. Waiting up to 45 seconds for a native Argus ALERT/HIGH.`
     : SCENARIO_NATIVE_EVENTS[id]
-      ? `Running ${id}. Waiting for ${SCENARIO_NATIVE_EVENTS[id]} from Argus; the controller checks for up to 15 seconds after the action.`
+      ? `Running ${id}. Waiting for ${SCENARIO_NATIVE_EVENTS[id]} from Argus; the controller checks for up to 45 seconds after the action.`
       : `Running ${id}. Demo labels are not native Argus alerts.`;
   try {
     const res = await fetch(

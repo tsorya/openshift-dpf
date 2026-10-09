@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import json
 import logging
+import threading
 from collections import deque
 from datetime import datetime, timezone
 from pathlib import Path
@@ -22,8 +24,30 @@ logger = logging.getLogger(__name__)
 
 INITIAL_TAIL_BYTES = 512 * 1024
 MAX_READ_BYTES = 256 * 1024
-MAX_LOG_FILES_PER_POLL = 20
+MAX_HOSTED_READ_BYTES_PER_FILE = 2 * 1024 * 1024
+MAX_HOSTED_READ_BYTES_PER_POLL = 8 * 1024 * 1024
 MAX_SSE_REPLAY = 500
+
+_HOSTED_BATCH_READ_SCRIPT = """
+import base64
+import json
+import sys
+
+for path, offset, read_size in json.loads(sys.argv[1]):
+    try:
+        with open(path, "rb") as handle:
+            handle.seek(offset)
+            chunk = handle.read(read_size)
+        row = {
+            "path": path,
+            "offset": offset,
+            "length": len(chunk),
+            "data": base64.b64encode(chunk).decode("ascii"),
+        }
+    except OSError as exc:
+        row = {"path": path, "offset": offset, "error": str(exc)}
+    print(json.dumps(row, separators=(",", ":")))
+"""
 
 ScenarioContext = tuple[str, str] | tuple[str, str, str | None]
 ScenarioLookup = Callable[[], ScenarioContext | str | None]
@@ -572,18 +596,27 @@ class HostedArgusPodTailer:
         self.parser = ArgusLogParser(scenario_lookup, event_context_lookup)
         self._offsets: dict[str, int] = {}
         self.health = CollectorHealth("hosted Argus pod logs")
+        self._client_lock = threading.Lock()
+        self._clients: tuple[Any, Any] | None = None
+        self._read_cursor = 0
 
     def _hosted_clients(self) -> tuple[Any, Any] | None:
         if not self.settings.hosted_kubeconfig:
             return None
-        try:
-            from kubernetes import client, config
+        with self._client_lock:
+            if self._clients is not None:
+                return self._clients
+            try:
+                from kubernetes import client, config
 
-            api_client = config.new_client_from_config(self.settings.hosted_kubeconfig)
-            return client.CoreV1Api(api_client), client
-        except Exception:
-            logger.exception("hosted kubeconfig unavailable")
-            return None
+                api_client = config.new_client_from_config(
+                    self.settings.hosted_kubeconfig
+                )
+                self._clients = (client.CoreV1Api(api_client), client)
+                return self._clients
+            except Exception:
+                logger.exception("hosted kubeconfig unavailable")
+                return None
 
     def _poll_once_sync(self) -> list[NormalizedEvent]:
         clients = self._hosted_clients()
@@ -602,8 +635,8 @@ class HostedArgusPodTailer:
         successful_reads = 0
         list_cmd = (
             "find /var/log/doca_argus_activity_report -type f "
-            "-name 'doca_argus_log*.log' ! -name '*.gz' -printf '%T@ %s %p\\n' 2>/dev/null "
-            "| sort -rn | head -" + str(MAX_LOG_FILES_PER_POLL)
+            "-name 'doca_argus_log*.log' ! -name '*.gz' "
+            "-printf '%T@ %s %p\\n' 2>/dev/null | sort -rn"
         )
         for pod in argus_pods:
             if not pod.status or pod.status.phase != "Running":
@@ -615,7 +648,7 @@ class HostedArgusPodTailer:
                     pod.metadata.name,
                     self.settings.dpf_namespace,
                     command=["/bin/sh", "-c", list_cmd],
-                    stderr=True,
+                    stderr=False,
                     stdin=False,
                     stdout=True,
                     tty=False,
@@ -623,42 +656,103 @@ class HostedArgusPodTailer:
             except Exception:
                 logger.exception("failed to list argus logs in %s", pod.metadata.name)
                 continue
+            if not listing.strip():
+                logger.warning(
+                    "no Argus report files found in %s", pod.metadata.name
+                )
+                continue
             readable_pods += 1
+            candidates: list[tuple[float, str, int, int]] = []
             for line in listing.splitlines():
                 parts = line.strip().split(" ", 2)
                 if len(parts) != 3:
                     continue
                 try:
+                    modified_at = float(parts[0])
                     size = int(parts[1])
                 except ValueError:
                     continue
                 path = parts[2]
                 key = f"{pod_key}:{path}"
                 offset = _resolve_offset(self._offsets, key, size)
-                read_size = min(MAX_READ_BYTES, max(0, size - offset))
-                if read_size == 0:
-                    continue
-                pending_reads += 1
-                tail_cmd = (
-                    f"tail -c +{offset + 1} '{path}' 2>/dev/null | head -c {read_size}"
+                available = max(0, size - offset)
+                if available:
+                    candidates.append((modified_at, path, offset, available))
+
+            candidates.sort(key=lambda item: item[0], reverse=True)
+            if candidates:
+                # Rotate the starting file so busy reports cannot monopolize
+                # the per-poll byte budget ahead of quieter workload VFs.
+                start = self._read_cursor % len(candidates)
+                candidates = candidates[start:] + candidates[:start]
+                self._read_cursor = (start + 1) % len(candidates)
+
+            read_plan: list[tuple[str, int, int]] = []
+            remaining_budget = MAX_HOSTED_READ_BYTES_PER_POLL
+            for _, path, offset, available in candidates:
+                if remaining_budget <= 0:
+                    break
+                read_size = min(
+                    MAX_HOSTED_READ_BYTES_PER_FILE,
+                    available,
+                    remaining_budget,
                 )
+                if read_size <= 0:
+                    continue
+                read_plan.append((path, offset, read_size))
+                remaining_budget -= read_size
+
+            if not read_plan:
+                continue
+
+            pending_reads += len(read_plan)
+            try:
+                batch_output = stream(
+                    core.connect_get_namespaced_pod_exec,
+                    pod.metadata.name,
+                    self.settings.dpf_namespace,
+                    command=[
+                        "python3",
+                        "-c",
+                        _HOSTED_BATCH_READ_SCRIPT,
+                        json.dumps(read_plan, separators=(",", ":")),
+                    ],
+                    stderr=False,
+                    stdin=False,
+                    stdout=True,
+                    tty=False,
+                )
+            except Exception:
+                logger.exception("failed to read Argus logs in %s", pod.metadata.name)
+                continue
+
+            for line in batch_output.splitlines():
                 try:
-                    chunk = stream(
-                        core.connect_get_namespaced_pod_exec,
+                    row = json.loads(line)
+                    if row.get("error"):
+                        logger.warning(
+                            "failed to read Argus report %s in %s: %s",
+                            row.get("path"),
+                            pod.metadata.name,
+                            row["error"],
+                        )
+                        continue
+                    path = row["path"]
+                    offset = int(row["offset"])
+                    chunk_bytes = base64.b64decode(row["data"], validate=True)
+                except (KeyError, TypeError, ValueError, json.JSONDecodeError):
+                    logger.warning(
+                        "ignored malformed batched Argus log data from %s",
                         pod.metadata.name,
-                        self.settings.dpf_namespace,
-                        command=["/bin/sh", "-c", tail_cmd],
-                        stderr=True,
-                        stdin=False,
-                        stdout=True,
-                        tty=False,
                     )
-                except Exception:
                     continue
+
                 successful_reads += 1
-                if not chunk:
+                if not chunk_bytes:
                     continue
-                self._offsets[key] = offset + len(chunk.encode("utf-8", errors="ignore"))
+                key = f"{pod_key}:{path}"
+                self._offsets[key] = offset + len(chunk_bytes)
+                chunk = chunk_bytes.decode("utf-8", errors="replace")
                 events.extend(self.parser.parse_chunk(chunk, source_file=key))
         if not readable_pods:
             raise RuntimeError("Argus pod logs could not be read")

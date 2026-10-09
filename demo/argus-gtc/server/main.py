@@ -48,7 +48,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("argus-gtc")
 
 NATIVE_ALERT_TIMEOUT_SECONDS = 45.0
-NATIVE_EVENT_TIMEOUT_SECONDS = 15.0
+NATIVE_EVENT_TIMEOUT_SECONDS = 45.0
 AGENT_CONNECT_TIMEOUT_SECONDS = 120.0
 AGENT_ARGUS_WAIT_SECONDS = 90.0
 CANARY_WAIT_SECONDS = 5.0
@@ -803,7 +803,7 @@ def create_app() -> FastAPI:
                         result.native_event = NativeEventResult.from_event(native_event)
                     else:
                         result.status = "no-native-event"
-                        result.message = "No matching native Argus event observed within 15 seconds."
+                        result.message = "No matching native Argus event observed within 45 seconds."
                 response = result.model_dump()
                 if scenario_id in SCENARIO_NATIVE_EVENTS:
                     response["workload_pod"] = result.target_pod

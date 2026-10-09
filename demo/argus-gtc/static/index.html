@@ -381,7 +381,7 @@
           <div id="info-exec-memory" class="scenario-info" hidden role="dialog" aria-labelledby="info-exec-memory-title">
             <h3 id="info-exec-memory-title">Executable Memory</h3>
             <p class="info-does"><strong>What it does.</strong> A Python process in <code>invisible-vm</code> writes inert bytes into an anonymous executable memory mapping and holds it for 45 seconds so Argus can sample it. It does not execute those bytes.</p>
-            <p class="info-expect"><strong>Native evidence.</strong> Look for <code>New Executable Anonymous Memory Mapped</code> with <code>message_type=EVENT</code> and <code>severity=WARNING</code>, attributed to this Kata workload and run marker. The result says “Native evidence observed” only when a matching Argus record arrives; otherwise it says “No native event observed.”</p>
+            <p class="info-expect"><strong>Native evidence.</strong> Look for <code>New Executable Anonymous Memory Mapped</code> with <code>message_type=EVENT</code> and <code>severity=WARNING</code>, attributed to this Kata workload and run marker. Because Argus reports can arrive after the action, the controller waits up to 45 seconds for a match. It never labels process activity as a native detection.</p>
           </div>
         </div>
         <div class="scenario-action">
@@ -390,7 +390,7 @@
           <div id="info-audit-evasion" class="scenario-info" hidden role="dialog" aria-labelledby="info-audit-evasion-title">
             <h3 id="info-audit-evasion-title">Audit Evasion Attempt</h3>
             <p class="info-does"><strong>What it does.</strong> Starts bounded Bash (<code>bash --noprofile --norc -i</code>) on a real Kubernetes exec PTY in the Kata VM. It establishes a harmless history baseline, waits for an Argus scan, clears history while history is enabled, waits again, then disables history and remains alive for another scan. The unique disposable history file is removed when the session exits.</p>
-            <p class="info-expect"><strong>Success requirement.</strong> After the bounded action completes, the server waits up to 45 seconds for raw Argus output containing <code>message_type=ALERT</code>, <code>severity=HIGH</code>, and exactly <code>Shell History Disabled</code> or <code>Shell History Cleared</code>. The full request can take about 80 seconds. If no match arrives, the result says “No native alert observed”; INFO/EVENT telemetry remains visible and is never promoted to an alert.</p>
+            <p class="info-expect"><strong>Success requirement.</strong> After the bounded action completes, the server waits up to 45 seconds for raw Argus output containing <code>message_type=ALERT</code>, <code>severity=HIGH</code>, and exactly <code>Shell History Disabled</code> or <code>Shell History Cleared</code>. The full request can take about 83 seconds. If no match arrives, the result says “No native alert observed”; INFO/EVENT telemetry remains visible and is never promoted to an alert.</p>
           </div>
         </div>
         <div class="scenario-action">
@@ -399,7 +399,7 @@
           <div id="info-reverse-shell" class="scenario-info" hidden role="dialog" aria-labelledby="info-reverse-shell-title">
             <h3 id="info-reverse-shell-title">Reverse Shell Simulation</h3>
             <p class="info-does"><strong>What it does.</strong> Opens interactive bash (<code>bash -i</code>) and redirects stdin/stdout over <code>/dev/tcp</code> to the in-namespace <code>scenario-sink</code> for about 20 seconds. NetworkPolicy keeps the traffic inside the demo namespace — no internet C2.</p>
-            <p class="info-expect"><strong>On the Kata timeline.</strong> Filter includes both <code>invisible-vm</code> and <code>scenario-sink</code>. Look for process events (<code>bash -i</code> / <code>argus-gtc-reverse_shell-*</code>) and TCP connect events to the sink. Demo label is not a native alert. Argus 3.5 documents “Reverse Shell Detected” as HIGH — call that out only if the same event contains both <code>message_type=ALERT</code> and <code>severity=HIGH</code>.</p>
+            <p class="info-expect"><strong>On the Kata timeline.</strong> Filter includes both <code>invisible-vm</code> and <code>scenario-sink</code>. Look for process events (<code>bash -i</code> / <code>argus-gtc-reverse_shell-*</code>) and TCP connect events to the sink. The controller waits up to 45 seconds for Argus’s native detection. Demo labels and network activity are not native alerts; report “Reverse Shell Detected” only if Argus emits it with <code>message_type=ALERT</code> and <code>severity=HIGH</code>.</p>
           </div>
         </div>
       </div>
