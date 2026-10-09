@@ -298,6 +298,7 @@
     const run = currentRun();
     panel.hidden = api.story !== "workload" || !run;
     panel.closest(".monitor-console").classList.toggle("has-comparison", !panel.hidden);
+    panel.closest(".monitor-main").classList.toggle("has-comparison", !panel.hidden);
     if (panel.hidden) return;
 
     const scenarioId = run.scenarioId || run.serverState?.scenario_id;

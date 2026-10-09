@@ -1697,6 +1697,12 @@ body:not(.agent-page) .technical-content .agent-demo { display: none; }
 @media (min-width: 1001px) {
   .monitor-main { height: calc(100dvh - 112px); min-height: 540px; }
   .monitor-console { height: 100%; }
+  .monitor-main.has-comparison { height: auto; min-height: calc(100dvh - 112px); }
+  .monitor-main.has-comparison .monitor-console {
+    height: auto;
+    min-height: calc(100dvh - 112px);
+    grid-template-rows: auto auto auto auto auto minmax(240px, 1fr) auto;
+  }
 }
 @media (max-width: 1000px) {
   .monitor-context { align-items: flex-start; flex-direction: column; }
