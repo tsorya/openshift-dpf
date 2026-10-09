@@ -119,14 +119,14 @@ class NativeScenarioEventTests(unittest.TestCase):
         phone_command = " ".join(
             controller._script_for("phone-home", SINK_IP, f"argus-gtc-phone_home-{RUN_ID}")
         )
-        self.assertIn("timeout -s KILL 52", memory_command)
+        self.assertNotIn("timeout", memory_command)
         self.assertIn("python3 /scripts/exec-memory.py", memory_command)
-        self.assertIn("timeout -s KILL 27", phone_command)
-        self.assertIn(f"/dev/tcp/{SINK_IP}/4444", phone_command)
-        self.assertIn("exec 3<>", phone_command)
-        self.assertIn("&3", phone_command)
-        self.assertNotIn("0<>", phone_command)
-        self.assertNotIn("1>&0", phone_command)
+        self.assertIn(f"--scenario-marker argus-gtc-exec_memory-{RUN_ID}", memory_command)
+        self.assertIn("/scripts/run-scenario.py phone-home", phone_command)
+        self.assertIn(f"argus-gtc-phone_home-{RUN_ID}", phone_command)
+        self.assertIn(SINK_IP, phone_command)
+        self.assertNotIn("timeout", phone_command)
+        self.assertNotIn("bash", phone_command)
 
     def test_checked_exec_requires_confirmed_zero_status(self):
         class ClosedExec:

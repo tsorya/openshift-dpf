@@ -371,8 +371,8 @@
           <button type="button" class="info-sign" aria-expanded="false" aria-controls="info-discovery" data-info="discovery" title="What this scenario does">i</button>
           <div id="info-discovery" class="scenario-info" hidden role="dialog" aria-labelledby="info-discovery-title">
             <h3 id="info-discovery-title">Discovery</h3>
-            <p class="info-does"><strong>What it does.</strong> Execs bounded recon inside the Kata VM: <code>uname -a</code>, <code>id</code>, <code>ps aux</code>, then reads planted decoys at <code>/decoys/credentials.txt</code> and <code>/decoys/runbook.txt</code>. Named marker processes <code>argus-gtc-discovery-*</code> bookend the action. No network, no privilege escalation.</p>
-            <p class="info-expect"><strong>On the Kata timeline.</strong> Filter jumps to Discovery. Look for <code>INFO · EVENT</code> process create/terminate on <code>invisible-vm</code> with names like <code>argus-gtc-discovery-uname</code>, <code>-id</code>, <code>-ps</code>, <code>-decoys</code>, plus file-descriptor opens on those decoy paths. Demo classification “Discovery (demo classification)” — not a native HIGH/ALERT.</p>
+            <p class="info-does"><strong>What it does.</strong> Runs bounded recon inside the Kata VM: <code>uname -a</code>, <code>id</code>, <code>ps aux</code>, then reads planted decoys at <code>/decoys/credentials.txt</code> and <code>/decoys/runbook.txt</code>. A single marked Python runner performs the checks without spawning temporary shell and sleep wrappers. No network, no privilege escalation.</p>
+            <p class="info-expect"><strong>On the Kata timeline.</strong> Filter jumps to Discovery. Look for <code>INFO · EVENT</code> process activity from <code>python3 /scripts/run-scenario.py</code>, the recon commands, and file access on <code>invisible-vm</code>. Demo classification “Discovery (demo classification)” — not a native HIGH/ALERT.</p>
           </div>
         </div>
         <div class="scenario-action">

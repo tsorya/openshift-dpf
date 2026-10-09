@@ -23,5 +23,6 @@ RUN dnf install -y --setopt=install_weak_deps=false \
 ENV HOME=/root
 
 COPY scripts/exec-memory.py /scripts/exec-memory.py
+COPY scripts/run-scenario.py /scripts/run-scenario.py
 
 CMD ["/usr/bin/sleep", "infinity"]

@@ -184,25 +184,28 @@ class NativeAlertModelTests(unittest.TestCase):
         )
         command = " ".join(command_parts)
         self.assertIn("bash --noprofile --norc -i", command)
-        self.assertIn("argus-gtc-audit_evasion-test.history", command)
-        self.assertIn('trap \'rm -f -- "$HISTFILE"\' EXIT', command)
-        self.assertIn("timeout --foreground -s KILL 32", command)
+        self.assertNotIn("timeout", command)
+        self.assertIn("argus-gtc-audit_evasion-test.history", stdin_text)
+        self.assertIn('trap \'rm -f -- "$HISTFILE"\' EXIT', stdin_text)
         self.assertNotIn("<<", command)
 
         expected_lines = [
+            "HISTFILE=/tmp/argus-gtc-audit_evasion-test.history",
+            "export HISTFILE",
+            'trap \'rm -f -- "$HISTFILE"\' EXIT',
             "set -o history",
             "HISTCONTROL=",
             "HISTIGNORE=",
             "history -s argus-demo-before-clear",
             "history -w",
-            "sleep 7",
+            "python3 -c 'import time; time.sleep(7)'",
             "history -c",
             "history -w",
-            "sleep 7",
+            "python3 -c 'import time; time.sleep(7)'",
             "history -s argus-demo-before-disable",
             "history -w",
             "set +o history",
-            "sleep 10",
+            "python3 -c 'import time; time.sleep(10)'",
             "exit",
         ]
         self.assertEqual(stdin_text.splitlines(), expected_lines)
@@ -212,8 +215,10 @@ class NativeAlertModelTests(unittest.TestCase):
                 "reverse-shell", "10.0.0.10", "argus-gtc-reverse_shell-test"
             )
         )
-        self.assertIn("timeout -s KILL 20", reverse_shell)
-        self.assertIn("/dev/tcp/10.0.0.10/4444", reverse_shell)
+        self.assertEqual(
+            reverse_shell.split(),
+            ["python3", "/scripts/run-scenario.py", "reverse-shell", "argus-gtc-reverse_shell-test", "10.0.0.10", "4444"],
+        )
 
     def test_audit_evasion_exec_uses_real_pty(self):
         class FakeExecResponse:

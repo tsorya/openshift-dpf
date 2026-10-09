@@ -9,6 +9,7 @@ import time
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--hold-seconds", type=int, default=45)
+    parser.add_argument("--scenario-marker", required=True)
     args = parser.parse_args()
     if not 0 <= args.hold_seconds <= 45:
         parser.error("hold time must be between 0 and 45 seconds")
