@@ -57,16 +57,16 @@ SCENARIO_CATALOG = {
     },
     "audit-evasion": {
         "label": "Audit evasion",
-        "what": "Starts a temporary interactive shell, clears its disposable history, disables recording while running id, then restores history before exit.",
+        "what": "Starts a temporary interactive shell, clears its disposable history, disables recording, then exits after an observation window.",
         "why": "Models an attempt to hide commands from shell history while the external observer keeps monitoring.",
         "watch": "Native ALERT/HIGH ‘Shell History Cleared’ or ‘Shell History Disabled’. Ordinary process events do not prove evasion detection.",
         "steps": [
-            "Create a disposable history file and clear its harmless baseline.",
-            "Disable shell history and run id while recording is off.",
-            "Restore history recording, exit the shell, and remove the disposable file.",
+            "Start a temporary Bash session with a disposable history file and a harmless baseline.",
+            "Clear the history, add a second harmless marker, then disable recording.",
+            "Keep the shell open for an Argus scan, then exit and remove the disposable file.",
         ],
         "activity_cues": [
-            "The temporary Bash session and id process activity",
+            "The temporary interactive Bash session",
             "Shell History Cleared or Shell History Disabled ALERT/HIGH, if Argus emits it",
         ],
         "duration": "About 38 seconds, plus up to 45 seconds for a native alert.",

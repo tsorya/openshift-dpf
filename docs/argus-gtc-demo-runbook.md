@@ -36,9 +36,9 @@ Build and push the demo server from the repository root, then set
 
 ```bash
 docker build --platform linux/amd64 \
-  -t quay.io/itsoiref/argus-gtc-demo:v57-scenario-guide \
+  -t quay.io/itsoiref/argus-gtc-demo:v58-scenario-guide \
   -f demo/argus-gtc/Containerfile demo/argus-gtc
-docker push quay.io/itsoiref/argus-gtc-demo:v57-scenario-guide
+docker push quay.io/itsoiref/argus-gtc-demo:v58-scenario-guide
 ```
 
 The server image contains Python 3.11, `requirements.txt`, and the `server/` +
@@ -76,7 +76,7 @@ Set the image in `.env` (or export it), then deploy:
 
 ```bash
 ARGUS_GTC_DEMO_IMAGE=quay.io/itsoiref/argus-gtc-demo:workload-ubi9-v3-python-scenarios \
-ARGUS_GTC_SERVER_IMAGE=quay.io/itsoiref/argus-gtc-demo:v57-scenario-guide \
+ARGUS_GTC_SERVER_IMAGE=quay.io/itsoiref/argus-gtc-demo:v58-scenario-guide \
 ARGUS_GTC_AGENT_IMAGE=quay.io/itsoiref/argus-gtc-agent:nat-1.8.0-v19-agent-shell \
 make deploy-argus-gtc-demo
 ```
@@ -97,7 +97,7 @@ This command:
 | Variable | Default | Purpose |
 |----------|---------|---------|
 | `ARGUS_GTC_DEMO_IMAGE` | `quay.io/itsoiref/argus-gtc-demo:workload-ubi9-v3-python-scenarios` | Kata workload + sink image; UBI9/glibc Bash and Python 3 support the scenarios |
-| `ARGUS_GTC_SERVER_IMAGE` | `quay.io/itsoiref/argus-gtc-demo:v57-scenario-guide@sha256:e32e77ebfe1fb8e81a26bf0c2b1ce24b140e589bf7549026796a8a2938a3a43d` | Demo server, UI, and canary image |
+| `ARGUS_GTC_SERVER_IMAGE` | `quay.io/itsoiref/argus-gtc-demo:v58-scenario-guide@sha256:c5c597c7699a7cea4b80c9a5917a05a3b5c87d477c433e7d109751f2095eb670` | Demo server, UI, and canary image |
 | `ARGUS_GTC_AGENT_IMAGE` | `quay.io/itsoiref/argus-gtc-agent:nat-1.8.0-v19-agent-shell` | Pre-built NeMo Agent Toolkit image |
 | `ARGUS_GTC_MODEL_BASE_URL` | *(empty)* | OpenAI-compatible API base URL; for OpenAI use `https://api.openai.com/v1` |
 | `ARGUS_GTC_MODEL_NAME` | `gpt-6-luna` | OpenAI API model ID; must be enabled for your API account |
@@ -115,7 +115,7 @@ The console opens on `invisible-vm`. The selected scenario shows three action st
 2. **Discovery.** Run `uname -a` and `id`, list processes with `ps aux`, and read the planted `/decoys` files. Select **Run Discovery**. The **Discovered inside the VM** card shows the actual command output; it is separate from Argus telemetry. In Activity, look for the corresponding process and file records if Argus reports them. No native alert is required.
 3. **Executable memory.** Map writable executable anonymous memory, write inert bytes, and hold the mapping for 15 seconds without executing them. In Activity, look for the marked Python process and the exact memory event. The Expected / Observed card verifies a matching `New Executable Anonymous Memory Mapped` WARNING with writable and executable memory; a process event alone is insufficient.
 4. **Reverse shell.** Open a bounded Bash shell whose input and output connect to the in-namespace `scenario-sink`. In Activity, look for the marked shell and its TCP connection. Call it a detection only if the Expected / Observed card verifies `Reverse Shell Detected` as `ALERT/HIGH`. The current sink accepts the connection but does not capture commands, user ID, or whether the shell remains active; do not claim those facts from the demo.
-5. **Audit evasion.** Start a disposable interactive shell, clear its harmless history, disable history recording, run `id` while recording is off, then restore recording before exit. In Activity, inspect the shell and process events. The required native result is `Shell History Cleared` or `Shell History Disabled` with `ALERT/HIGH`; ordinary process activity does not prove an evasion alert.
+5. **Audit evasion.** Start a disposable interactive shell, clear its harmless history, add a second harmless marker, then disable history recording. The shell remains open for an Argus scan before it exits and deletes the temporary history file. In Activity, inspect the Bash session and native Argus records. The required native result is `Shell History Cleared` or `Shell History Disabled` with `ALERT/HIGH`; ordinary process activity does not prove an evasion alert.
 6. **Inspect evidence.** Use **Inspect record** on an alert card or Activity row to show event ID, source timestamp, workload, process, run ID, and original payload. **Find in activity** opens the feed at the corresponding native record. Earlier-run or unassociated records remain labeled honestly; the controller marker is not native telemetry.
 7. **Respond and recover.** The secondary stop/restore controls target only `invisible-vm`. The server serializes these actions with scenario/agent runs and waits for observed pod termination or readiness. Argus and DPU health remain separate from workload state.
 

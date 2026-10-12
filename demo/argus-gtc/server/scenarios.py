@@ -52,9 +52,7 @@ _AUDIT_EVASION_INPUT = "\n".join(
         "history -s argus-demo-before-disable",
         "history -w",
         "set +o history",
-        "id >/dev/null",
         "python3 -c 'import time; time.sleep(10)'",
-        "set -o history",
         "exit",
     )
 ) + "\n"
