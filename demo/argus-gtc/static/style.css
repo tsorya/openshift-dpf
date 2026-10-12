@@ -1599,6 +1599,9 @@ body.guided-page [hidden] { display: none !important; }
 .monitor-explanation-grid p { min-width: 0; margin: 0; color: #cedce9; font-size: .78rem; line-height: 1.32; }
 .monitor-explanation-grid strong { display: block; margin-bottom: .12rem; color: #aadc66; font-size: .68rem; text-transform: uppercase; letter-spacing: .05em; }
 .monitor-explanation-grid span { display: block; }
+.monitor-agent-message { display: grid; gap: .22rem; margin-top: .5rem; color: #aadc66; font-size: .68rem; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; }
+.monitor-agent-message select { box-sizing: border-box; width: 100%; min-height: 38px; padding: .45rem .6rem; border: 1px solid #58718a; border-radius: 6px; background: #101f2f; color: #f2f7fb; font: inherit; font-size: .83rem; font-weight: 400; letter-spacing: normal; text-transform: none; }
+.monitor-agent-message select:focus-visible { outline: 2px solid #9bd732; outline-offset: 2px; }
 .monitor-scenario-guide { margin-top: .42rem; }
 .monitor-guide-purpose { display: flex; gap: .45rem; margin: 0; color: #cbd9e6; font-size: .75rem; line-height: 1.3; }
 .monitor-guide-purpose strong, .monitor-guide-steps-label, .monitor-guide-evidence strong { color: #aadc66; font-size: .68rem; text-transform: uppercase; letter-spacing: .05em; white-space: nowrap; }
@@ -1624,6 +1627,15 @@ body.guided-page [hidden] { display: none !important; }
 .monitor-run-strip span { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; color: #b8cadd; }
 #monitor-run-identity { flex: 1 1 auto; }
 #monitor-run-evidence { flex: 0 1 27%; text-align: right; }
+
+.monitor-agent-conversation { padding: .55rem .65rem; border: 1px solid #4d6e71; border-radius: 7px; background: #0d1d29; }
+.monitor-agent-turns { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .48rem; }
+.monitor-agent-turn { min-width: 0; padding: .48rem .58rem; border: 1px solid #3b536b; border-radius: 7px; background: #142333; }
+.monitor-agent-turn.agent-reply { border-color: #5a803e; background: #182a24; }
+.monitor-agent-turn > span { color: #a8bfd3; font-size: .65rem; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; }
+.monitor-agent-turn.agent-reply > span { color: #bde789; }
+.monitor-agent-turn p { margin: .22rem 0 0; color: #eff6fc; font-size: .82rem; line-height: 1.4; white-space: pre-wrap; overflow-wrap: anywhere; }
+.monitor-agent-conversation-note { margin: .38rem 0 0; color: #a9bdce; font-size: .68rem; }
 
 .monitor-run-comparison { padding: .48rem .6rem; border: 1px solid #344b62; border-radius: 7px; background: #0d1a29; }
 .monitor-comparison-heading { display: flex; justify-content: space-between; align-items: baseline; gap: .5rem; margin-bottom: .35rem; }
@@ -1722,7 +1734,9 @@ body.guided-page [hidden] { display: none !important; }
 .monitor-agent-checks strong { display: block; margin-top: .12rem; color: #e6eef7; font-size: .73rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .monitor-agent-checks strong[data-state="observed"] { color: #b8e878; }
 .monitor-agent-checks strong[data-state="missing"] { color: #ffd195; }
-body.agent-page .monitor-console { grid-template-rows: auto auto auto auto auto minmax(0, 1fr); }
+body.agent-page .monitor-main { height: auto; }
+body.agent-page .monitor-console { height: auto; grid-template-rows: none; }
+body.agent-page .monitor-evidence-grid { min-height: 320px; }
 body.agent-page .monitor-environment,
 body.agent-page .technical-content .hero,
 body.agent-page .technical-content .topology,
@@ -1755,6 +1769,7 @@ body:not(.agent-page) .technical-content .agent-demo { display: none; }
   .story-nav { flex-wrap: wrap; }
   .monitor-agent-checks { grid-template-columns: repeat(2, minmax(0,1fr)); }
   .monitor-agent-checks > div:last-child { grid-column: 1 / -1; }
+  .monitor-agent-turns { grid-template-columns: 1fr; }
   .monitor-scenario-tabs, .monitor-operator { align-items: stretch; flex-direction: column; }
   .monitor-explanation-grid { grid-template-columns: 1fr; gap: .45rem; }
   .monitor-guide-purpose { display: block; }

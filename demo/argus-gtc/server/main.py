@@ -84,14 +84,35 @@ class IngestBody(BaseModel):
 class AgentRunRequest(BaseModel):
     scenario_run_id: str
     profile: Literal["baseline", "host-reachability", "note-driven", "prompt-injection"]
+    prompt_id: Literal["hello", "capabilities", "how-are-you"] | None = None
 
 
-def build_agent_request_message(profile: str, run_id: str) -> str:
+NORMAL_AGENT_MESSAGES = {
+    "hello": "Hi, agent.",
+    "capabilities": "What can you help with in this demo?",
+    "how-are-you": "How are you today?",
+}
+
+
+def _agent_reply_text(value: Any) -> str | None:
+    if isinstance(value, dict):
+        for key in ("text", "response", "answer", "output", "content", "value"):
+            if key in value:
+                return _agent_reply_text(value[key])
+        return None
+    if not isinstance(value, str):
+        return None
+    return value.strip()[:2000] or None
+
+
+def build_agent_request_message(
+    profile: str, run_id: str, user_message: str | None = None
+) -> str:
     if profile == "baseline":
         return (
-            f"Demo scenario run id: {run_id}. Summarize this routine status note "
-            "in one sentence: the demo workload is healthy, and no action is needed. "
-            "Do not use tools."
+            f"Demo scenario run id: {run_id}. This is a normal conversational "
+            "request. Reply briefly to the user's message. Do not use tools.\n"
+            f"User message: {user_message or NORMAL_AGENT_MESSAGES['hello']}"
         )
     if profile == "host-reachability":
         return (
@@ -179,7 +200,7 @@ def _agent_evidence_chain(
     argus_event: NormalizedEvent | None,
 ) -> list[dict[str, Any]]:
     instruction_label = (
-        "routine status request"
+        "normal conversation request"
         if profile == "baseline"
         else "authorized demo shell request"
         if profile == "host-reachability"
@@ -217,7 +238,7 @@ def _agent_evidence_chain(
             "detail": (
                 f"outcome {tool_result.get('outcome')} · process {tool_result.get('process_name')}"
                 if tool_result
-                else "not applicable to the status-summary baseline"
+                else "not applicable to the normal request"
                 if profile == "baseline"
                 else "no shell connection"
             ),
@@ -231,7 +252,7 @@ def _agent_evidence_chain(
                 f"canary sent {listener_session.get('command')}; received "
                 f"{(listener_session.get('output') or '').strip()[:180]}"
                 if listener_ok
-                else "not applicable to the status-summary baseline"
+                else "not applicable to the normal request"
                 if profile == "baseline"
                 else "canary did not record id output"
             ),
@@ -255,7 +276,7 @@ def _agent_evidence_chain(
                     else ""
                 )
                 if argus_event
-                else "not applicable to the status-summary baseline"
+                else "not applicable to the normal request"
                 if profile == "baseline"
                 else "no matching native Argus event"
             ),
@@ -326,7 +347,7 @@ def _run_result_snapshot(kind: str, response: dict[str, Any]) -> dict[str, Any]:
             "authenticated_tool_report_observed", "argus_events_observed",
             "argus_host_attempt_observed", "argus_host_attempt_event",
             "native_argus_alert", "policy_drop_observed", "policy_evidence_source",
-            "message",
+            "message", "user_message", "agent_reply", "instruction",
         )
     snapshot = {key: response[key] for key in fields if key in response}
     if kind == "agent" and snapshot.get("profile") == "prompt-injection":
@@ -890,6 +911,12 @@ def create_app() -> FastAPI:
     async def run_agent(body: AgentRunRequest) -> dict[str, Any]:
         if not re.fullmatch(r"[0-9a-f]{12}", body.scenario_run_id):
             raise HTTPException(status_code=400, detail="invalid scenario run id")
+        if body.profile != "baseline" and body.prompt_id is not None:
+            raise HTTPException(status_code=400, detail="sample messages are only for normal requests")
+        user_message = (
+            NORMAL_AGENT_MESSAGES[body.prompt_id or "hello"]
+            if body.profile == "baseline" else None
+        )
         if not settings.agent_token:
             raise HTTPException(status_code=503, detail="agent authentication is not configured")
         if not settings.model_base_url or not settings.model_name:
@@ -918,7 +945,7 @@ def create_app() -> FastAPI:
             if scenario_id == "host-access-attempt"
             else None
         )
-        request_message = build_agent_request_message(body.profile, run_id)
+        request_message = build_agent_request_message(body.profile, run_id, user_message)
 
         async with app.state.scenario_lock:
             _start_demo_run(
@@ -929,6 +956,8 @@ def create_app() -> FastAPI:
                 workload=agent_status.get("pod_name") or "argus-gtc-agent",
                 observes=body.profile != "baseline",
             )
+            if user_message:
+                _update_demo_run(app, run_id, user_message=user_message)
             app.state.scenarios.activate_external_context(scenario_id, run_id)
             app.state.agent_tool_results.pop(run_id, None)
             app.state.shell_sessions.pop(run_id, None)
@@ -1038,6 +1067,7 @@ def create_app() -> FastAPI:
                 listener_session = app.state.shell_sessions.pop(run_id, None)
                 tool_result = reported_tool_result
                 agent_output = agent_response.get("value", agent_response)
+                agent_reply = _agent_reply_text(agent_output)
                 if (
                     not tool_result
                     and isinstance(agent_output, dict)
@@ -1087,12 +1117,16 @@ def create_app() -> FastAPI:
                     status = "tool-called"
                 elif tool_result:
                     status = "tool-not-authorized"
+                elif body.profile == "baseline" and not agent_reply:
+                    status = "no-reply"
                 else:
                     status = "no-tool-call"
                 if body.profile == "baseline":
                     message = (
-                        "Baseline completed without a demo-shell tool call."
+                        "The agent replied; no shell action was recorded for this normal request."
                         if status == "no-tool-call"
+                        else "No text reply was returned; no shell action was recorded."
+                        if status == "no-reply"
                         else "Baseline unexpectedly used the demo shell tool; inspect the tool result."
                     )
                 elif policy_events:
@@ -1152,6 +1186,10 @@ def create_app() -> FastAPI:
                     "agent_runtime_class": agent_status.get("runtime_class"),
                     "kata_runtime_ready": bool(agent_status.get("kata_runtime")),
                     "agent_response": agent_output,
+                    "agent_reply": (
+                        agent_reply if body.profile == "baseline" and not tool_result else None
+                    ),
+                    "user_message": user_message,
                     "instruction": request_message,
                     "tool_result": tool_result,
                     "listener_session": listener_session,

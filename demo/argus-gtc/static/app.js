@@ -158,9 +158,9 @@ const GUIDED_STORIES = {
       {
         step: "Normal request",
         title: "Start with a normal request",
-        description: "The AI application runs inside its own Kata VM. Ask it for a routine status summary.",
-        purpose: "No shell-tool call is expected for this baseline request.",
-        action: "Ask for a status summary",
+        description: "The AI application runs inside its own Kata VM. Send a greeting and read its real reply.",
+        purpose: "No shell action is requested for this normal conversation.",
+        action: "Say hi to the agent",
         hint: "",
         profile: "baseline",
       },
@@ -794,7 +794,9 @@ function renderGuidedResult() {
   );
   if (baseline) {
     outcome.textContent = data.status === "no-tool-call"
-      ? "The routine request completed without a shell-tool call, as expected."
+      ? "The agent replied. No shell action was recorded for this normal request."
+      : data.status === "no-reply"
+        ? "No text reply was returned. No shell action was recorded."
       : "The baseline had unexpected shell-tool activity. Inspect the technical result.";
   } else if (highAlert && workingShell) {
     outcome.textContent = "The demo listener confirmed a working shell. Argus raised a matching native HIGH alert.";
@@ -1599,6 +1601,8 @@ async function runAgentProfile(profile, options = {}) {
   const scenarioId = profile === "baseline" ? "agent-baseline" : "host-access-attempt";
   const scenarioRunId = options.scenarioRunId || createScenarioRunId();
   const apiProfile = profile;
+  const promptId = profile === "baseline" ? options.promptId || "hello" : null;
+  const userMessage = profile === "baseline" ? options.userMessage || "Hi, agent." : null;
   setScenarioFilter(scenarioId, scenarioRunId);
   const result = document.getElementById("agent-log");
   demoActionInProgress = true;
@@ -1610,6 +1614,7 @@ async function runAgentProfile(profile, options = {}) {
       scenarioId,
       runId: scenarioRunId,
       workload: "argus-gtc-agent",
+      userMessage,
       running: true,
       actionLabel: GUIDED_STORIES.agent.scenes[activeSceneIndex]?.action || "AI agent request",
     });
@@ -1621,7 +1626,7 @@ async function runAgentProfile(profile, options = {}) {
   renderAgentChain([], profile);
   setAgentPrompt("Sending this run to the Kata agent. The exact prompt will appear here.");
   result.textContent = profile === "baseline"
-    ? "Baseline: asking the Kata agent for a status summary. It must not open a shell."
+    ? "Normal request: waiting for the Kata agent's reply. No demo shell is requested."
     : profile === "host-reachability"
       ? "Authorized demo shell: we tell the Kata agent to call open_demo_shell. Bash stays in that pod. About one minute."
       : "Pasted-note example: the current workflow asks the Kata agent to complete the note using its bounded demo-shell tool.";
@@ -1629,7 +1634,10 @@ async function runAgentProfile(profile, options = {}) {
     const res = await fetch("/api/agent-runs", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ profile: apiProfile, scenario_run_id: scenarioRunId }),
+      body: JSON.stringify({
+        profile: apiProfile, scenario_run_id: scenarioRunId,
+        ...(promptId ? { prompt_id: promptId } : {}),
+      }),
     });
     const data = await parseJsonResponse(res);
     if (data.scenario_run_id !== scenarioRunId) {
@@ -1641,7 +1649,8 @@ async function runAgentProfile(profile, options = {}) {
         ? data.instruction
         : "The server did not return the prompt for this run."
     );
-    const expectedBaseline = profile === "baseline" && data.status === "no-tool-call";
+    const baselineWithoutTool = profile === "baseline" && ["no-tool-call", "no-reply"].includes(data.status);
+    const expectedBaseline = baselineWithoutTool && Boolean(data.agent_reply);
     const shellObserved = Boolean(data.working_shell && data.argus_host_attempt_observed);
     result.className = expectedBaseline || shellObserved
       ? "result-success"
@@ -1652,7 +1661,7 @@ async function runAgentProfile(profile, options = {}) {
     const listenerOutput = (data.listener_session?.output || "").trim();
     const scenarioChecks = profile === "baseline"
       ? [
-          `Action: ${expectedBaseline ? "no shell-tool call recorded (expected baseline)" : "unexpected shell-tool activity; inspect the evidence"}`,
+          `Action: ${baselineWithoutTool ? "no shell action recorded (expected)" : "unexpected shell-tool activity; inspect the evidence"}`,
           "Shell connection: not applicable to the baseline",
           "Listener response: not applicable to the baseline",
           "Argus shell observation: not applicable to the baseline",
@@ -1671,22 +1680,25 @@ async function runAgentProfile(profile, options = {}) {
       data.message,
       `Agent response: ${typeof data.agent_response === "string" ? data.agent_response : JSON.stringify(data.agent_response)}`,
     ].join("\n\n");
-    if (options.fromGuided) {
-      rememberGuidedRun({
-        ...guidedRuns.agent,
-        running: false,
-        data,
-        finishedAt: Date.now(),
-      });
-      renderGuidedScene();
-    }
+    rememberGuidedRun({
+      ...(guidedRuns.agent?.runId === scenarioRunId ? guidedRuns.agent : {}),
+      kind: "agent", story: "agent", profile, scenarioId,
+      runId: scenarioRunId, workload: "argus-gtc-agent", userMessage,
+      running: false, data, finishedAt: Date.now(),
+    });
+    renderGuidedScene();
+    return { ok: true, data };
   } catch (error) {
     result.className = "result-failed";
     result.textContent = `Agent run failed: ${error.message}`;
-    if (options.fromGuided) {
-      rememberGuidedRun({ ...guidedRuns.agent, running: false, error: error.message });
-      renderGuidedScene();
-    }
+    rememberGuidedRun({
+      ...(guidedRuns.agent?.runId === scenarioRunId ? guidedRuns.agent : {}),
+      kind: "agent", story: "agent", profile, scenarioId,
+      runId: scenarioRunId, workload: "argus-gtc-agent", userMessage,
+      running: false, error: error.message,
+    });
+    renderGuidedScene();
+    return { ok: false, error: error.message || "Agent run failed" };
   } finally {
     demoActionInProgress = false;
     syncActionButtons();
@@ -1937,6 +1949,7 @@ window.argusDemo = {
   get agentStatus() { return lastAgentStatus; },
   get agentReady() { return agentIsReady; },
   get run() { return guidedRuns[activeStory]; },
+  get lastNormalRequest() { return guidedHistory.agent.baseline || null; },
   get serverInstanceId() { return appServerInstanceId; },
   get retention() { return serverRetention; },
   get droppedQueuedEvents() { return droppedQueuedEvents; },

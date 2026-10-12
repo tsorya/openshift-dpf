@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="theme-color" content="#111318" />
   <title>Invisible VM, Visible Threat — Argus GTC Demo</title>
-  <link rel="stylesheet" href="/assets/style.css?v=42" />
+  <link rel="stylesheet" href="/assets/style.css?v=43" />
 </head>
 <body class="guided-page">
   <header class="demo-header">
@@ -73,6 +73,14 @@
           <p><strong>Why show it</strong><span id="monitor-why"></span></p>
           <p><strong>Watch for</strong><span id="monitor-watch"></span></p>
         </div>
+        <label class="monitor-agent-message" id="monitor-agent-message-field" for="monitor-agent-message" hidden>
+          <span>Message to the Kata agent</span>
+          <select id="monitor-agent-message">
+            <option value="hello">Hi, agent.</option>
+            <option value="capabilities">What can you help with in this demo?</option>
+            <option value="how-are-you">How are you today?</option>
+          </select>
+        </label>
         <div class="monitor-scenario-guide" id="monitor-scenario-guide" hidden>
           <p class="monitor-guide-purpose"><strong>Why show it</strong><span id="monitor-guide-why"></span></p>
           <strong class="monitor-guide-steps-label">Action steps</strong>
@@ -94,6 +102,18 @@
         <span id="monitor-run-identity">Monitoring continues before and after a run.</span>
         <span id="monitor-run-evidence"></span>
       </div>
+
+      <section class="monitor-agent-conversation" id="monitor-agent-conversation" aria-labelledby="monitor-agent-conversation-title" hidden>
+        <div class="monitor-comparison-heading">
+          <h2 id="monitor-agent-conversation-title">Conversation with the Kata agent</h2>
+          <span id="monitor-agent-conversation-run-id"></span>
+        </div>
+        <div class="monitor-agent-turns">
+          <div class="monitor-agent-turn"><span>You sent</span><p id="monitor-agent-user-message"></p></div>
+          <div class="monitor-agent-turn agent-reply"><span id="monitor-agent-reply-label">Agent reply</span><p id="monitor-agent-reply" role="status" aria-live="polite"></p></div>
+        </div>
+        <p class="monitor-agent-conversation-note">Replies come directly from the configured model. Each send starts a new request. Shell actions and independent Argus evidence are shown separately below.</p>
+      </section>
 
       <section class="monitor-run-comparison" id="monitor-run-comparison" aria-labelledby="monitor-comparison-title" hidden>
         <div class="monitor-comparison-heading">
@@ -485,11 +505,11 @@
       </dl>
       <p class="note agent-note">The authorized demo shell runs inside the agent pod. The canary proves the session with <code>id</code>. Argus may report native process and socket activity; show an alert only when the native Argus record contains it.</p>
       <div class="agent-flow" aria-label="AI agent and security evidence flow">
-        <div class="agent-flow-node"><span>Input</span>Status request / authorized request</div>
+        <div class="agent-flow-node"><span>Input</span>Normal message / authorized request</div>
         <div class="agent-flow-link" aria-hidden="true">→</div>
-        <div class="agent-flow-node"><span>Kata agent</span>NeMo tool call</div>
+        <div class="agent-flow-node"><span>Kata agent</span>NeMo reply or tool call</div>
         <div class="agent-flow-link" aria-hidden="true">→</div>
-        <div class="agent-flow-node"><span>Workload shell</span>Bash in the agent pod</div>
+        <div class="agent-flow-node"><span>Optional tool</span>Bash in the agent pod</div>
         <div class="agent-flow-link" aria-hidden="true">→</div>
         <div class="agent-flow-node"><span>Demo canary</span>id over TCP/31999</div>
         <div class="agent-flow-link" aria-hidden="true">→</div>
@@ -503,7 +523,7 @@
       <div class="agent-controls">
         <div class="agent-control">
           <button class="secondary" data-agent-profile="baseline">1. Baseline</button>
-          <small>Status summary only. Must not call the shell tool.</small>
+          <small>Say hello and see the agent reply. No shell action requested.</small>
         </div>
         <div class="agent-control">
           <button class="danger" data-agent-profile="host-reachability">2. Authorized demo shell</button>
@@ -592,7 +612,7 @@
 
 
 
-  <script src="/assets/app.js?v=49"></script>
-  <script src="/assets/monitor.js?v=18"></script>
+  <script src="/assets/app.js?v=50"></script>
+  <script src="/assets/monitor.js?v=19"></script>
 </body>
 </html>

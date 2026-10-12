@@ -10,6 +10,7 @@
   const runButton = byId("monitor-run-button");
   const stream = byId("monitor-stream");
   const alerts = byId("monitor-alerts");
+  const agentMessage = byId("monitor-agent-message");
   const scopePicker = byId("monitor-scope");
   const activityToggle = byId("monitor-activity-toggle");
   const activityBody = byId("monitor-activity-body");
@@ -17,9 +18,9 @@
   const AI_ACTIONS = [
     {
       id: "baseline", label: "Normal request",
-      what: "Ask the AI application to summarize a harmless status note without using the shell tool.",
-      why: "Establishes the expected baseline: a completed response with no recorded shell-tool call.",
-      watch: "No shell check is expected. Tool, listener, and Argus shell evidence are Not applicable.",
+      what: "Send a simple message to the AI agent in its Kata VM and see its actual reply below.",
+      why: "Shows a real conversation before the separate authorized tool action.",
+      watch: "The agent reply appears in the conversation card. No shell action is requested; tool and Argus checks are separate.",
       duration: "The request duration depends on the configured model.",
     },
     {
@@ -131,6 +132,7 @@
     if (api.actionInProgress || localRun?.pending) return "Another demo action is running.";
     if (api.story === "agent") {
       if (!api.agentReady) return api.agentStatus?.message || "AI application is not ready.";
+      if (selectedAgentAction === "baseline" && !agentMessage.value) return "Choose a message to send to the agent.";
     } else if (api.status?.kata_vm !== "Ready") {
       return api.status ? `Workload is ${api.status.kata_vm || "unavailable"}; restore it before running.` : "Checking workload readiness…";
     }
@@ -147,6 +149,7 @@
     byId("monitor-what").textContent = item?.what || catalogError || "Loading…";
     byId("monitor-why").textContent = item?.why || "";
     byId("monitor-watch").textContent = item?.watch || "";
+    byId("monitor-agent-message-field").hidden = story !== "agent" || selectedAgentAction !== "baseline";
     const workloadGuide = story === "workload" && Boolean(item?.steps?.length);
     byId("monitor-agent-description").hidden = workloadGuide;
     byId("monitor-scenario-guide").hidden = !workloadGuide;
@@ -160,11 +163,14 @@
       cues.replaceChildren(...(item.activity_cues || []).map((cue) => element("li", "", cue)));
     }
     byId("monitor-duration").textContent = item?.duration || "";
-    runButton.textContent = item ? `Run ${item.label}` : "Run";
+    runButton.textContent = story === "agent" && selectedAgentAction === "baseline"
+      ? "Send to agent" : item ? `Run ${item.label}` : "Run";
     const reason = actionReadiness();
     runButton.disabled = Boolean(reason);
     byId("monitor-readiness").textContent = reason || (
-      api.status?.collector?.state === "unavailable"
+      story === "agent" && selectedAgentAction === "baseline"
+        ? "Each send starts a new request to the Kata agent."
+        : api.status?.collector?.state === "unavailable"
         ? "Argus collector unavailable; this action may have no observable evidence."
         : "Selection does not start the action."
     );
@@ -253,15 +259,17 @@
     const seconds = started ? Math.max(0, Math.floor((Date.now() - Date.parse(started)) / 1000)) : 0;
     const data = run.data || state.result || {};
     let statusText;
-    if (run.lost) statusText = "Run state unavailable after reload";
-    else if (phase === "action") statusText = `Running action · ${seconds}s`;
+    if (phase === "failed" || run.error) statusText = "Action failed";
+    else if (run.lost) statusText = "Run state unavailable after reload";
+    else if (phase === "action") statusText = run.profile === "baseline"
+      ? `Waiting for agent reply · ${seconds}s` : `Running action · ${seconds}s`;
     else if (phase === "observation") statusText = `Waiting for matching Argus evidence · ${seconds}s`;
-    else if (phase === "failed" || run.error) statusText = "Action failed";
     else if (data.status === "no-native-alert") statusText = "Completed · no matching native alert in the wait window";
     else if (data.status === "no-native-event") statusText = "Completed · no matching native Argus record in the wait window";
     else if (data.status === "native-alert") statusText = "Completed · matching native alert";
     else if (data.status === "native-event") statusText = "Completed · matching native Argus record";
-    else if (data.status === "no-tool-call") statusText = "Completed · no shell tool used (expected baseline)";
+    else if (data.status === "no-tool-call") statusText = "Completed · agent replied; no shell action recorded";
+    else if (data.status === "no-reply") statusText = "Completed · no text reply returned";
     else if (data.working_shell && data.native_argus_alert) statusText = "Completed · shell confirmed; native Argus alert";
     else if (data.working_shell) statusText = "Completed · shell confirmed by demo listener";
     else statusText = "Action completed";
@@ -462,13 +470,18 @@
       return;
     }
     if (phase !== "complete") {
+      if (run.profile === "baseline") {
+        setCheck("tool", "Checking for shell action");
+        ["listener", "argus", "alert", "ovn"].forEach((name) => setCheck(name, "Not applicable"));
+        return;
+      }
       setCheck("tool", serverState.action_status === "tool_reported" ? "Report recorded" : "Waiting for report",
         serverState.action_status === "tool_reported" ? "observed" : "neutral");
       ["listener", "argus", "alert", "ovn"].forEach((name) => setCheck(name, "Waiting for result"));
       return;
     }
-    if (run.profile === "baseline" && data.status === "no-tool-call") {
-      setCheck("tool", "No shell call (expected)", "observed");
+    if (run.profile === "baseline" && ["no-tool-call", "no-reply"].includes(data.status)) {
+      setCheck("tool", "No shell action recorded", "observed");
       ["listener", "argus", "alert", "ovn"].forEach((name) => setCheck(name, "Not applicable"));
       return;
     }
@@ -482,6 +495,42 @@
       data.native_argus_alert ? "observed" : "neutral");
     setCheck("ovn", data.policy_drop_observed ? "Matching deny" : "No matching deny",
       data.policy_drop_observed ? "observed" : "neutral");
+  }
+
+  function renderAgentConversation() {
+    const card = byId("monitor-agent-conversation");
+    const current = currentRun();
+    const run = current?.profile === "baseline" ? current : api.lastNormalRequest;
+    card.hidden = api.story !== "agent" || !run;
+    if (card.hidden) return;
+
+    const state = run.serverState || {};
+    const data = run.data || state.result || {};
+    const phase = state.phase || (run.pending || run.running ? "action" : run.error ? "failed" : "complete");
+    byId("monitor-agent-conversation-run-id").textContent = run.runId ? `Run ${run.runId}` : "";
+    byId("monitor-agent-user-message").textContent =
+      data.user_message || state.user_message || run.userMessage || "Message unavailable";
+    const reply = byId("monitor-agent-reply");
+    const label = byId("monitor-agent-reply-label");
+    if (phase === "failed" || run.error) {
+      label.textContent = "Request failed";
+      reply.textContent = run.error || state.message || "The request failed.";
+    } else if (run.lost) {
+      label.textContent = "Reply unavailable";
+      reply.textContent = "The reply is unavailable after the server restarted.";
+    } else if (phase !== "complete") {
+      label.textContent = "Agent reply pending";
+      reply.textContent = "Waiting for the agent's reply…";
+    } else if (data.status && !["no-tool-call", "no-reply"].includes(data.status)) {
+      label.textContent = "Unexpected tool action";
+      reply.textContent = "This normal request triggered tool activity. Inspect the evidence below.";
+    } else if (data.agent_reply) {
+      label.textContent = "Agent replied";
+      reply.textContent = data.agent_reply;
+    } else {
+      label.textContent = "No text reply";
+      reply.textContent = "No text reply was returned. Open Technical view for the full result.";
+    }
   }
 
   function nativeRecord(event) {
@@ -905,6 +954,7 @@
     renderRun();
     renderRunComparison();
     renderDiscovery();
+    renderAgentConversation();
     renderAgentChecks();
     renderPanels();
   }
@@ -926,12 +976,15 @@
     const item = selectedAction();
     if (!item || actionReadiness()) return;
     const story = api.story;
+    const promptId = story === "agent" && item.id === "baseline" ? agentMessage.value : null;
+    const userMessage = promptId ? agentMessage.selectedOptions[0].textContent : null;
     const runId = api.createRunId();
     const startedAt = new Date().toISOString();
     localRun = {
       pending: true, runId, startedAt, story, kind: story === "agent" ? "agent" : "scenario",
       scenarioId: story === "agent" ? item.id === "baseline" ? "agent-baseline" : "host-access-attempt" : item.id,
       profile: story === "agent" ? item.id : null,
+      userMessage,
       workload: story === "agent" ? "argus-gtc-agent" : workloadTarget,
     };
     markers.push({ runId, story, label: item.label, workload: localRun.workload, startedAt });
@@ -940,7 +993,9 @@
     renderConsole();
     try {
       if (story === "agent") {
-        await api.runAgentProfile(item.id, { scenarioRunId: runId });
+        const result = await api.runAgentProfile(item.id, { scenarioRunId: runId, promptId, userMessage });
+        if (!result.ok) throw new Error(result.error);
+        localRun.data = result.data;
       } else {
         await api.runScenario(item.id, { scenarioRunId: runId });
       }
@@ -950,10 +1005,12 @@
       localRun.error = error.message || "Demo action failed";
     } finally {
       localRun.pending = false;
-      localRun.lost = api.run?.runId !== runId;
+      localRun.lost = !localRun.data && !localRun.error && api.run?.runId !== runId;
       renderConsole();
     }
   });
+
+  agentMessage.addEventListener("change", renderDescription);
 
   byId("monitor-stop-btn").addEventListener("click", () => {
     if (api.story !== "workload") return;
