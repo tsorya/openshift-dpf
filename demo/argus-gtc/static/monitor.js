@@ -11,6 +11,9 @@
   const stream = byId("monitor-stream");
   const alerts = byId("monitor-alerts");
   const scopePicker = byId("monitor-scope");
+  const activityToggle = byId("monitor-activity-toggle");
+  const activityBody = byId("monitor-activity-body");
+  const evidenceGrid = byId("monitor-evidence-grid");
   const AI_ACTIONS = [
     {
       id: "baseline", label: "Normal request",
@@ -50,6 +53,8 @@
   let alertViewReset = false;
   let alertSelectionAt = 0;
   let renderTimer = null;
+  let activityOpen = false;
+  let renderedGuideItem = null;
 
   // A modal must remain usable while Technical view is collapsed.
   document.body.appendChild(rawDialog);
@@ -142,6 +147,18 @@
     byId("monitor-what").textContent = item?.what || catalogError || "Loading…";
     byId("monitor-why").textContent = item?.why || "";
     byId("monitor-watch").textContent = item?.watch || "";
+    const workloadGuide = story === "workload" && Boolean(item?.steps?.length);
+    byId("monitor-agent-description").hidden = workloadGuide;
+    byId("monitor-scenario-guide").hidden = !workloadGuide;
+    if (workloadGuide && renderedGuideItem !== item) {
+      renderedGuideItem = item;
+      byId("monitor-guide-why").textContent = item.why;
+      byId("monitor-guide-watch").textContent = item.watch;
+      const steps = byId("monitor-scenario-steps");
+      steps.replaceChildren(...item.steps.map((step) => element("li", "", step)));
+      const cues = byId("monitor-activity-cues");
+      cues.replaceChildren(...(item.activity_cues || []).map((cue) => element("li", "", cue)));
+    }
     byId("monitor-duration").textContent = item?.duration || "";
     runButton.textContent = item ? `Run ${item.label}` : "Run";
     const reason = actionReadiness();
@@ -758,8 +775,10 @@
     find.addEventListener("click", () => {
       selectedEventId = event.id;
       renderedFeedKey = "";
-      renderPanels();
+      setActivityOpen(true);
       const row = [...stream.querySelectorAll(".monitor-event")].find((item) => item.dataset.eventId === event.id);
+      const group = row?.closest("details.monitor-event-group");
+      if (group) group.open = true;
       row?.scrollIntoView({ block: "center" });
       row?.focus?.();
     });
@@ -800,6 +819,16 @@
     return pieces.join(" · ");
   }
 
+  function setActivityOpen(open) {
+    activityOpen = open;
+    activityBody.hidden = !open;
+    evidenceGrid.classList.toggle("activity-collapsed", !open);
+    activityToggle.setAttribute("aria-expanded", String(open));
+    if (!open) stream.replaceChildren();
+    renderedFeedKey = "";
+    renderPanels();
+  }
+
   function renderPanels() {
     const received = api.events.filter(scopedRecord);
     const records = paused ? (frozenRecords || []).filter(scopedRecord) : received;
@@ -816,6 +845,7 @@
     );
     const alertGroups = groupAlertRecords(nativeAlerts);
     byId("monitor-event-count").textContent = `${records.length} native record${records.length === 1 ? "" : "s"} in scope`;
+    activityToggle.textContent = `${activityOpen ? "Hide" : "Show"} Activity (${records.length})`;
     const alertCount = byId("monitor-alert-count");
     alertCount.textContent = String(alertGroups.length);
     alertCount.title = `${nativeAlerts.length} visible native alert records; ${hiddenMemoryNoise.length} routine workload memory teardown records remain in Activity`;
@@ -836,38 +866,40 @@
     ].join("|");
     if (feedKey === renderedFeedKey) return;
     renderedFeedKey = feedKey;
-    const wasAtTop = stream.scrollTop <= 8;
-    const anchor = wasAtTop ? null : [...stream.querySelectorAll("[data-event-id]")].find((node) =>
-      node.getBoundingClientRect().bottom > stream.getBoundingClientRect().top + 2
-    );
-    const anchorId = anchor?.dataset.eventId;
-    const anchorTop = anchor?.getBoundingClientRect().top;
-    const sorted = [...records].sort((a, b) => sourceTime(b) - sourceTime(a));
-    const groups = groupRecords(sorted);
-    const selected = selectedEventId && records.find((event) => event.id === selectedEventId);
-    if (selected && !groups.some((group) => group.events.some((event) => event.id === selected.id))) {
-      groups.unshift({ events: [selected] });
-    }
-    const items = [
-      ...groups.map((group) => ({ time: sourceTime(group.events[0]), node: groupedRow(group) })),
-      ...visibleMarkers.map((marker) => ({
-        time: Date.parse(marker.startedAt) || 0, node: markerRow(marker),
-      })),
-    ].sort((a, b) => b.time - a.time);
-    const fragment = document.createDocumentFragment();
-    if (!items.length) {
-      fragment.append(element("p", "monitor-empty", api.status?.collector?.state === "reading"
-        ? "No native activity for this workload yet. The collector is reading; a quiet workload is normal."
-        : "No native activity in this scope. Check collector and source status above."));
-    } else {
-      items.forEach((item) => fragment.append(item.node));
-    }
-    stream.replaceChildren(fragment);
-    if (wasAtTop) {
-      stream.scrollTop = 0;
-    } else if (anchorId && anchorTop != null) {
-      const replacement = [...stream.querySelectorAll("[data-event-id]")].find((node) => node.dataset.eventId === anchorId);
-      if (replacement) stream.scrollTop += replacement.getBoundingClientRect().top - anchorTop;
+    if (activityOpen) {
+      const wasAtTop = stream.scrollTop <= 8;
+      const anchor = wasAtTop ? null : [...stream.querySelectorAll("[data-event-id]")].find((node) =>
+        node.getBoundingClientRect().bottom > stream.getBoundingClientRect().top + 2
+      );
+      const anchorId = anchor?.dataset.eventId;
+      const anchorTop = anchor?.getBoundingClientRect().top;
+      const sorted = [...records].sort((a, b) => sourceTime(b) - sourceTime(a));
+      const groups = groupRecords(sorted);
+      const selected = selectedEventId && records.find((event) => event.id === selectedEventId);
+      if (selected && !groups.some((group) => group.events.some((event) => event.id === selected.id))) {
+        groups.unshift({ events: [selected] });
+      }
+      const items = [
+        ...groups.map((group) => ({ time: sourceTime(group.events[0]), node: groupedRow(group) })),
+        ...visibleMarkers.map((marker) => ({
+          time: Date.parse(marker.startedAt) || 0, node: markerRow(marker),
+        })),
+      ].sort((a, b) => b.time - a.time);
+      const fragment = document.createDocumentFragment();
+      if (!items.length) {
+        fragment.append(element("p", "monitor-empty", api.status?.collector?.state === "reading"
+          ? "No native activity for this workload yet. The collector is reading; a quiet workload is normal."
+          : "No native activity in this scope. Check collector and source status above."));
+      } else {
+        items.forEach((item) => fragment.append(item.node));
+      }
+      stream.replaceChildren(fragment);
+      if (wasAtTop) {
+        stream.scrollTop = 0;
+      } else if (anchorId && anchorTop != null) {
+        const replacement = [...stream.querySelectorAll("[data-event-id]")].find((node) => node.dataset.eventId === anchorId);
+        if (replacement) stream.scrollTop += replacement.getBoundingClientRect().top - anchorTop;
+      }
     }
 
     const alertFragment = document.createDocumentFragment();
@@ -977,6 +1009,8 @@
     renderedFeedKey = "";
     renderConsole();
   });
+
+  activityToggle.addEventListener("click", () => setActivityOpen(!activityOpen));
 
   scopePicker.addEventListener("change", () => {
     renderedFeedKey = "";

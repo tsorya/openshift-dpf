@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="theme-color" content="#111318" />
   <title>Invisible VM, Visible Threat — Argus GTC Demo</title>
-  <link rel="stylesheet" href="/assets/style.css?v=39" />
+  <link rel="stylesheet" href="/assets/style.css?v=40" />
 </head>
 <body class="guided-page">
   <header class="demo-header">
@@ -59,10 +59,19 @@
           </div>
           <span class="monitor-target">Target <strong id="monitor-target">invisible-vm</strong></span>
         </div>
-        <div class="monitor-explanation-grid">
+        <div class="monitor-explanation-grid" id="monitor-agent-description">
           <p><strong>What happens</strong><span id="monitor-what">Loading the allowlisted scenario catalog…</span></p>
           <p><strong>Why show it</strong><span id="monitor-why"></span></p>
           <p><strong>Watch for</strong><span id="monitor-watch"></span></p>
+        </div>
+        <div class="monitor-scenario-guide" id="monitor-scenario-guide" hidden>
+          <p class="monitor-guide-purpose"><strong>Why show it</strong><span id="monitor-guide-why"></span></p>
+          <strong class="monitor-guide-steps-label">Action steps</strong>
+          <ol class="monitor-scenario-steps" id="monitor-scenario-steps" aria-label="Scenario steps"></ol>
+          <div class="monitor-guide-evidence">
+            <div><strong>In Activity, look for</strong><ul id="monitor-activity-cues"></ul></div>
+            <div><strong>Verified Argus result</strong><span id="monitor-guide-watch"></span></div>
+          </div>
         </div>
         <div class="monitor-action-line">
           <button type="button" class="primary-action" id="monitor-run-button" disabled>Run Discovery</button>
@@ -102,7 +111,7 @@
           <h2 id="monitor-discovery-title">Discovered inside the VM</h2>
           <span id="monitor-discovery-run-id"></span>
         </div>
-        <p class="monitor-discovery-source">Output from the demo commands in the workload. Independent Argus observations remain in Activity below.</p>
+        <p class="monitor-discovery-source">Output from demo commands in the workload. Expand Activity for independent Argus records.</p>
         <p class="monitor-discovery-state" id="monitor-discovery-state" role="status"></p>
         <div class="monitor-discovery-grid" id="monitor-discovery-grid" hidden>
           <div class="monitor-discovery-item"><span>System · uname -a</span><strong id="monitor-discovery-system"></strong></div>
@@ -120,10 +129,13 @@
         <div><span>OVN policy</span><strong id="agent-check-ovn">No run yet</strong></div>
       </section>
 
-      <div class="monitor-evidence-grid">
+      <div class="monitor-evidence-grid activity-collapsed" id="monitor-evidence-grid">
         <section class="monitor-stream-panel" aria-labelledby="monitor-stream-heading">
           <div class="monitor-panel-heading">
-            <div><span class="section-kicker">DOCA Argus · native telemetry</span><h2 id="monitor-stream-heading">Activity stream</h2></div>
+            <div><span class="section-kicker">DOCA Argus · native telemetry</span><h2 id="monitor-stream-heading">Activity</h2></div>
+            <button type="button" class="secondary compact" id="monitor-activity-toggle" aria-expanded="false" aria-controls="monitor-activity-body">Show Activity (0)</button>
+          </div>
+          <div class="monitor-activity-body" id="monitor-activity-body" hidden>
             <div class="monitor-stream-controls">
               <label>Scope
                 <select id="monitor-scope">
@@ -134,10 +146,10 @@
               </label>
               <button type="button" class="secondary compact" id="monitor-pause">Pause</button>
             </div>
-          </div>
-          <div class="monitor-feed-state"><span id="monitor-event-count">0 native records</span><span id="monitor-pause-count"></span><span id="monitor-history-state"></span></div>
-          <div class="monitor-stream" id="monitor-stream" role="feed" aria-label="Native Argus activity" tabindex="0">
-            <p class="monitor-empty">Loading retained Argus activity…</p>
+            <div class="monitor-feed-state"><span id="monitor-event-count">0 native records</span><span id="monitor-pause-count"></span><span id="monitor-history-state"></span></div>
+            <div class="monitor-stream" id="monitor-stream" role="feed" aria-label="Native Argus activity" tabindex="0">
+              <p class="monitor-empty">Loading retained Argus activity…</p>
+            </div>
           </div>
         </section>
         <section class="monitor-alert-panel" aria-labelledby="monitor-alert-heading">
@@ -424,7 +436,7 @@
           <button type="button" class="info-sign" aria-expanded="false" aria-controls="info-audit-evasion" data-info="audit-evasion" title="What this scenario does">i</button>
           <div id="info-audit-evasion" class="scenario-info" hidden role="dialog" aria-labelledby="info-audit-evasion-title">
             <h3 id="info-audit-evasion-title">Audit Evasion Attempt</h3>
-            <p class="info-does"><strong>What it does.</strong> Starts bounded Bash (<code>bash --noprofile --norc -i</code>) on a real Kubernetes exec PTY in the Kata VM. It establishes a harmless history baseline, waits for an Argus scan, clears history while history is enabled, waits again, then disables history and remains alive for another scan. The unique disposable history file is removed when the session exits.</p>
+            <p class="info-does"><strong>What it does.</strong> Starts bounded Bash (<code>bash --noprofile --norc -i</code>) on a real Kubernetes exec PTY in the Kata VM. It establishes a harmless history baseline, waits for an Argus scan, clears history while history is enabled, waits again, then disables history and runs <code>id</code> while recording is off. It remains alive for another scan, restores history recording, and removes the disposable history file on exit.</p>
             <p class="info-expect"><strong>Success requirement.</strong> After the bounded action completes, the server waits up to 45 seconds for raw Argus output containing <code>message_type=ALERT</code>, <code>severity=HIGH</code>, and exactly <code>Shell History Disabled</code> or <code>Shell History Cleared</code>. The full request can take about 83 seconds. If no match arrives, the result says “No native alert observed”; INFO/EVENT telemetry remains visible and is never promoted to an alert.</p>
           </div>
         </div>
@@ -434,7 +446,7 @@
           <div id="info-reverse-shell" class="scenario-info" hidden role="dialog" aria-labelledby="info-reverse-shell-title">
             <h3 id="info-reverse-shell-title">Reverse Shell Simulation</h3>
             <p class="info-does"><strong>What it does.</strong> Opens interactive bash (<code>bash -i</code>) and redirects stdin/stdout over <code>/dev/tcp</code> to the in-namespace <code>scenario-sink</code> for about 20 seconds. NetworkPolicy keeps the traffic inside the demo namespace — no internet C2.</p>
-            <p class="info-expect"><strong>On the Kata timeline.</strong> Filter includes both <code>invisible-vm</code> and <code>scenario-sink</code>. Look for process events (<code>bash -i</code> / <code>argus-gtc-reverse_shell-*</code>) and TCP connect events to the sink. The controller waits up to 45 seconds for Argus’s native detection. Demo labels and network activity are not native alerts; report “Reverse Shell Detected” only if Argus emits it with <code>message_type=ALERT</code> and <code>severity=HIGH</code>.</p>
+            <p class="info-expect"><strong>On the Kata timeline.</strong> Look for process events (<code>bash -i</code> / <code>argus-gtc-reverse_shell-*</code>) and TCP connect events to the sink. The controller waits up to 45 seconds for Argus’s native detection. Demo labels and network activity are not native alerts; report “Reverse Shell Detected” only if Argus emits it with <code>message_type=ALERT</code> and <code>severity=HIGH</code>. The sink accepts a connection but does not record shell commands, user ID, or live-session status.</p>
           </div>
         </div>
       </div>
@@ -577,6 +589,6 @@
 
 
   <script src="/assets/app.js?v=47"></script>
-  <script src="/assets/monitor.js?v=16"></script>
+  <script src="/assets/monitor.js?v=17"></script>
 </body>
 </html>
