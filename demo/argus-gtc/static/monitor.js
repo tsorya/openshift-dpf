@@ -17,10 +17,10 @@
   const evidenceGrid = byId("monitor-evidence-grid");
   const AI_ACTIONS = [
     {
-      id: "baseline", label: "Normal request",
-      what: "Send a simple message to the AI agent in its Kata VM and see its actual reply below.",
+      id: "baseline", label: "Talk to agent",
+      what: "Write your own question to the AI agent in its Kata VM and see its actual reply below.",
       why: "Shows a real conversation before a separate request to use a tool.",
-      watch: "The agent reply appears in the conversation card. No shell action is requested; tool and Argus checks are separate.",
+      watch: "The reply appears in your conversation card. No shell action is requested; tool and Argus checks are separate.",
       duration: "The request duration depends on the configured model.",
     },
     {
@@ -132,7 +132,7 @@
     if (api.actionInProgress || localRun?.pending) return "Another demo action is running.";
     if (api.story === "agent") {
       if (!api.agentReady) return api.agentStatus?.message || "AI application is not ready.";
-      if (selectedAgentAction === "baseline" && !agentMessage.value) return "Choose a message to send to the agent.";
+      if (selectedAgentAction === "baseline" && !agentMessage.value.trim()) return "Write a message to send to the agent.";
     } else if (api.status?.kata_vm !== "Ready") {
       return api.status ? `Workload is ${api.status.kata_vm || "unavailable"}; restore it before running.` : "Checking workload readiness…";
     }
@@ -500,26 +500,20 @@
 
   function renderAgentConversation() {
     const card = byId("monitor-agent-conversation");
-    const current = currentRun();
-    const run = current?.profile === "baseline" ? current : api.lastNormalRequest;
+    const run = api.lastLocalNormalConversation;
     card.hidden = api.story !== "agent" || !run;
     if (card.hidden) return;
 
-    const state = run.serverState || {};
-    const data = run.data || state.result || {};
-    const phase = state.phase || (run.pending || run.running ? "action" : run.error ? "failed" : "complete");
+    const data = run.data || {};
     byId("monitor-agent-conversation-run-id").textContent = run.runId ? `Run ${run.runId}` : "";
     byId("monitor-agent-user-message").textContent =
-      data.user_message || state.user_message || run.userMessage || "Message unavailable";
+      data.user_message || run.userMessage || "Message unavailable";
     const reply = byId("monitor-agent-reply");
     const label = byId("monitor-agent-reply-label");
-    if (phase === "failed" || run.error) {
+    if (run.error) {
       label.textContent = "Request failed";
-      reply.textContent = run.error || state.message || "The request failed.";
-    } else if (run.lost) {
-      label.textContent = "Reply unavailable";
-      reply.textContent = "The reply is unavailable after the server restarted.";
-    } else if (phase !== "complete") {
+      reply.textContent = run.error;
+    } else if (run.running) {
       label.textContent = "Agent reply pending";
       reply.textContent = "Waiting for the agent's reply…";
     } else if (data.status && !["no-tool-call", "no-reply"].includes(data.status)) {
@@ -624,7 +618,7 @@
     if (!event.scenario_run_id) {
       if (event.scenario_id && event.scenario_id !== selectedScenarioId) {
         const previous = api.story === "agent"
-          ? event.scenario_id === "agent-baseline" ? "Normal request" : "Demo shell request"
+          ? event.scenario_id === "agent-baseline" ? "Talk to agent" : "Demo shell request"
           : workloadCatalog.get(event.scenario_id)?.label || event.scenario_id;
         return `Other scenario · ${previous}`;
       }
@@ -977,8 +971,7 @@
     const item = selectedAction();
     if (!item || actionReadiness()) return;
     const story = api.story;
-    const promptId = story === "agent" && item.id === "baseline" ? agentMessage.value : null;
-    const userMessage = promptId ? agentMessage.selectedOptions[0].textContent : null;
+    const userMessage = story === "agent" && item.id === "baseline" ? agentMessage.value.trim() : null;
     const runId = api.createRunId();
     const startedAt = new Date().toISOString();
     localRun = {
@@ -994,7 +987,7 @@
     renderConsole();
     try {
       if (story === "agent") {
-        const result = await api.runAgentProfile(item.id, { scenarioRunId: runId, promptId, userMessage });
+        const result = await api.runAgentProfile(item.id, { scenarioRunId: runId, userMessage });
         if (!result.ok) throw new Error(result.error);
         localRun.data = result.data;
       } else {
@@ -1011,7 +1004,7 @@
     }
   });
 
-  agentMessage.addEventListener("change", renderDescription);
+  agentMessage.addEventListener("input", renderDescription);
 
   byId("monitor-stop-btn").addEventListener("click", () => {
     if (api.story !== "workload") return;

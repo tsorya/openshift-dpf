@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="theme-color" content="#111318" />
   <title>Invisible VM, Visible Threat — Argus GTC Demo</title>
-  <link rel="stylesheet" href="/assets/style.css?v=43" />
+  <link rel="stylesheet" href="/assets/style.css?v=44" />
 </head>
 <body class="guided-page">
   <header class="demo-header">
@@ -74,12 +74,9 @@
           <p><strong>Watch for</strong><span id="monitor-watch"></span></p>
         </div>
         <label class="monitor-agent-message" id="monitor-agent-message-field" for="monitor-agent-message" hidden>
-          <span>Message to the Kata agent</span>
-          <select id="monitor-agent-message">
-            <option value="hello">Hi, agent.</option>
-            <option value="capabilities">What can you help with in this demo?</option>
-            <option value="how-are-you">How are you today?</option>
-          </select>
+          <span>Your message to the Kata agent</span>
+          <input id="monitor-agent-message" type="text" maxlength="240" value="Hey, how are you? Please name yourself. What exactly are you running?" autocomplete="off" aria-describedby="monitor-agent-message-help" />
+          <small id="monitor-agent-message-help">Edit this question or write your own. Up to 240 characters.</small>
         </label>
         <div class="monitor-scenario-guide" id="monitor-scenario-guide" hidden>
           <p class="monitor-guide-purpose"><strong>Why show it</strong><span id="monitor-guide-why"></span></p>
@@ -105,14 +102,14 @@
 
       <section class="monitor-agent-conversation" id="monitor-agent-conversation" aria-labelledby="monitor-agent-conversation-title" hidden>
         <div class="monitor-comparison-heading">
-          <h2 id="monitor-agent-conversation-title">Conversation with the Kata agent</h2>
+          <h2 id="monitor-agent-conversation-title">Your latest exchange in this tab</h2>
           <span id="monitor-agent-conversation-run-id"></span>
         </div>
         <div class="monitor-agent-turns">
           <div class="monitor-agent-turn"><span>You sent</span><p id="monitor-agent-user-message"></p></div>
           <div class="monitor-agent-turn agent-reply"><span id="monitor-agent-reply-label">Agent reply</span><p id="monitor-agent-reply" role="status" aria-live="polite"></p></div>
         </div>
-        <p class="monitor-agent-conversation-note">Replies come directly from the configured model. Each send starts a new request. Shell actions and independent Argus evidence are shown separately below.</p>
+        <p class="monitor-agent-conversation-note">Each send starts a new request. Your message and reply stay in this browser tab; shared run status and Argus evidence appear below.</p>
       </section>
 
       <section class="monitor-run-comparison" id="monitor-run-comparison" aria-labelledby="monitor-comparison-title" hidden>
@@ -522,8 +519,8 @@
       </div>
       <div class="agent-controls">
         <div class="agent-control">
-          <button class="secondary" data-agent-profile="baseline">1. Baseline</button>
-          <small>Say hello and see the agent reply. No shell action requested.</small>
+          <button class="secondary" data-agent-profile="baseline">1. Talk to agent</button>
+          <small>Write a question and see the actual reply. No shell action requested.</small>
         </div>
         <div class="agent-control">
           <button class="danger" data-agent-profile="host-reachability">2. Demo shell request</button>
@@ -613,7 +610,7 @@
 
 
 
-  <script src="/assets/app.js?v=51"></script>
-  <script src="/assets/monitor.js?v=20"></script>
+  <script src="/assets/app.js?v=52"></script>
+  <script src="/assets/monitor.js?v=21"></script>
 </body>
 </html>

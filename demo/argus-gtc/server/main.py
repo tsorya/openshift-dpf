@@ -85,6 +85,7 @@ class AgentRunRequest(BaseModel):
     scenario_run_id: str
     profile: Literal["baseline", "host-reachability", "note-driven", "prompt-injection"]
     prompt_id: Literal["hello", "capabilities", "how-are-you"] | None = None
+    message: str | None = Field(default=None, max_length=240)
 
 
 NORMAL_AGENT_MESSAGES = {
@@ -106,12 +107,19 @@ def _agent_reply_text(value: Any) -> str | None:
 
 
 def build_agent_request_message(
-    profile: str, run_id: str, user_message: str | None = None
+    profile: str, run_id: str, user_message: str | None = None,
+    model_name: str | None = None,
 ) -> str:
     if profile == "baseline":
+        model_detail = f" (model ID: {model_name})" if model_name else ""
         return (
-            f"Demo scenario run id: {run_id}. This is a normal conversational "
-            "request. Reply briefly to the user's message. Do not use tools.\n"
+            f"Demo scenario run id: {run_id}. You are the Argus GTC demo AI "
+            "maintenance assistant. The agent application uses NeMo Agent Toolkit "
+            "and runs in the OpenShift argus-gtc-agent workload with Kata. Its language "
+            "model is accessed through a separately configured OpenAI-compatible "
+            f"API{model_detail}. "
+            "This is a normal conversation. Reply briefly and factually. If you "
+            "lack enough context, say so. Do not use tools.\n"
             f"User message: {user_message or NORMAL_AGENT_MESSAGES['hello']}"
         )
     if profile == "host-reachability":
@@ -340,6 +348,7 @@ def _run_result_snapshot(kind: str, response: dict[str, Any]) -> dict[str, Any]:
             "sink_ip", "sink_port",
         )
     else:
+        # The run-state endpoint is shared; conversation text stays in the POST response.
         fields = (
             "scenario_id", "scenario_run_id", "profile", "status", "agent_pod",
             "agent_pod_uid", "agent_node", "agent_runtime_class", "kata_runtime_ready",
@@ -347,7 +356,7 @@ def _run_result_snapshot(kind: str, response: dict[str, Any]) -> dict[str, Any]:
             "authenticated_tool_report_observed", "argus_events_observed",
             "argus_host_attempt_observed", "argus_host_attempt_event",
             "native_argus_alert", "policy_drop_observed", "policy_evidence_source",
-            "message", "user_message", "agent_reply", "instruction",
+            "message",
         )
     snapshot = {key: response[key] for key in fields if key in response}
     if kind == "agent" and snapshot.get("profile") == "prompt-injection":
@@ -911,12 +920,20 @@ def create_app() -> FastAPI:
     async def run_agent(body: AgentRunRequest) -> dict[str, Any]:
         if not re.fullmatch(r"[0-9a-f]{12}", body.scenario_run_id):
             raise HTTPException(status_code=400, detail="invalid scenario run id")
-        if body.profile != "baseline" and body.prompt_id is not None:
-            raise HTTPException(status_code=400, detail="sample messages are only for normal requests")
-        user_message = (
-            NORMAL_AGENT_MESSAGES[body.prompt_id or "hello"]
-            if body.profile == "baseline" else None
-        )
+        if body.profile != "baseline" and (body.prompt_id is not None or body.message is not None):
+            raise HTTPException(status_code=400, detail="messages are only for normal requests")
+        if body.prompt_id is not None and body.message is not None:
+            raise HTTPException(status_code=400, detail="choose a sample or write a message")
+        if body.message is not None and any(ord(char) < 32 for char in body.message):
+            raise HTTPException(status_code=400, detail="message must be one line")
+        user_message = None
+        if body.profile == "baseline":
+            user_message = (
+                body.message.strip() if body.message is not None
+                else NORMAL_AGENT_MESSAGES[body.prompt_id or "hello"]
+            )
+            if not user_message:
+                raise HTTPException(status_code=400, detail="enter a message for the agent")
         if not settings.agent_token:
             raise HTTPException(status_code=503, detail="agent authentication is not configured")
         if not settings.model_base_url or not settings.model_name:
@@ -945,7 +962,9 @@ def create_app() -> FastAPI:
             if scenario_id == "host-access-attempt"
             else None
         )
-        request_message = build_agent_request_message(body.profile, run_id, user_message)
+        request_message = build_agent_request_message(
+            body.profile, run_id, user_message, settings.model_name
+        )
 
         async with app.state.scenario_lock:
             _start_demo_run(
@@ -956,8 +975,6 @@ def create_app() -> FastAPI:
                 workload=agent_status.get("pod_name") or "argus-gtc-agent",
                 observes=body.profile != "baseline",
             )
-            if user_message:
-                _update_demo_run(app, run_id, user_message=user_message)
             app.state.scenarios.activate_external_context(scenario_id, run_id)
             app.state.agent_tool_results.pop(run_id, None)
             app.state.shell_sessions.pop(run_id, None)

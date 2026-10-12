@@ -156,11 +156,11 @@ const GUIDED_STORIES = {
     workload: "argus-gtc-agent",
     scenes: [
       {
-        step: "Normal request",
-        title: "Start with a normal request",
-        description: "The AI application runs inside its own Kata VM. Send a greeting and read its real reply.",
-        purpose: "No shell action is requested for this normal conversation.",
-        action: "Say hi to the agent",
+        step: "Conversation",
+        title: "Ask the AI agent a question",
+        description: "Write your own message to the AI application in its Kata VM and read its real reply.",
+        purpose: "No shell action is requested for this conversation.",
+        action: "Send a question to the agent",
         hint: "",
         profile: "baseline",
       },
@@ -200,6 +200,7 @@ let activeSceneIndex = 0;
 let storySelectionChanged = false;
 let guidedRuns = { workload: null, agent: null };
 let guidedHistory = { workload: {}, agent: {} };
+let lastLocalNormalConversation = null;
 let workloadResponseState = "Not requested";
 let streamState = "connecting";
 let streamReconnectTimer = null;
@@ -1601,8 +1602,14 @@ async function runAgentProfile(profile, options = {}) {
   const scenarioId = profile === "baseline" ? "agent-baseline" : "host-access-attempt";
   const scenarioRunId = options.scenarioRunId || createScenarioRunId();
   const apiProfile = profile;
-  const promptId = profile === "baseline" ? options.promptId || "hello" : null;
-  const userMessage = profile === "baseline" ? options.userMessage || "Hi, agent." : null;
+  const draftMessage = options.userMessage !== undefined
+    ? options.userMessage
+    : (document.getElementById("monitor-agent-message")?.value ?? "Hi, agent.");
+  const userMessage = profile === "baseline" ? draftMessage.trim() : null;
+  if (profile === "baseline") {
+    lastLocalNormalConversation = { runId: scenarioRunId, userMessage, running: true };
+    window.renderMonitorConsole?.();
+  }
   setScenarioFilter(scenarioId, scenarioRunId);
   const result = document.getElementById("agent-log");
   demoActionInProgress = true;
@@ -1636,7 +1643,7 @@ async function runAgentProfile(profile, options = {}) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         profile: apiProfile, scenario_run_id: scenarioRunId,
-        ...(promptId ? { prompt_id: promptId } : {}),
+        ...(profile === "baseline" ? { message: userMessage } : {}),
       }),
     });
     const data = await parseJsonResponse(res);
@@ -1686,6 +1693,13 @@ async function runAgentProfile(profile, options = {}) {
       runId: scenarioRunId, workload: "argus-gtc-agent", userMessage,
       running: false, data, finishedAt: Date.now(),
     });
+    if (profile === "baseline" && lastLocalNormalConversation?.runId === scenarioRunId) {
+      lastLocalNormalConversation = {
+        runId: scenarioRunId, userMessage: data.user_message || userMessage,
+        running: false, data,
+      };
+      window.renderMonitorConsole?.();
+    }
     renderGuidedScene();
     return { ok: true, data };
   } catch (error) {
@@ -1697,6 +1711,13 @@ async function runAgentProfile(profile, options = {}) {
       runId: scenarioRunId, workload: "argus-gtc-agent", userMessage,
       running: false, error: error.message,
     });
+    if (profile === "baseline" && lastLocalNormalConversation?.runId === scenarioRunId) {
+      lastLocalNormalConversation = {
+        runId: scenarioRunId, userMessage, running: false,
+        error: error.message || "Agent run failed",
+      };
+      window.renderMonitorConsole?.();
+    }
     renderGuidedScene();
     return { ok: false, error: error.message || "Agent run failed" };
   } finally {
@@ -1949,7 +1970,7 @@ window.argusDemo = {
   get agentStatus() { return lastAgentStatus; },
   get agentReady() { return agentIsReady; },
   get run() { return guidedRuns[activeStory]; },
-  get lastNormalRequest() { return guidedHistory.agent.baseline || null; },
+  get lastLocalNormalConversation() { return lastLocalNormalConversation; },
   get serverInstanceId() { return appServerInstanceId; },
   get retention() { return serverRetention; },
   get droppedQueuedEvents() { return droppedQueuedEvents; },
