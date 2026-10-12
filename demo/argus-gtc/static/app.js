@@ -1628,7 +1628,7 @@ async function runAgentProfile(profile, options = {}) {
   result.textContent = profile === "baseline"
     ? "Normal request: waiting for the Kata agent's reply. No demo shell is requested."
     : profile === "host-reachability"
-      ? "Authorized demo shell: we tell the Kata agent to call open_demo_shell. Bash stays in that pod. About one minute."
+      ? "Demo shell request: asking the Kata agent to call open_demo_shell. The server checks the active run ID before allowing the tool."
       : "Pasted-note example: the current workflow asks the Kata agent to complete the note using its bounded demo-shell tool.";
   try {
     const res = await fetch("/api/agent-runs", {

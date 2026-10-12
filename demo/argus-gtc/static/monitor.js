@@ -19,16 +19,16 @@
     {
       id: "baseline", label: "Normal request",
       what: "Send a simple message to the AI agent in its Kata VM and see its actual reply below.",
-      why: "Shows a real conversation before the separate authorized tool action.",
+      why: "Shows a real conversation before a separate request to use a tool.",
       watch: "The agent reply appears in the conversation card. No shell action is requested; tool and Argus checks are separate.",
       duration: "The request duration depends on the configured model.",
     },
     {
-      id: "host-reachability", label: "Authorized demo shell",
-      what: "Explicitly ask the AI application to open its bounded demo shell inside its own Kata VM.",
-      why: "Shows an authorized tool action and separates the tool report from independent observation.",
-      watch: "The controlled listener must record the identity-command output to prove a working shell. Argus activity and any native alert are separate.",
-      duration: "A bounded shell; allow additional time for native Argus evidence.",
+      id: "host-reachability", label: "Demo shell request",
+      what: "Ask the Kata agent to call its demo shell tool. Bash runs inside the agent pod and connects to a fixed canary for at most 20 seconds.",
+      why: "The server checks the agent token and active run ID before allowing the tool. There is no separate presenter approval step.",
+      watch: "A tool report shows an attempt. The canary's id output confirms a working shell. Argus records are independent evidence.",
+      duration: "Up to 20 seconds of shell activity, plus time for native Argus evidence.",
     },
   ];
 
@@ -164,7 +164,8 @@
     }
     byId("monitor-duration").textContent = item?.duration || "";
     runButton.textContent = story === "agent" && selectedAgentAction === "baseline"
-      ? "Send to agent" : item ? `Run ${item.label}` : "Run";
+      ? "Send to agent" : story === "agent" && selectedAgentAction === "host-reachability"
+        ? "Ask agent to open shell" : item ? `Run ${item.label}` : "Run";
     const reason = actionReadiness();
     runButton.disabled = Boolean(reason);
     byId("monitor-readiness").textContent = reason || (
@@ -623,7 +624,7 @@
     if (!event.scenario_run_id) {
       if (event.scenario_id && event.scenario_id !== selectedScenarioId) {
         const previous = api.story === "agent"
-          ? event.scenario_id === "agent-baseline" ? "Normal request" : "Authorized demo shell"
+          ? event.scenario_id === "agent-baseline" ? "Normal request" : "Demo shell request"
           : workloadCatalog.get(event.scenario_id)?.label || event.scenario_id;
         return `Other scenario · ${previous}`;
       }

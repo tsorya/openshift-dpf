@@ -202,7 +202,7 @@ def _agent_evidence_chain(
     instruction_label = (
         "normal conversation request"
         if profile == "baseline"
-        else "authorized demo shell request"
+        else "explicit demo shell request"
         if profile == "host-reachability"
         else "pasted maintenance note; current workflow asks the agent to complete it"
     )
@@ -617,7 +617,7 @@ def create_app() -> FastAPI:
                 body.scenario_run_id,
                 phase="action",
                 action_status="tool_authorized",
-                message="The server authorized the bounded tool for this active run.",
+                message="The server allowed the bounded tool for this active run ID.",
             )
         return {"authorized": allowed}
 
@@ -1166,7 +1166,7 @@ def create_app() -> FastAPI:
                         "example. The agent response alone does not establish a deliberate refusal."
                     )
                 else:
-                    message = "No authorized demo-shell attempt was recorded."
+                    message = "No demo shell tool attempt was recorded for this run."
                 argus_event = argus_events[0] if argus_events else None
                 evidence_chain = _agent_evidence_chain(
                     profile=body.profile,

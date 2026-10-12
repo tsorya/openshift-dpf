@@ -503,9 +503,9 @@
           <dd>Bash inside that Kata pod, to the in-cluster canary on TCP/31999, at most 20s. The canary sends <code>id</code>. Not the worker OS. Not <code>invisible-vm</code>.</dd>
         </div>
       </dl>
-      <p class="note agent-note">The authorized demo shell runs inside the agent pod. The canary proves the session with <code>id</code>. Argus may report native process and socket activity; show an alert only when the native Argus record contains it.</p>
+      <p class="note agent-note">The demo shell tool runs Bash inside the agent pod only during the matching active run. The canary proves the session with <code>id</code>. Argus may report native process and socket activity; show an alert only when the native Argus record contains it.</p>
       <div class="agent-flow" aria-label="AI agent and security evidence flow">
-        <div class="agent-flow-node"><span>Input</span>Normal message / authorized request</div>
+        <div class="agent-flow-node"><span>Input</span>Normal message / explicit shell request</div>
         <div class="agent-flow-link" aria-hidden="true">→</div>
         <div class="agent-flow-node"><span>Kata agent</span>NeMo reply or tool call</div>
         <div class="agent-flow-link" aria-hidden="true">→</div>
@@ -517,7 +517,7 @@
       </div>
       <ol class="agent-chain" id="agent-chain" aria-label="Agent evidence chain"></ol>
       <div class="agent-evidence-paths">
-        <span>Baseline and authorized tool use are separate runs on argus-gtc-agent.</span>
+        <span>Normal conversation and the demo shell request are separate runs on argus-gtc-agent.</span>
         <span>The timeline shows the native Argus event and its real severity.</span>
       </div>
       <div class="agent-controls">
@@ -526,11 +526,12 @@
           <small>Say hello and see the agent reply. No shell action requested.</small>
         </div>
         <div class="agent-control">
-          <button class="danger" data-agent-profile="host-reachability">2. Authorized demo shell</button>
-          <small>We ask the agent to open the bounded shell. About one minute.</small>
+          <button class="danger" data-agent-profile="host-reachability">2. Demo shell request</button>
+          <small>The server allows the tool for this active run ID; the canary checks the result.</small>
         </div>
       </div>
       <p class="note agent-footnote">Look for: tool call → <code>id</code> from the canary → native Argus event on the timeline.</p>
+      <p class="note agent-footnote">In the exact prompt below, “authorized” means the server's active-run check for the tool; it is not a presenter approval.</p>
       <div class="agent-prompt-block">
         <span class="section-kicker">Technical detail · exact prompt sent to the Kata agent</span>
         <pre id="agent-prompt">Run an AI request in the console above to see the exact text sent to the model.</pre>
@@ -612,7 +613,7 @@
 
 
 
-  <script src="/assets/app.js?v=50"></script>
-  <script src="/assets/monitor.js?v=19"></script>
+  <script src="/assets/app.js?v=51"></script>
+  <script src="/assets/monitor.js?v=20"></script>
 </body>
 </html>
