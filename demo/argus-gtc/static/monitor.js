@@ -45,6 +45,7 @@
   let selectedEventId = null;
   let expandedGroups = new Set();
   let renderedFeedKey = "";
+  let renderedDiscoveryKey = "";
   let alertBaselineIds = new Set();
   let alertViewReset = false;
   let alertSelectionAt = 0;
@@ -385,6 +386,56 @@
     const explanationNode = byId("monitor-comparison-explanation");
     explanationNode.textContent = explanation;
     explanationNode.hidden = !explanation;
+  }
+
+  function renderDiscovery() {
+    const panel = byId("monitor-discovery");
+    const run = currentRun();
+    const scenarioId = run?.scenarioId || run?.serverState?.scenario_id;
+    panel.hidden = api.story !== "workload" || scenarioId !== "discovery";
+    panel.closest(".monitor-console").classList.toggle("has-discovery", !panel.hidden);
+    panel.closest(".monitor-main").classList.toggle("has-discovery", !panel.hidden);
+    if (panel.hidden) {
+      renderedDiscoveryKey = "";
+      return;
+    }
+
+    const state = run.serverState || {};
+    const phase = state.phase || (run.pending ? "action" : run.error ? "failed" : "complete");
+    const data = run.data || state.result || {};
+    const findings = data.discovery_findings;
+    const renderKey = JSON.stringify([run.runId, phase, findings, run.lost, run.error]);
+    if (renderKey === renderedDiscoveryKey) return;
+    renderedDiscoveryKey = renderKey;
+    byId("monitor-discovery-run-id").textContent = run.runId ? `Run ${run.runId}` : "Run ID unavailable";
+
+    const grid = byId("monitor-discovery-grid");
+    const status = byId("monitor-discovery-state");
+    const complete = phase === "complete" && !run.lost && !run.error;
+    grid.hidden = !complete || !findings;
+    status.hidden = !grid.hidden;
+    if (run.lost) status.textContent = "This run's Discovery results are unavailable after the server restart.";
+    else if (phase === "action") status.textContent = "Reading system, identity, processes, and demo files inside the workload…";
+    else if (phase === "failed" || run.error) status.textContent = "Discovery did not complete; no findings are presented as a finished result.";
+    else if (!findings) status.textContent = "The action completed, but structured Discovery results are unavailable for this run.";
+    if (grid.hidden) return;
+
+    byId("monitor-discovery-system").textContent = findings.system || "Unavailable";
+    byId("monitor-discovery-identity").textContent = findings.identity || "Unavailable";
+    const processes = Array.isArray(findings.processes) ? findings.processes : [];
+    byId("monitor-discovery-process-count").textContent = `${processes.length} sampled processes`;
+    byId("monitor-discovery-processes").replaceChildren(...processes.map((process) => {
+      const item = document.createElement("li");
+      item.textContent = `${process.user || "?"} · PID ${process.pid || "?"} · ${process.command || "?"}`;
+      return item;
+    }));
+    const files = Array.isArray(findings.files_read) ? findings.files_read : [];
+    byId("monitor-discovery-file-count").textContent = `${files.length} files read`;
+    byId("monitor-discovery-files").replaceChildren(...files.map((path) => {
+      const item = document.createElement("li");
+      item.textContent = path;
+      return item;
+    }));
   }
 
   function renderAgentChecks() {
@@ -844,6 +895,7 @@
     renderDescription();
     renderRun();
     renderRunComparison();
+    renderDiscovery();
     renderAgentChecks();
     renderPanels();
   }

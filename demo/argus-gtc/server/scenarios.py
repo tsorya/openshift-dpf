@@ -15,6 +15,8 @@ from kubernetes.stream import stream
 
 from .config import Settings
 from .models import (
+    DiscoveryFindings,
+    DiscoveryProcess,
     SCENARIO_LABELS,
     SCENARIO_NATIVE_ALERTS,
     SCENARIO_SIGNATURES,
@@ -58,6 +60,54 @@ _AUDIT_EVASION_INPUT = "\n".join(
 logger = logging.getLogger(__name__)
 
 ALLOWED_SCENARIOS = frozenset(SCENARIO_CATALOG)
+
+
+def _discovery_findings(output: str, marker: str) -> DiscoveryFindings:
+    """Extract bounded workload command results, not Argus sensor evidence."""
+    sections: dict[str, list[str]] = {}
+    current: str | None = None
+    for line in output.splitlines():
+        match = re.fullmatch(
+            rf"--- {re.escape(marker)}-(uname|id|ps|decoys) ---", line.strip()
+        )
+        if match:
+            current = match.group(1)
+            sections[current] = []
+        elif current:
+            sections[current].append(line)
+
+    if set(sections) != {"uname", "id", "ps", "decoys"}:
+        raise RuntimeError("Discovery did not return all four command sections")
+
+    system = " ".join(sections["uname"]).strip()
+    identity = " ".join(sections["id"]).strip()
+    process_lines = [line for line in sections["ps"] if line.strip()]
+    if not system or not identity or not process_lines or "PID" not in process_lines[0]:
+        raise RuntimeError("Discovery returned incomplete system or process output")
+
+    processes = []
+    for line in process_lines[1:20]:
+        columns = line.split(None, 10)
+        if len(columns) == 11:
+            processes.append(
+                DiscoveryProcess(
+                    user=columns[0][:80],
+                    pid=columns[1][:20],
+                    command=columns[10][:300],
+                )
+            )
+    decoy_lines = {line.strip() for line in sections["decoys"]}
+    expected_files = ("/decoys/credentials.txt", "/decoys/runbook.txt")
+    files_read = [path for path in expected_files if f"{path}:" in decoy_lines]
+    if not processes or len(files_read) != len(expected_files):
+        raise RuntimeError("Discovery returned incomplete process or demo file output")
+
+    return DiscoveryFindings(
+        system=system[:512],
+        identity=identity[:512],
+        processes=processes,
+        files_read=files_read,
+    )
 
 
 @dataclass
@@ -449,7 +499,7 @@ class ScenarioController:
                 else:
                     output = self._exec(
                         self._script_for(scenario_id, sink_ip, marker),
-                        check=scenario_id in {"exec-memory", "phone-home"},
+                        check=scenario_id in {"discovery", "exec-memory", "phone-home"},
                         pod_name=workload_pod_name,
                     )
                 return ScenarioResult(
@@ -459,6 +509,10 @@ class ScenarioController:
                     message=output.strip()
                     or SCENARIO_LABELS.get(scenario_id, scenario_id),
                     started_at=started,
+                    discovery_findings=(
+                        _discovery_findings(output, marker)
+                        if scenario_id == "discovery" else None
+                    ),
                     scenario_marker=marker,
                     target_pod=workload_pod_name,
                     target_ip=sink_ip or None,

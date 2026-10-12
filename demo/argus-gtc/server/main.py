@@ -315,7 +315,8 @@ def _run_result_snapshot(kind: str, response: dict[str, Any]) -> dict[str, Any]:
     if kind == "scenario":
         fields = (
             "scenario_id", "scenario_run_id", "status", "message", "started_at",
-            "native_alert", "native_event", "workload_pod", "sink_ip", "sink_port",
+            "native_alert", "native_event", "discovery_findings", "workload_pod",
+            "sink_ip", "sink_port",
         )
     else:
         fields = (

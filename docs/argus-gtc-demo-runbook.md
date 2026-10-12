@@ -36,9 +36,9 @@ Build and push the demo server from the repository root, then set
 
 ```bash
 docker build --platform linux/amd64 \
-  -t quay.io/itsoiref/argus-gtc-demo:v53-exec-memory-evidence \
+  -t quay.io/itsoiref/argus-gtc-demo:v54-discovery-findings \
   -f demo/argus-gtc/Containerfile demo/argus-gtc
-docker push quay.io/itsoiref/argus-gtc-demo:v53-exec-memory-evidence
+docker push quay.io/itsoiref/argus-gtc-demo:v54-discovery-findings
 ```
 
 The server image contains Python 3.11, `requirements.txt`, and the `server/` +
@@ -73,8 +73,8 @@ ARGUS_GTC_MODEL_API_KEY=<OpenAI-API-key>
 Set the image in `.env` (or export it), then deploy:
 
 ```bash
-ARGUS_GTC_DEMO_IMAGE=quay.io/itsoiref/argus-gtc-demo:workload-ubi9-v2 \
-ARGUS_GTC_SERVER_IMAGE=quay.io/itsoiref/argus-gtc-demo:v53-exec-memory-evidence \
+ARGUS_GTC_DEMO_IMAGE=quay.io/itsoiref/argus-gtc-demo:workload-ubi9-v3-python-scenarios \
+ARGUS_GTC_SERVER_IMAGE=quay.io/itsoiref/argus-gtc-demo:v54-discovery-findings \
 ARGUS_GTC_AGENT_IMAGE=quay.io/itsoiref/argus-gtc-agent:nat-1.8.0-v19-agent-shell \
 make deploy-argus-gtc-demo
 ```
@@ -94,8 +94,8 @@ This command:
 
 | Variable | Default | Purpose |
 |----------|---------|---------|
-| `ARGUS_GTC_DEMO_IMAGE` | `quay.io/itsoiref/argus-gtc-demo:workload-ubi9-v2` | Kata workload + sink image; UBI9/glibc Bash and Python 3 support the scenarios |
-| `ARGUS_GTC_SERVER_IMAGE` | `quay.io/itsoiref/argus-gtc-demo:v53-exec-memory-evidence@sha256:08c0eaf9fe86358740e6d157d7fe2a5a0abfd0ca3e5ab4c8530d6314a9442b48` | Demo server, UI, and canary image |
+| `ARGUS_GTC_DEMO_IMAGE` | `quay.io/itsoiref/argus-gtc-demo:workload-ubi9-v3-python-scenarios` | Kata workload + sink image; UBI9/glibc Bash and Python 3 support the scenarios |
+| `ARGUS_GTC_SERVER_IMAGE` | `quay.io/itsoiref/argus-gtc-demo:v54-discovery-findings@sha256:74503029272183efd41c8d48ea59331387f4aa33fe03d9465936a42d15185876` | Demo server, UI, and canary image |
 | `ARGUS_GTC_AGENT_IMAGE` | `quay.io/itsoiref/argus-gtc-agent:nat-1.8.0-v19-agent-shell` | Pre-built NeMo Agent Toolkit image |
 | `ARGUS_GTC_MODEL_BASE_URL` | *(empty)* | OpenAI-compatible API base URL; for OpenAI use `https://api.openai.com/v1` |
 | `ARGUS_GTC_MODEL_NAME` | `gpt-6-luna` | OpenAI API model ID; must be enabled for your API account |
@@ -110,7 +110,7 @@ This command:
 The fixed console opens on `invisible-vm`. Native Argus activity and alerts remain visible before, during, and after an action. The four presenter workload descriptions live in the [scenario catalog](../demo/argus-gtc/server/scenario_catalog.py), which also serves `GET /api/scenarios` for the UI. Use that catalog as the source for the What happens, Why show it, and Watch for copy. **Technical view** has the exact commands and references. Selection only changes the explanation and Run button.
 
 1. **Environment.** Show the activity stream before running anything. Identify the selected workload and say: “Argus runs on the BlueField DPU and observes activity inside this isolated workload without a security agent installed in the guest.” Read Browser, Argus collector, and Latest native event separately. A connected browser and a quiet workload do not prove or disprove source health.
-2. **Discovery.** Select **Discovery**, explain the bounded commands, then select **Run Discovery**. The distinct demo controller marker identifies the action start. Related process and file events are highlighted in the continuing native stream; unrelated activity remains visible in scope. Discovery completion alone is not an Argus alert.
+2. **Discovery.** Select **Discovery**, explain the bounded commands, then select **Run Discovery**. The **Discovered inside the VM** card shows the system, identity, sampled processes, and planted files actually read by those commands; it keeps the last run visible after another scenario is selected. The card is workload command output, not Argus evidence. The distinct demo controller marker identifies the action start. Related process and file events are highlighted in the continuing native stream; unrelated activity remains visible in scope. Discovery completion alone is not an Argus alert.
 3. **Reverse shell.** Select **Reverse shell**, explain the controlled listener, then select **Run Reverse shell**. The latest actual run remains identified even while a different action is selected. Follow process and network records in the stream. Call it a detection only if the matching native `Reverse Shell Detected` record is `ALERT/HIGH`; it then appears in the persistent Alerts panel with its original severity. If none arrives, report the explicit no-matching-alert result.
 4. **Inspect evidence.** Use **Inspect record** on the stream row or alert card to show event ID, source timestamp, workload, process, run ID, and original payload. The same native alert appears in both panels. Earlier-run or unassociated records remain labeled honestly; the controller marker is not native telemetry.
 5. **Respond and recover.** The secondary stop/restore controls target only `invisible-vm`. The server serializes these actions with scenario/agent runs and waits for observed pod termination or readiness. Argus and DPU health remain separate from workload state.

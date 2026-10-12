@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="theme-color" content="#111318" />
   <title>Invisible VM, Visible Threat — Argus GTC Demo</title>
-  <link rel="stylesheet" href="/assets/style.css?v=38" />
+  <link rel="stylesheet" href="/assets/style.css?v=39" />
 </head>
 <body class="guided-page">
   <header class="demo-header">
@@ -95,6 +95,21 @@
           </div>
         </div>
         <p id="monitor-comparison-explanation"></p>
+      </section>
+
+      <section class="monitor-discovery" id="monitor-discovery" aria-labelledby="monitor-discovery-title" hidden>
+        <div class="monitor-comparison-heading">
+          <h2 id="monitor-discovery-title">Discovered inside the VM</h2>
+          <span id="monitor-discovery-run-id"></span>
+        </div>
+        <p class="monitor-discovery-source">Output from the demo commands in the workload. Independent Argus observations remain in Activity below.</p>
+        <p class="monitor-discovery-state" id="monitor-discovery-state" role="status"></p>
+        <div class="monitor-discovery-grid" id="monitor-discovery-grid" hidden>
+          <div class="monitor-discovery-item"><span>System · uname -a</span><strong id="monitor-discovery-system"></strong></div>
+          <div class="monitor-discovery-item"><span>Identity · id</span><strong id="monitor-discovery-identity"></strong></div>
+          <div class="monitor-discovery-item"><span>Processes · ps aux</span><strong id="monitor-discovery-process-count"></strong><small>First rows returned by ps</small><ol id="monitor-discovery-processes"></ol></div>
+          <div class="monitor-discovery-item"><span>Demo files read</span><strong id="monitor-discovery-file-count"></strong><small>Paths shown without file contents</small><ul id="monitor-discovery-files"></ul></div>
+        </div>
       </section>
 
       <section class="monitor-agent-checks" id="monitor-agent-checks" aria-label="AI agent evidence checks" hidden>
@@ -562,6 +577,6 @@
 
 
   <script src="/assets/app.js?v=47"></script>
-  <script src="/assets/monitor.js?v=15"></script>
+  <script src="/assets/monitor.js?v=16"></script>
 </body>
 </html>

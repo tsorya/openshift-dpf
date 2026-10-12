@@ -590,6 +590,19 @@ class NativeEventResult(BaseModel):
         return cls(**event.model_dump(include=set(cls.model_fields)))
 
 
+class DiscoveryProcess(BaseModel):
+    user: str
+    pid: str
+    command: str
+
+
+class DiscoveryFindings(BaseModel):
+    system: str
+    identity: str
+    processes: list[DiscoveryProcess]
+    files_read: list[str]
+
+
 class ScenarioResult(BaseModel):
     scenario_id: str
     scenario_run_id: str
@@ -600,6 +613,7 @@ class ScenarioResult(BaseModel):
     started_at: str
     native_alert: NativeAlertResult | None = None
     native_event: NativeEventResult | None = None
+    discovery_findings: DiscoveryFindings | None = None
     scenario_marker: str | None = Field(default=None, exclude=True)
     target_pod: str | None = Field(default=None, exclude=True)
     target_ip: str | None = Field(default=None, exclude=True)
