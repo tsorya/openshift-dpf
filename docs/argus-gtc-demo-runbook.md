@@ -36,9 +36,9 @@ Build and push the demo server from the repository root, then set
 
 ```bash
 docker build --platform linux/amd64 \
-  -t quay.io/itsoiref/argus-gtc-demo:v55-short-memory \
+  -t quay.io/itsoiref/argus-gtc-demo:v56-agent-readiness \
   -f demo/argus-gtc/Containerfile demo/argus-gtc
-docker push quay.io/itsoiref/argus-gtc-demo:v55-short-memory
+docker push quay.io/itsoiref/argus-gtc-demo:v56-agent-readiness
 ```
 
 The server image contains Python 3.11, `requirements.txt`, and the `server/` +
@@ -68,13 +68,15 @@ ARGUS_GTC_MODEL_NAME=gpt-6-luna
 ARGUS_GTC_MODEL_API_KEY=<OpenAI-API-key>
 ```
 
+The AI agent Run controls require a Ready Kata agent and a model base URL and name on the demo server. An older generated `.env` may omit `ARGUS_GTC_MODEL_NAME`; the deployment script uses the repository default for both server and agent in that case. Supply the model base URL and API key on each deployment.
+
 ## Deploy
 
 Set the image in `.env` (or export it), then deploy:
 
 ```bash
 ARGUS_GTC_DEMO_IMAGE=quay.io/itsoiref/argus-gtc-demo:workload-ubi9-v3-python-scenarios \
-ARGUS_GTC_SERVER_IMAGE=quay.io/itsoiref/argus-gtc-demo:v55-short-memory \
+ARGUS_GTC_SERVER_IMAGE=quay.io/itsoiref/argus-gtc-demo:v56-agent-readiness \
 ARGUS_GTC_AGENT_IMAGE=quay.io/itsoiref/argus-gtc-agent:nat-1.8.0-v19-agent-shell \
 make deploy-argus-gtc-demo
 ```
@@ -95,7 +97,7 @@ This command:
 | Variable | Default | Purpose |
 |----------|---------|---------|
 | `ARGUS_GTC_DEMO_IMAGE` | `quay.io/itsoiref/argus-gtc-demo:workload-ubi9-v3-python-scenarios` | Kata workload + sink image; UBI9/glibc Bash and Python 3 support the scenarios |
-| `ARGUS_GTC_SERVER_IMAGE` | `quay.io/itsoiref/argus-gtc-demo:v55-short-memory@sha256:6ce1ace019ead718cf8cf73df2f7a0c8e27469e5c93c635ab7886004ffa74a10` | Demo server, UI, and canary image |
+| `ARGUS_GTC_SERVER_IMAGE` | `quay.io/itsoiref/argus-gtc-demo:v56-agent-readiness@sha256:79d1082dca52c7f10875da78154b18d01536a5ac9742c188fe19b488749613ec` | Demo server, UI, and canary image |
 | `ARGUS_GTC_AGENT_IMAGE` | `quay.io/itsoiref/argus-gtc-agent:nat-1.8.0-v19-agent-shell` | Pre-built NeMo Agent Toolkit image |
 | `ARGUS_GTC_MODEL_BASE_URL` | *(empty)* | OpenAI-compatible API base URL; for OpenAI use `https://api.openai.com/v1` |
 | `ARGUS_GTC_MODEL_NAME` | `gpt-6-luna` | OpenAI API model ID; must be enabled for your API account |

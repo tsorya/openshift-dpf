@@ -154,14 +154,16 @@ function agent_canary_egress_to() {
 }
 
 function render_demo_manifests() {
-    local worker_role ingest_token ingest_token_hash server_url agent_token agent_token_hash model_key_hash agent_model_name canary_egress
+    local worker_role ingest_token ingest_token_hash server_url agent_token agent_token_hash model_key_hash model_name canary_egress
     worker_role=$(kata_worker_role)
     ingest_token="${ARGUS_GTC_INGEST_TOKEN:-$(openssl rand -hex 16)}"
     ingest_token_hash=$(printf '%s' "${ingest_token}" | sha256sum | awk '{print $1}')
     agent_token="${ARGUS_GTC_AGENT_TOKEN:-$(openssl rand -hex 32)}"
     agent_token_hash=$(printf '%s' "${agent_token}" | sha256sum | awk '{print $1}')
     model_key_hash=$(printf '%s' "${ARGUS_GTC_MODEL_API_KEY:-}" | sha256sum | awk '{print $1}')
-    agent_model_name="${ARGUS_GTC_MODEL_NAME:-unconfigured-model}"
+    # Older generated .env files can lack this newer setting; keep server and
+    # agent on the same model instead of rendering an empty/placeholder name.
+    model_name="${ARGUS_GTC_MODEL_NAME:-gpt-6-luna}"
     canary_egress=$(agent_canary_egress_to)
     mkdir -p "${GENERATED_DEMO_DIR}"
 
@@ -180,8 +182,8 @@ function render_demo_manifests() {
             "<ARGUS_GTC_AGENT_TOKEN_SHA256>" "${agent_token_hash}" \
             "<ARGUS_GTC_MODEL_API_KEY_SHA256>" "${model_key_hash}" \
             "<ARGUS_GTC_MODEL_BASE_URL>" "${ARGUS_GTC_MODEL_BASE_URL:-}" \
-            "<ARGUS_GTC_MODEL_NAME>" "${ARGUS_GTC_MODEL_NAME:-}" \
-            "<ARGUS_GTC_AGENT_MODEL_NAME>" "${agent_model_name}" \
+            "<ARGUS_GTC_MODEL_NAME>" "${model_name}" \
+            "<ARGUS_GTC_AGENT_MODEL_NAME>" "${model_name}" \
             "<ARGUS_GTC_SERVER_URL>" "${server_url:-http://argus-gtc-demo.${DEMO_NAMESPACE}.svc:8080}" \
             "<ARGUS_GTC_CANARY_EGRESS_TO>" "${canary_egress}"
         chmod 600 "${out}"

@@ -436,19 +436,23 @@ def create_app() -> FastAPI:
         )
         model_configured = bool(settings.model_base_url and settings.model_name)
         kata_ready = bool(deployment["ready"] and deployment["kata_runtime"])
+        if not deployment["ready"]:
+            message = "The AI agent pod is not Ready"
+        elif not deployment["kata_runtime"]:
+            message = "The AI agent pod is not running with the Kata runtime class"
+        elif not settings.model_base_url:
+            message = "Set ARGUS_GTC_MODEL_BASE_URL on the demo server"
+        elif not settings.model_name:
+            message = "Set ARGUS_GTC_MODEL_NAME on the demo server and agent"
+        else:
+            message = "Kata agent is ready for the bounded demo"
         return {
             "ready": kata_ready,
             "deployment": deployment,
             "model_configured": model_configured,
             "model_name": settings.model_name if model_configured else None,
             "host_access_port": settings.agent_host_access_port,
-            "message": (
-                "Kata agent is ready for the bounded demo"
-                if kata_ready and model_configured
-                else "The AI agent pod must be Ready with the Kata runtime class"
-                if deployment["ready"] and not deployment["kata_runtime"]
-                else "Configure the model endpoint and wait for the Kata agent pod"
-            ),
+            "message": message,
         }
 
     @app.post("/api/agent-model/v1/chat/completions")
