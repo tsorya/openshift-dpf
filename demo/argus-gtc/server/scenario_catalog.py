@@ -4,6 +4,8 @@ The UI receives this catalog from GET /api/scenarios. The runbook points here so
 the action description has one source of truth.
 """
 
+EXEC_MEMORY_HOLD_SECONDS = 15
+
 SCENARIO_CATALOG = {
     "discovery": {
         "label": "Discovery",
@@ -14,10 +16,10 @@ SCENARIO_CATALOG = {
     },
     "exec-memory": {
         "label": "Executable memory",
-        "what": "A Python process creates executable memory, writes inert bytes into it, and holds it for 45 seconds. It never executes those bytes.",
+        "what": f"A Python process creates executable memory, writes inert bytes into it, and holds it for {EXEC_MEMORY_HOLD_SECONDS} seconds. It never executes those bytes.",
         "why": "Shows visibility into a memory condition associated with suspicious code loading.",
         "watch": "Native ‘New Executable Anonymous Memory Mapped’ record (EVENT/WARNING or ALERT/WARNING) for this workload and run, with writable and executable anonymous memory. A process-start record alone is insufficient.",
-        "duration": "About 45 seconds, plus up to 45 seconds for native evidence.",
+        "duration": f"About {EXEC_MEMORY_HOLD_SECONDS} seconds; Argus verification ends on a match or after 45 more seconds.",
     },
     "reverse-shell": {
         "label": "Reverse shell",

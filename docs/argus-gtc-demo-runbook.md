@@ -36,9 +36,9 @@ Build and push the demo server from the repository root, then set
 
 ```bash
 docker build --platform linux/amd64 \
-  -t quay.io/itsoiref/argus-gtc-demo:v54-discovery-findings \
+  -t quay.io/itsoiref/argus-gtc-demo:v55-short-memory \
   -f demo/argus-gtc/Containerfile demo/argus-gtc
-docker push quay.io/itsoiref/argus-gtc-demo:v54-discovery-findings
+docker push quay.io/itsoiref/argus-gtc-demo:v55-short-memory
 ```
 
 The server image contains Python 3.11, `requirements.txt`, and the `server/` +
@@ -74,7 +74,7 @@ Set the image in `.env` (or export it), then deploy:
 
 ```bash
 ARGUS_GTC_DEMO_IMAGE=quay.io/itsoiref/argus-gtc-demo:workload-ubi9-v3-python-scenarios \
-ARGUS_GTC_SERVER_IMAGE=quay.io/itsoiref/argus-gtc-demo:v54-discovery-findings \
+ARGUS_GTC_SERVER_IMAGE=quay.io/itsoiref/argus-gtc-demo:v55-short-memory \
 ARGUS_GTC_AGENT_IMAGE=quay.io/itsoiref/argus-gtc-agent:nat-1.8.0-v19-agent-shell \
 make deploy-argus-gtc-demo
 ```
@@ -95,7 +95,7 @@ This command:
 | Variable | Default | Purpose |
 |----------|---------|---------|
 | `ARGUS_GTC_DEMO_IMAGE` | `quay.io/itsoiref/argus-gtc-demo:workload-ubi9-v3-python-scenarios` | Kata workload + sink image; UBI9/glibc Bash and Python 3 support the scenarios |
-| `ARGUS_GTC_SERVER_IMAGE` | `quay.io/itsoiref/argus-gtc-demo:v54-discovery-findings@sha256:74503029272183efd41c8d48ea59331387f4aa33fe03d9465936a42d15185876` | Demo server, UI, and canary image |
+| `ARGUS_GTC_SERVER_IMAGE` | `quay.io/itsoiref/argus-gtc-demo:v55-short-memory@sha256:6ce1ace019ead718cf8cf73df2f7a0c8e27469e5c93c635ab7886004ffa74a10` | Demo server, UI, and canary image |
 | `ARGUS_GTC_AGENT_IMAGE` | `quay.io/itsoiref/argus-gtc-agent:nat-1.8.0-v19-agent-shell` | Pre-built NeMo Agent Toolkit image |
 | `ARGUS_GTC_MODEL_BASE_URL` | *(empty)* | OpenAI-compatible API base URL; for OpenAI use `https://api.openai.com/v1` |
 | `ARGUS_GTC_MODEL_NAME` | `gpt-6-luna` | OpenAI API model ID; must be enabled for your API account |
@@ -156,7 +156,7 @@ and Kata infrastructure are untouched. It also deletes only the named
 | Canary has no `uid=` output | Confirm `argus-gtc-canary` is Ready, NodePort 31999 is allocated, and the agent ANP allows TCP/31999 to nodes. Check canary logs. |
 | Shell connected but Argus did not show it | Inspect native Argus logs for `TCP Network Connection State Change`, `Network Connection Created`, `Process Created`, or `Reverse Shell Detected` with `argus-gtc-agent-shell-<run-id>` or the agent pod. Check that Argus is scanning the agent's Kata VF on PF0. The UI does not mark this run as Argus observed without a matching native event. |
 | Argus report tailing fails | Check the demo server logs and verify the hosted kubeconfig has `get/list` access to Argus pods and `create` access to `pods/exec` in `dpf-operator-system` |
-| Executable Memory returns `no-native-event` | Confirm the Python action completed and held the mapping for 45 seconds. Inspect native Argus reports for `New Executable Anonymous Memory Mapped` with `EVENT/WARNING` or `ALERT/WARNING`, writable and executable permissions, the target `invisible-vm` pod, and the run marker. Confirm the live memory collector is enabled. A process event or ordinary `r-xp` mapping is insufficient. |
+| Executable Memory returns `no-native-event` | Confirm the Python action completed and held the mapping for 15 seconds. The evidence wait ends immediately on a matching record, or after 45 more seconds without one. Inspect native Argus reports for `New Executable Anonymous Memory Mapped` with `EVENT/WARNING` or `ALERT/WARNING`, writable and executable permissions, the target `invisible-vm` pod, and the run marker. Confirm the live memory collector is enabled. A process event or ordinary `r-xp` mapping is insufficient. |
 | Audit Evasion returns `no-native-alert` | Confirm the live Argus config has `shell_command.disable_scan=false`, `shell_history_cleared=true`, and `shell_history_disabled=true`; inspect `/var/log/doca_argus/` for profile or collection failures. A correlated `Executable Permissions Removed` MEDIUM alert does not satisfy this scenario. |
 
 ## Measuring action timing and detection latency

@@ -27,7 +27,7 @@ from .models import (
     is_native_high_alert,
     scenario_run_id_from_event,
 )
-from .scenario_catalog import SCENARIO_CATALOG
+from .scenario_catalog import EXEC_MEMORY_HOLD_SECONDS, SCENARIO_CATALOG
 
 # Argus logs can land after exec returns; keep the scenario id long enough
 # for the hosted tailer to classify Kata guest events, not host daemons.
@@ -427,7 +427,7 @@ class ScenarioController:
                 "python3",
                 "/scripts/exec-memory.py",
                 "--hold-seconds",
-                "45",
+                str(EXEC_MEMORY_HOLD_SECONDS),
                 "--scenario-marker",
                 marker,
             ]
