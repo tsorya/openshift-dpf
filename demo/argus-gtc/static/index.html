@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="theme-color" content="#111318" />
   <title>Invisible VM, Visible Threat — Argus GTC Demo</title>
-  <link rel="stylesheet" href="/assets/style.css?v=45" />
+  <link rel="stylesheet" href="/assets/style.css?v=46" />
 </head>
 <body class="guided-page">
   <header class="demo-header">
@@ -114,14 +114,15 @@
 
       <section class="monitor-agent-request" id="monitor-agent-request" aria-labelledby="monitor-agent-request-title" hidden>
         <div class="monitor-comparison-heading">
-          <h2 id="monitor-agent-request-title">What we asked the agent to do</h2>
+          <h2 id="monitor-agent-request-title">Demo shell request</h2>
           <span id="monitor-agent-request-run-id"></span>
         </div>
-        <div class="monitor-agent-turn">
-          <span>Exact instruction sent</span>
+        <p class="monitor-agent-request-summary">We asked the agent to open a Bash session from its Kata pod to the fixed demo canary, then report what happened.</p>
+        <details class="monitor-agent-request-technical" id="monitor-agent-request-technical" hidden>
+          <summary>Show exact instruction</summary>
           <p id="monitor-agent-request-instruction"></p>
-        </div>
-        <p class="monitor-agent-conversation-note">The tool report, canary response, and Argus observation below show what happened after this request.</p>
+        </details>
+        <p class="monitor-agent-conversation-note">The checks below show whether the agent called the tool, whether the canary responded, and what Argus observed.</p>
       </section>
 
       <section class="monitor-run-comparison" id="monitor-run-comparison" aria-labelledby="monitor-comparison-title" hidden>
@@ -623,6 +624,6 @@
 
 
   <script src="/assets/app.js?v=52"></script>
-  <script src="/assets/monitor.js?v=22"></script>
+  <script src="/assets/monitor.js?v=23"></script>
 </body>
 </html>

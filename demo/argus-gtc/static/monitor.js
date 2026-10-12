@@ -56,6 +56,7 @@
   let renderTimer = null;
   let activityOpen = false;
   let renderedGuideItem = null;
+  let renderedAgentRequestRunId = null;
 
   // A modal must remain usable while Technical view is collapsed.
   document.body.appendChild(rawDialog);
@@ -77,6 +78,7 @@
     showStory(story);
     if (story === "agent") selectedAgentAction = id;
     else selectedWorkloadAction = id;
+    if (story === "agent" && currentAction !== id) byId("monitor-agent-request-technical").open = false;
     if (storyChanged || currentAction !== id) resetAlertViewForSelection();
     renderChoices();
     renderConsole();
@@ -537,12 +539,14 @@
 
     const shared = api.run?.runId === run.runId ? api.run.serverState : null;
     const instruction = run.data?.instruction || shared?.instruction || run.serverState?.instruction;
+    const technical = byId("monitor-agent-request-technical");
+    if (renderedAgentRequestRunId !== run.runId) {
+      technical.open = false;
+      renderedAgentRequestRunId = run.runId;
+    }
     byId("monitor-agent-request-run-id").textContent = run.runId ? `Run ${run.runId}` : "";
-    byId("monitor-agent-request-instruction").textContent = instruction || (
-      run.error || run.lost
-        ? "The server did not publish an instruction for this run."
-        : "Waiting for the server to publish the exact instruction…"
-    );
+    technical.hidden = !instruction;
+    byId("monitor-agent-request-instruction").textContent = instruction || "";
   }
 
   function nativeRecord(event) {

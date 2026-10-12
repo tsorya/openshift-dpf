@@ -1637,6 +1637,10 @@ body.guided-page [hidden] { display: none !important; }
 .monitor-agent-turn.agent-reply > span { color: #bde789; }
 .monitor-agent-turn p { margin: .22rem 0 0; color: #eff6fc; font-size: .82rem; line-height: 1.4; white-space: pre-wrap; overflow-wrap: anywhere; }
 .monitor-agent-conversation-note { margin: .38rem 0 0; color: #a9bdce; font-size: .68rem; }
+.monitor-agent-request-summary { margin: .2rem 0 .4rem; color: #eff6fc; font-size: .84rem; line-height: 1.4; }
+.monitor-agent-request-technical { border-top: 1px solid #344b62; padding-top: .38rem; }
+.monitor-agent-request-technical summary { color: #aee7ff; cursor: pointer; font-size: .72rem; font-weight: 700; }
+.monitor-agent-request-technical p { margin: .4rem 0 0; color: #b8cadd; font-size: .72rem; line-height: 1.4; white-space: pre-wrap; overflow-wrap: anywhere; }
 
 .monitor-run-comparison { padding: .48rem .6rem; border: 1px solid #344b62; border-radius: 7px; background: #0d1a29; }
 .monitor-comparison-heading { display: flex; justify-content: space-between; align-items: baseline; gap: .5rem; margin-bottom: .35rem; }
