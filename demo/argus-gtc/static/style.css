@@ -1568,16 +1568,22 @@ body.guided-page [hidden] { display: none !important; }
 .monitor-console.has-discovery { grid-template-rows: auto auto auto auto auto auto minmax(0, 1fr); }
 .monitor-context, .monitor-panel-heading, .monitor-explanation-title, .monitor-action-line,
 .monitor-run-strip, .monitor-operator { display: flex; align-items: center; justify-content: space-between; gap: .7rem; }
-.monitor-context { min-width: 0; }
+.monitor-context { display: grid; align-items: stretch; justify-content: stretch; gap: .42rem; min-width: 0; }
 .monitor-context > div:first-child { display: flex; align-items: baseline; flex-wrap: wrap; gap: .28rem .55rem; min-width: 0; }
-.monitor-context strong { color: #f5f8fb; font-size: .95rem; }
+.monitor-context > div:first-child strong { color: #f5f8fb; font-size: .95rem; }
 .monitor-location { color: #abc0d3; font-size: .78rem; }
-.monitor-health { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: .3rem; }
-.monitor-health > span { display: inline-flex; gap: .35rem; align-items: center; padding: .28rem .45rem; border: 1px solid #41536a; border-radius: 5px; color: #a9bed1; font-size: .72rem; white-space: nowrap; }
-.monitor-health strong { font-size: .72rem; color: #e5eff9; }
-.monitor-health strong[data-state="connected"], .monitor-health strong[data-state="reading"], .monitor-health strong[data-state="recent"] { color: #b8e878; }
-.monitor-health strong[data-state="disconnected"], .monitor-health strong[data-state="unavailable"] { color: #ff9da8; }
-.monitor-health strong[data-state="quiet"] { color: #ffd195; }
+.monitor-environment { min-width: 0; padding: .45rem .55rem; border: 1px solid #344b62; border-radius: 7px; background: #0a1420; }
+.monitor-environment-heading { display: flex; justify-content: space-between; align-items: baseline; gap: .6rem; margin-bottom: .34rem; }
+.monitor-environment-heading > div { display: flex; align-items: baseline; flex-wrap: wrap; gap: .25rem .5rem; }
+.monitor-environment-heading #monitor-environment-title { color: #f5f8fb; font-size: .88rem; }
+.monitor-updates { color: #9db1c6; font-size: .72rem; white-space: nowrap; }
+.monitor-updates strong { font-size: .72rem; }
+.monitor-updates strong[data-state="connected"] { color: #b8e878; }
+.monitor-updates strong[data-state="disconnected"] { color: #ff9da8; }
+.monitor-environment-grid { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: .35rem; }
+.monitor-environment-grid .pill { min-width: 0; padding: .38rem .5rem; border-radius: 5px; background: #142333; }
+.monitor-environment-grid .pill span { font-size: .68rem; line-height: 1.2; letter-spacing: .03em; }
+.monitor-environment-grid .pill strong { margin-top: .12rem; font-size: .86rem; line-height: 1.2; overflow-wrap: anywhere; }
 
 .monitor-scenario-tabs { display: flex; align-items: center; gap: .45rem; min-width: 0; }
 .monitor-primary-scenarios { display: flex; flex-wrap: wrap; gap: .35rem; }
@@ -1717,6 +1723,7 @@ body.guided-page [hidden] { display: none !important; }
 .monitor-agent-checks strong[data-state="observed"] { color: #b8e878; }
 .monitor-agent-checks strong[data-state="missing"] { color: #ffd195; }
 body.agent-page .monitor-console { grid-template-rows: auto auto auto auto auto minmax(0, 1fr); }
+body.agent-page .monitor-environment,
 body.agent-page .technical-content .hero,
 body.agent-page .technical-content .topology,
 body.agent-page .technical-content .coverage,
@@ -1738,13 +1745,13 @@ body:not(.agent-page) .technical-content .agent-demo { display: none; }
   }
 }
 @media (max-width: 1000px) {
-  .monitor-context { align-items: flex-start; flex-direction: column; }
-  .monitor-health { justify-content: flex-start; }
+  .monitor-environment-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .monitor-main { min-height: 0; }
   .monitor-evidence-grid { min-height: 430px; }
   .monitor-discovery-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 @media (max-width: 760px) {
+  .monitor-environment-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .story-nav { flex-wrap: wrap; }
   .monitor-agent-checks { grid-template-columns: repeat(2, minmax(0,1fr)); }
   .monitor-agent-checks > div:last-child { grid-column: 1 / -1; }

@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="theme-color" content="#111318" />
   <title>Invisible VM, Visible Threat — Argus GTC Demo</title>
-  <link rel="stylesheet" href="/assets/style.css?v=41" />
+  <link rel="stylesheet" href="/assets/style.css?v=42" />
 </head>
 <body class="guided-page">
   <header class="demo-header">
@@ -40,11 +40,20 @@
           <strong id="monitor-workload">invisible-vm</strong>
           <span class="monitor-location">Kata VM · DOCA Argus on BlueField DPU</span>
         </div>
-        <div class="monitor-health" aria-label="Independent connection and source states">
-          <span>Browser <strong id="monitor-browser-health">Connecting</strong></span>
-          <span>Argus collector <strong id="monitor-collector-health">Checking…</strong></span>
-          <span>Latest native event <strong id="monitor-native-age">Checking…</strong></span>
-        </div>
+        <section class="monitor-environment" aria-labelledby="monitor-environment-title">
+          <div class="monitor-environment-heading">
+            <div><span class="section-kicker">Environment</span><strong id="monitor-environment-title">Live system health</strong></div>
+            <span class="monitor-updates">Updates <strong id="monitor-connection-state" data-state="connecting">Connecting</strong></span>
+          </div>
+          <div class="monitor-environment-grid">
+            <div class="pill" data-key="cluster"><span>Management cluster</span><strong>—</strong></div>
+            <div class="pill" data-key="dpu"><span>DPU</span><strong>—</strong></div>
+            <div class="pill" data-key="argus"><span>Argus / HyperShift</span><strong>—</strong></div>
+            <div class="pill" data-key="kata_vm"><span>Kata VM</span><strong>—</strong></div>
+            <div class="pill" data-key="vf_link"><span>PF0 VF / Link</span><strong>—</strong></div>
+            <div class="pill" data-key="argus_freshness"><span>Security feed</span><strong>—</strong></div>
+          </div>
+        </section>
       </div>
 
       <div class="monitor-scenario-tabs" aria-label="Choose an action">
@@ -583,7 +592,7 @@
 
 
 
-  <script src="/assets/app.js?v=48"></script>
-  <script src="/assets/monitor.js?v=17"></script>
+  <script src="/assets/app.js?v=49"></script>
+  <script src="/assets/monitor.js?v=18"></script>
 </body>
 </html>

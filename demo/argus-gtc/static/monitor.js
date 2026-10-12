@@ -208,31 +208,8 @@
       : new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit", second: "2-digit" }).format(date);
   }
 
-  function ageLabel(value) {
-    const stamp = Date.parse(value || "");
-    if (!stamp) return "No native events yet";
-    const seconds = Math.max(0, Math.floor((Date.now() - stamp) / 1000));
-    const age = seconds < 60 ? `${seconds}s` : `${Math.floor(seconds / 60)}m`;
-    return seconds < 120 ? `${age} ago` : `No recent events · ${age} ago`;
-  }
-
-  function renderHealth() {
+  function trackServerInstance() {
     const status = api.status;
-    const browser = api.streamState;
-    const browserText = browser === "connected" ? "Connected" : browser === "disconnected" ? "Reconnecting" : "Connecting";
-    byId("monitor-browser-health").textContent = browserText;
-    byId("monitor-browser-health").dataset.state = browser;
-    const collector = status?.collector;
-    const collectorState = collector?.state || "starting";
-    byId("monitor-collector-health").textContent = collectorState === "reading"
-      ? "Reading source" : collectorState === "unavailable" ? "Unavailable" : "Checking";
-    byId("monitor-collector-health").dataset.state = collectorState;
-    byId("monitor-collector-health").title = collector?.last_error || collector?.source || "Collector status unavailable";
-    byId("monitor-native-age").textContent = ageLabel(status?.latest_native_occurred_at);
-    byId("monitor-native-age").title = status?.latest_native_occurred_at || "No native source timestamp";
-    byId("monitor-native-age").dataset.state = status?.latest_native_occurred_at
-      ? Date.now() - Date.parse(status.latest_native_occurred_at) < 120000 ? "recent" : "quiet"
-      : "quiet";
     const instance = status?.server_instance_id || api.serverInstanceId;
     if (instance && knownServerInstance && instance !== knownServerInstance) {
       historyGap = "Demo server restarted; earlier in-memory history may be unavailable.";
@@ -923,7 +900,7 @@
   }
 
   function renderConsole() {
-    renderHealth();
+    trackServerInstance();
     renderDescription();
     renderRun();
     renderRunComparison();

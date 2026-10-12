@@ -19,6 +19,7 @@ const storySelect = document.getElementById("story-select");
 const connectionState = document.getElementById("connection-state");
 const feedFreshness = document.getElementById("feed-freshness");
 const legacyConnectionState = document.getElementById("legacy-connection-state");
+const monitorConnectionState = document.getElementById("monitor-connection-state");
 const legacyFeedState = document.getElementById("legacy-feed-state");
 const guidedActionButton = document.getElementById("guided-action");
 const guidedRunState = document.getElementById("run-state");
@@ -235,6 +236,8 @@ function setStreamState(state, label) {
   if (legacyConnectionState?.lastElementChild) {
     legacyConnectionState.lastElementChild.textContent = value.toLowerCase();
   }
+  monitorConnectionState.textContent = value;
+  monitorConnectionState.dataset.state = state;
   if (legacyFeedState) {
     legacyFeedState.dataset.state = state;
     const label = document.getElementById("legacy-stream-label");
@@ -403,7 +406,7 @@ async function refreshServerRunState(initial = false) {
 function renderReadiness() {
   const workload = lastSystemStatus?.kata_vm || "Checking…";
   const argus = lastSystemStatus?.argus || "Checking…";
-  const feed = lastSystemStatus?.argus_freshness || "Checking…";
+  const feed = lastSystemStatus ? healthValue(lastSystemStatus, "argus_freshness") : "Checking…";
   const values = [
     ["readiness-workload", workload],
     ["readiness-argus", argus],
@@ -816,8 +819,16 @@ function pillClass(value) {
   const v = String(value).toLowerCase();
   if (["ready", "live", "allocated", "ok", "contained", "stopped", "restored"].includes(v)) return "ok";
   if (["pending", "unknown", "degraded", "stopping", "restoring"].includes(v)) return "warn";
-  if (["absent", "error", "failed"].includes(v)) return "bad";
+  if (["absent", "error", "failed", "unavailable"].includes(v)) return "bad";
   return "";
+}
+
+function healthValue(status, key) {
+  if (key === "argus_freshness") {
+    if (status.collector?.state === "unavailable") return "Unavailable";
+    if (status.collector?.state === "starting") return "Checking";
+  }
+  return status[key] || "—";
 }
 
 function updateRibbon(status) {
@@ -825,9 +836,14 @@ function updateRibbon(status) {
   if (status.retention) serverRetention = status.retention;
   document.querySelectorAll(".pill").forEach((pill) => {
     const key = pill.dataset.key;
-    const value = status[key] || "—";
+    const value = healthValue(status, key);
     pill.querySelector("strong").textContent = value;
     pill.className = `pill ${pillClass(value)}`;
+    if (key === "argus_freshness") {
+      pill.title = status.collector?.state === "unavailable"
+        ? "Argus collector unavailable; a recent event does not establish a live feed."
+        : "Time since the latest received event while the collector is checking its source.";
+    }
   });
 
   const pod = status.details?.pod;
@@ -838,7 +854,7 @@ function updateRibbon(status) {
   const argus = status.details?.argus;
   document.getElementById("argus-pods").textContent = argus ? `${argus.running}/${argus.total} ready` : "—";
   updateCoverage(status.details?.coverage);
-  updateFeedFreshness(status.argus_freshness || "Unknown");
+  updateFeedFreshness(healthValue(status, "argus_freshness"));
   renderReadiness();
   if (activeStory === "workload" && currentGuidedScene().response) renderGuidedResult();
   window.renderMonitorConsole?.();
@@ -1391,10 +1407,11 @@ async function refreshStatus() {
     const data = await parseJsonResponse(res);
     updateRibbon(data);
   } catch (_error) {
-    lastSystemStatus = { kata_vm: "Unavailable", argus: "Unavailable", argus_freshness: "Unavailable" };
-    updateFeedFreshness("Unavailable");
-    renderReadiness();
-    if (activeStory === "workload" && currentGuidedScene().response) renderGuidedResult();
+    updateRibbon({
+      cluster: "Unavailable", dpu: "Unavailable", argus: "Unavailable",
+      kata_vm: "Unavailable", vf_link: "Unavailable", argus_freshness: "Unavailable",
+      collector: { state: "unavailable" },
+    });
   }
 }
 

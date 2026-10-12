@@ -36,9 +36,9 @@ Build and push the demo server from the repository root, then set
 
 ```bash
 docker build --platform linux/amd64 \
-  -t quay.io/itsoiref/argus-gtc-demo:v59-technical-response \
+  -t quay.io/itsoiref/argus-gtc-demo:v60-environment-health \
   -f demo/argus-gtc/Containerfile demo/argus-gtc
-docker push quay.io/itsoiref/argus-gtc-demo:v59-technical-response
+docker push quay.io/itsoiref/argus-gtc-demo:v60-environment-health
 ```
 
 The server image contains Python 3.11, `requirements.txt`, and the `server/` +
@@ -76,7 +76,7 @@ Set the image in `.env` (or export it), then deploy:
 
 ```bash
 ARGUS_GTC_DEMO_IMAGE=quay.io/itsoiref/argus-gtc-demo:workload-ubi9-v3-python-scenarios \
-ARGUS_GTC_SERVER_IMAGE=quay.io/itsoiref/argus-gtc-demo:v59-technical-response \
+ARGUS_GTC_SERVER_IMAGE=quay.io/itsoiref/argus-gtc-demo:v60-environment-health \
 ARGUS_GTC_AGENT_IMAGE=quay.io/itsoiref/argus-gtc-agent:nat-1.8.0-v19-agent-shell \
 make deploy-argus-gtc-demo
 ```
@@ -97,7 +97,7 @@ This command:
 | Variable | Default | Purpose |
 |----------|---------|---------|
 | `ARGUS_GTC_DEMO_IMAGE` | `quay.io/itsoiref/argus-gtc-demo:workload-ubi9-v3-python-scenarios` | Kata workload + sink image; UBI9/glibc Bash and Python 3 support the scenarios |
-| `ARGUS_GTC_SERVER_IMAGE` | `quay.io/itsoiref/argus-gtc-demo:v59-technical-response@sha256:340cda24434d8e774a1a1c4c0670bea1ab58c3dca91179efb6fa907d4a38e08d` | Demo server, UI, and canary image |
+| `ARGUS_GTC_SERVER_IMAGE` | `quay.io/itsoiref/argus-gtc-demo:v60-environment-health@sha256:622a7dde92384476e965186d5b1c1801ead94bd8669d852bd06544f468abc9fd` | Demo server, UI, and canary image |
 | `ARGUS_GTC_AGENT_IMAGE` | `quay.io/itsoiref/argus-gtc-agent:nat-1.8.0-v19-agent-shell` | Pre-built NeMo Agent Toolkit image |
 | `ARGUS_GTC_MODEL_BASE_URL` | *(empty)* | OpenAI-compatible API base URL; for OpenAI use `https://api.openai.com/v1` |
 | `ARGUS_GTC_MODEL_NAME` | `gpt-6-luna` | OpenAI API model ID; must be enabled for your API account |
@@ -111,7 +111,7 @@ This command:
 
 The console opens on `invisible-vm`. The selected scenario shows three action steps, cues for opening Activity, and the Argus result to verify. Activity is collapsed by default; **Show Activity** opens the raw native feed with Scope and Pause controls. Native alerts and the last run's Expected / Observed result remain visible. The descriptions live in the [scenario catalog](../demo/argus-gtc/server/scenario_catalog.py), which serves `GET /api/scenarios`. **Technical view** has exact commands and references. Selecting a scenario changes its guide and Run button but does not start it or replace the last run's result.
 
-1. **Environment.** Identify the selected workload and say: “Argus runs on the BlueField DPU and observes activity inside this isolated workload without a security agent installed in the guest.” Read Browser, Argus collector, and Latest native event separately. Open Activity only when you want to inspect raw records. A connected browser and a quiet workload do not prove or disprove source health.
+1. **Environment.** Identify the selected workload and say: “Argus runs on the BlueField DPU and observes activity inside this isolated workload without a security agent installed in the guest.” The compact Environment panel repeats the six system values from Technical view: Management cluster, DPU, Argus / HyperShift, Kata VM, PF0 VF / Link, and Security feed. **Updates Connected** means only that the browser stream is open. Security feed shows event recency while the collector is reading; it shows Unavailable when the collector fails, even if a recent event remains in memory. Open Activity only when you want to inspect raw records.
 2. **Discovery.** Run `uname -a` and `id`, list processes with `ps aux`, and read the planted `/decoys` files. Select **Run Discovery**. The **Discovered inside the VM** card shows the actual command output; it is separate from Argus telemetry. In Activity, look for the corresponding process and file records if Argus reports them. No native alert is required.
 3. **Executable memory.** Map writable executable anonymous memory, write inert bytes, and hold the mapping for 15 seconds without executing them. In Activity, look for the marked Python process and the exact memory event. The Expected / Observed card verifies a matching `New Executable Anonymous Memory Mapped` WARNING with writable and executable memory; a process event alone is insufficient.
 4. **Reverse shell.** Open a bounded Bash shell whose input and output connect to the in-namespace `scenario-sink`. In Activity, look for the marked shell and its TCP connection. Call it a detection only if the Expected / Observed card verifies `Reverse Shell Detected` as `ALERT/HIGH`. The current sink accepts the connection but does not capture commands, user ID, or whether the shell remains active; do not claim those facts from the demo.
@@ -132,7 +132,7 @@ Open `/agent` directly or choose **AI agent behavior** in the header navigation.
 3. **Independent observation.** Show the matching native Argus record from `argus-gtc-agent`. Only describe a HIGH alert when the record itself contains `message_type=ALERT` and `severity=HIGH`. A timeout alone is not proof of an OVN policy block.
 4. **Recap.** State what the agent attempted, what the listener confirmed, what Argus observed, whether Argus raised a native alert, and whether OVN recorded a matching deny. Do not blend this evidence with `invisible-vm`.
 
-For both stories, use the actual workload name and the three separate health signals. “Connected” means the SSE connection is open; “Reading source” means the collector completed a source poll, even if it found no new events; Latest native event uses the source occurrence timestamp. A collector failure is shown separately from a quiet feed.
+For both stories, use the actual workload name. The Environment tiles describe the scripted `invisible-vm` system and appear on the Workload security page; the AI agent page uses its separate agent readiness and evidence checks. Management cluster Ready means the demo server's management API status queries succeeded, not that every cluster operator is healthy. Argus / HyperShift Ready refers to the hosted Argus service pods. Security feed recency is not proof of continuous collection, so collector Unavailable overrides it in both the main and Technical views.
 
 ## Cleanup
 
