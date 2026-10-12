@@ -434,7 +434,7 @@ function renderGuidedScene() {
     : "Continuous workload monitoring";
   document.getElementById("technical-view-description").textContent = isAgent
     ? "Agent flow, exact prompts, raw events, and metrics"
-    : "Topology, scenarios, health, filters, metrics, and raw events";
+    : "Topology, scenarios, response controls, health, filters, metrics, and raw events";
   document.getElementById("demo-purpose").textContent = isAgent
     ? "See AI tool activity in its Kata VM and independent Argus evidence from the BlueField DPU."
     : "Argus watches the Kata VM from the BlueField DPU, without an in-guest security agent.";
@@ -491,7 +491,7 @@ function setGuidedActionState(state, label) {
 
 function syncActionButtons() {
   const actionLocked = demoActionInProgress || hasGuidedRunInProgress();
-  document.querySelectorAll("button[data-scenario], button[data-agent-profile], #guided-action, #contain-btn, #reset-btn, #guided-contain-btn, #guided-reset-btn").forEach((button) => {
+  document.querySelectorAll("button[data-scenario], button[data-agent-profile], #guided-action, #guided-contain-btn, #guided-reset-btn").forEach((button) => {
     if (button.matches("[data-scenario], [data-agent-profile]")) {
       button.disabled = false;
     } else if (button === guidedActionButton) {
@@ -1763,14 +1763,6 @@ async function runControlAction(path) {
     syncActionButtons();
   }
 }
-
-document.getElementById("contain-btn").addEventListener("click", () => {
-  runControlAction("/api/contain");
-});
-
-document.getElementById("reset-btn").addEventListener("click", () => {
-  runControlAction("/api/reset");
-});
 
 document.getElementById("guided-contain-btn").addEventListener("click", () => {
   runControlAction("/api/contain");

@@ -1556,7 +1556,7 @@ body.guided-page [hidden] { display: none !important; }
 .monitor-main { padding: .2rem 0 .4rem; }
 .monitor-console {
   display: grid;
-  grid-template-rows: auto auto auto auto minmax(0, 1fr) auto;
+  grid-template-rows: auto auto auto auto minmax(0, 1fr);
   gap: .42rem;
   min-height: 0;
   padding: .65rem;
@@ -1564,8 +1564,8 @@ body.guided-page [hidden] { display: none !important; }
   border-radius: 12px;
   background: #0e1825;
 }
-.monitor-console.has-comparison { grid-template-rows: auto auto auto auto auto minmax(0, 1fr) auto; }
-.monitor-console.has-discovery { grid-template-rows: auto auto auto auto auto auto minmax(0, 1fr) auto; }
+.monitor-console.has-comparison { grid-template-rows: auto auto auto auto auto minmax(0, 1fr); }
+.monitor-console.has-discovery { grid-template-rows: auto auto auto auto auto auto minmax(0, 1fr); }
 .monitor-context, .monitor-panel-heading, .monitor-explanation-title, .monitor-action-line,
 .monitor-run-strip, .monitor-operator { display: flex; align-items: center; justify-content: space-between; gap: .7rem; }
 .monitor-context { min-width: 0; }
@@ -1700,6 +1700,7 @@ body.guided-page [hidden] { display: none !important; }
 .monitor-alert-actions button { padding: .25rem .42rem; min-height: 26px; font-size: .69rem; }
 
 .monitor-operator { min-width: 0; padding: .3rem .55rem; border: 1px solid #625137; border-radius: 6px; background: #1b1b1e; color: #c7d4df; font-size: .73rem; }
+.technical-content .monitor-operator { margin-top: .85rem; padding: .65rem; }
 .monitor-operator strong, .monitor-operator b { color: #f0f5f9; }
 .monitor-operator > div { display: flex; gap: .35rem; }
 .monitor-operator button { min-height: 30px; padding: .28rem .55rem; font-size: .72rem; }
@@ -1730,10 +1731,10 @@ body:not(.agent-page) .technical-content .agent-demo { display: none; }
   .monitor-main.has-comparison .monitor-console {
     height: auto;
     min-height: calc(100dvh - 112px);
-    grid-template-rows: auto auto auto auto auto minmax(240px, 1fr) auto;
+    grid-template-rows: auto auto auto auto auto minmax(240px, 1fr);
   }
   .monitor-main.has-discovery .monitor-console {
-    grid-template-rows: auto auto auto auto auto auto minmax(240px, 1fr) auto;
+    grid-template-rows: auto auto auto auto auto auto minmax(240px, 1fr);
   }
 }
 @media (max-width: 1000px) {

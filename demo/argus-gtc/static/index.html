@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="theme-color" content="#111318" />
   <title>Invisible VM, Visible Threat — Argus GTC Demo</title>
-  <link rel="stylesheet" href="/assets/style.css?v=40" />
+  <link rel="stylesheet" href="/assets/style.css?v=41" />
 </head>
 <body class="guided-page">
   <header class="demo-header">
@@ -161,14 +161,6 @@
             <p class="monitor-empty">No native alerts in this view. Monitoring is still active.</p>
           </div>
         </section>
-      </div>
-
-      <div class="monitor-operator" id="monitor-operator">
-        <span><strong>OpenShift response</strong> · target <b id="monitor-response-target">invisible-vm</b> · <span id="monitor-response-state">No response requested.</span></span>
-        <div>
-          <button type="button" class="danger" id="monitor-stop-btn">Stop demo workload</button>
-          <button type="button" class="secondary" id="monitor-restore-btn">Restore demo workload</button>
-        </div>
       </div>
     </section>
   </main>
@@ -450,9 +442,12 @@
           </div>
         </div>
       </div>
-      <div class="contain-row">
-        <button class="danger" id="contain-btn">Stop demo workload (invisible-vm)</button>
-        <button class="secondary" id="reset-btn">Restore demo workload (invisible-vm)</button>
+      <div class="monitor-operator" id="monitor-operator">
+        <span><strong>OpenShift response</strong> · target <b id="monitor-response-target">invisible-vm</b> · <span id="monitor-response-state">No response requested.</span></span>
+        <div>
+          <button type="button" class="danger" id="monitor-stop-btn">Stop demo workload</button>
+          <button type="button" class="secondary" id="monitor-restore-btn">Restore demo workload</button>
+        </div>
       </div>
       <pre id="action-log"></pre>
     </section>
@@ -588,7 +583,7 @@
 
 
 
-  <script src="/assets/app.js?v=47"></script>
+  <script src="/assets/app.js?v=48"></script>
   <script src="/assets/monitor.js?v=17"></script>
 </body>
 </html>
