@@ -16,7 +16,7 @@ SCENARIO_CATALOG = {
         "label": "Executable memory",
         "what": "A Python process creates executable memory, writes inert bytes into it, and holds it for 45 seconds. It never executes those bytes.",
         "why": "Shows visibility into a memory condition associated with suspicious code loading.",
-        "watch": "Native WARNING EVENT ‘New Executable Anonymous Memory Mapped’ for this workload and run. A process-start record alone is insufficient.",
+        "watch": "Native ‘New Executable Anonymous Memory Mapped’ record (EVENT/WARNING or ALERT/WARNING) for this workload and run, with writable and executable anonymous memory. A process-start record alone is insufficient.",
         "duration": "About 45 seconds, plus up to 45 seconds for native evidence.",
     },
     "reverse-shell": {

@@ -971,10 +971,17 @@ function matchesNativeScenario(event, scenarioId) {
 
 function matchesNativeEventScenario(event, scenarioId) {
   if (!SCENARIO_NATIVE_EVENTS[scenarioId]) return false;
-  if ((event.message_type || "").toUpperCase() !== "EVENT") return false;
+  const messageType = (event.message_type || "").toUpperCase();
+  const acceptedTypes = scenarioId === "exec-memory" ? ["EVENT", "ALERT"] : ["EVENT"];
+  if (!acceptedTypes.includes(messageType)) return false;
   if ((event.severity || "").toUpperCase() !== SCENARIO_NATIVE_EVENT_SEVERITIES[scenarioId]) return false;
   if (event.activity_name !== SCENARIO_NATIVE_EVENTS[scenarioId]) return false;
   if (!podMatchesPrefixes(event.pod_name, ["invisible-vm"])) return false;
+  if (scenarioId === "exec-memory") {
+    const raw = event.raw?.message_header || event.raw;
+    const permissions = String(raw?.activity_data?.process_memory_details?.memory_permissions || "").toLowerCase();
+    if (!["r", "w", "x"].every((bit) => permissions.includes(bit))) return false;
+  }
   if (scenarioId === lastClickScenario && activeScenarioRunId) {
     const occurred = Date.parse(event.occurred_at || "");
     if (!occurred || occurred < (activeScenarioTarget?.startedAt || lastClickAt)) return false;
@@ -1509,11 +1516,11 @@ async function runScenario(id, options = {}) {
               ? `destination=${event.destination_ip}:${event.destination_port}`
               : null,
           ].filter(Boolean).join(" · ")
-        : "Matching event summary unavailable; inspect the current-run timeline.";
+        : "Matching record summary unavailable; inspect the current-run timeline.";
       const verdict = data.status === "native-event"
         ? `Native evidence observed: ${summary}`
         : data.status === "no-native-event"
-          ? `No native event observed: ${data.message || SCENARIO_NATIVE_EVENTS[id]}`
+          ? `No matching native record observed: ${data.message || SCENARIO_NATIVE_EVENTS[id]}`
           : `Scenario execution: ${data.message || data.status}`;
       actionLog.textContent = `${verdict}\n\n${JSON.stringify(data, null, 2)}`;
     } else {

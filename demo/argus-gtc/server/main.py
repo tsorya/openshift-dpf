@@ -65,12 +65,14 @@ def _expected_native_for_scenario(scenario_id: str) -> dict[str, Any] | None:
         }
     native_event = SCENARIO_NATIVE_EVENTS.get(scenario_id)
     if native_event:
-        activity_name, message_type, severity = native_event
+        activity_name, message_types, severity = native_event
         return {
             "activity_names": [activity_name],
-            "message_type": message_type,
+            "message_type": message_types[0],
+            "message_types": list(message_types),
             "severity": severity,
             "wait_seconds": int(NATIVE_EVENT_TIMEOUT_SECONDS),
+            **({"memory_permissions": "RWX"} if scenario_id == "exec-memory" else {}),
         }
     return None
 
@@ -828,7 +830,7 @@ def create_app() -> FastAPI:
                         result.native_event = NativeEventResult.from_event(native_event)
                     else:
                         result.status = "no-native-event"
-                        result.message = "No matching native Argus event observed within 45 seconds."
+                        result.message = "No matching native Argus record observed within 45 seconds."
                 response = result.model_dump()
                 if scenario_id in SCENARIO_NATIVE_EVENTS:
                     response["workload_pod"] = result.target_pod

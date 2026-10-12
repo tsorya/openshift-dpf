@@ -401,7 +401,7 @@
           <div id="info-exec-memory" class="scenario-info" hidden role="dialog" aria-labelledby="info-exec-memory-title">
             <h3 id="info-exec-memory-title">Executable Memory</h3>
             <p class="info-does"><strong>What it does.</strong> A Python process in <code>invisible-vm</code> writes inert bytes into an anonymous executable memory mapping and holds it for 45 seconds so Argus can sample it. It does not execute those bytes.</p>
-            <p class="info-expect"><strong>Native evidence.</strong> Look for <code>New Executable Anonymous Memory Mapped</code> with <code>message_type=EVENT</code> and <code>severity=WARNING</code>, attributed to this Kata workload and run marker. Because Argus reports can arrive after the action, the controller waits up to 45 seconds for a match. It never labels process activity as a native detection.</p>
+            <p class="info-expect"><strong>Native evidence.</strong> Look for <code>New Executable Anonymous Memory Mapped</code> with <code>message_type=EVENT</code> or <code>ALERT</code>, <code>severity=WARNING</code>, and writable executable anonymous memory, attributed to this Kata workload and run marker. Because Argus reports can arrive after the action, the controller waits up to 45 seconds for a match. It never labels process activity as a native detection.</p>
           </div>
         </div>
         <div class="scenario-action">
@@ -561,7 +561,7 @@
 
 
 
-  <script src="/assets/app.js?v=46"></script>
-  <script src="/assets/monitor.js?v=14"></script>
+  <script src="/assets/app.js?v=47"></script>
+  <script src="/assets/monitor.js?v=15"></script>
 </body>
 </html>

@@ -112,10 +112,12 @@ SCENARIO_NATIVE_ALERTS: dict[str, tuple[str, ...]] = {
     "host-access-attempt": ("Reverse Shell Detected",),
 }
 
-# Expected native Argus event metadata for the two evidence-gated scenes.
-SCENARIO_NATIVE_EVENTS: dict[str, tuple[str, str, str]] = {
-    "exec-memory": ("New Executable Anonymous Memory Mapped", "EVENT", "WARNING"),
-    "phone-home": ("Network Connection Created", "EVENT", "INFO"),
+# Accepted native Argus record metadata for the two evidence-gated scenes.
+# Argus has emitted the executable-memory activity as ALERT/WARNING in this
+# deployment, while the service guide documents EVENT/WARNING.
+SCENARIO_NATIVE_EVENTS: dict[str, tuple[str, tuple[str, ...], str]] = {
+    "exec-memory": ("New Executable Anonymous Memory Mapped", ("EVENT", "ALERT"), "WARNING"),
+    "phone-home": ("Network Connection Created", ("EVENT",), "INFO"),
 }
 
 _HYPERVISOR_RE = re.compile(
@@ -477,11 +479,14 @@ def native_event_matches_scenario(
 ) -> bool:
     """Match a fresh raw Argus event to the exact demo workload and action."""
     expected = SCENARIO_NATIVE_EVENTS.get(scenario_id)
-    if not expected or (
-        event.activity_name,
-        (event.message_type or "").upper(),
-        (event.severity or "").upper(),
-    ) != expected:
+    if not expected:
+        return False
+    expected_name, accepted_types, expected_severity = expected
+    if (
+        event.activity_name != expected_name
+        or (event.message_type or "").upper() not in accepted_types
+        or (event.severity or "").upper() != expected_severity
+    ):
         return False
     if event.evidence_source in {"ovn-acl-audit", "demo-correlation", "canary-listener"}:
         return False
@@ -512,10 +517,18 @@ def native_event_matches_scenario(
     if not isinstance(activity, dict):
         return False
     raw_name = str(activity.get("name") or "").replace("_", " ").title()
-    if raw_name != expected[0]:
+    if raw_name != expected_name:
         return False
 
     if scenario_id == "exec-memory":
+        memory = activity.get("process_memory_details")
+        if not isinstance(memory, dict):
+            return False
+        permissions = str(memory.get("memory_permissions") or "").lower()
+        # The demo maps one RWX anonymous page. Requiring all three bits keeps
+        # a process's ordinary r-xp vDSO out of run evidence.
+        if not all(bit in permissions for bit in "rwx"):
+            return False
         process_text = " ".join(
             part for part in (event.process_name, event.process_command) if part
         )

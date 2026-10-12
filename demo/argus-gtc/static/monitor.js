@@ -263,9 +263,9 @@
     else if (phase === "observation") statusText = `Waiting for matching Argus evidence · ${seconds}s`;
     else if (phase === "failed" || run.error) statusText = "Action failed";
     else if (data.status === "no-native-alert") statusText = "Completed · no matching native alert in the wait window";
-    else if (data.status === "no-native-event") statusText = "Completed · no matching native event in the wait window";
+    else if (data.status === "no-native-event") statusText = "Completed · no matching native Argus record in the wait window";
     else if (data.status === "native-alert") statusText = "Completed · matching native alert";
-    else if (data.status === "native-event") statusText = "Completed · matching native event";
+    else if (data.status === "native-event") statusText = "Completed · matching native Argus record";
     else if (data.status === "no-tool-call") statusText = "Completed · no shell tool used (expected baseline)";
     else if (data.working_shell && data.native_argus_alert) statusText = "Completed · shell confirmed; native Argus alert";
     else if (data.working_shell) statusText = "Completed · shell confirmed by demo listener";
@@ -316,9 +316,12 @@
       byId("monitor-expected-native").textContent = "Expectation unavailable";
       byId("monitor-expected-detail").textContent = "Scenario catalog has not supplied native evidence criteria.";
     } else if (expected) {
+      const messageTypes = expected.message_types || [expected.message_type];
       byId("monitor-expected-native").textContent = expected.activity_names.join(" or ");
       byId("monitor-expected-detail").textContent =
-        `${expected.message_type} · ${expected.severity} · ${expected.wait_seconds}-second observation window`;
+        `${messageTypes.join(" or ")} · ${expected.severity}` +
+        (expected.memory_permissions ? ` · ${expected.memory_permissions} memory` : "") +
+        ` · ${expected.wait_seconds}-second observation window`;
     } else {
       byId("monitor-expected-native").textContent = "No specific native detection required";
       byId("monitor-expected-detail").textContent = "Routine process and file telemetry may appear in Activity.";
@@ -332,7 +335,7 @@
       : data.status === "native-event" ? data.native_event : null;
     const exactMatch = expected && verified &&
       expected.activity_names.includes(verified.activity_name) &&
-      expected.message_type === verified.message_type &&
+      (expected.message_types || [expected.message_type]).includes(verified.message_type) &&
       expected.severity === verified.severity;
 
     if (run.lost) {
