@@ -498,6 +498,30 @@ def _resolve_offset(offsets: dict[str, int], key: str, size: int) -> int:
     return offset
 
 
+def _hosted_pod_exec_stdout(
+    core: Any, pod_name: str, namespace: str, command: list[str]
+) -> str:
+    """Keep pod exec output raw so a single JSON row stays JSON."""
+    from kubernetes.stream import stream
+
+    ws = stream(
+        core.connect_get_namespaced_pod_exec,
+        pod_name,
+        namespace,
+        command=command,
+        stderr=False,
+        stdin=False,
+        stdout=True,
+        tty=False,
+        _preload_content=False,
+    )
+    try:
+        ws.run_forever(timeout=30)
+        return ws.read_all()
+    finally:
+        ws.close()
+
+
 class ArgusLogTailer:
     def __init__(
         self,
@@ -623,8 +647,6 @@ class HostedArgusPodTailer:
         if not clients:
             raise RuntimeError("hosted cluster client is unavailable")
         core, _k8s_client = clients
-        from kubernetes.stream import stream
-
         pods = core.list_namespaced_pod(namespace=self.settings.dpf_namespace).items
         argus_pods = [p for p in pods if p.metadata.name and "doca-argus" in p.metadata.name]
         if not argus_pods:
@@ -643,15 +665,11 @@ class HostedArgusPodTailer:
                 continue
             pod_key = pod.metadata.name
             try:
-                listing = stream(
-                    core.connect_get_namespaced_pod_exec,
+                listing = _hosted_pod_exec_stdout(
+                    core,
                     pod.metadata.name,
                     self.settings.dpf_namespace,
-                    command=["/bin/sh", "-c", list_cmd],
-                    stderr=False,
-                    stdin=False,
-                    stdout=True,
-                    tty=False,
+                    ["/bin/sh", "-c", list_cmd],
                 )
             except Exception:
                 logger.exception("failed to list argus logs in %s", pod.metadata.name)
@@ -707,20 +725,16 @@ class HostedArgusPodTailer:
 
             pending_reads += len(read_plan)
             try:
-                batch_output = stream(
-                    core.connect_get_namespaced_pod_exec,
+                batch_output = _hosted_pod_exec_stdout(
+                    core,
                     pod.metadata.name,
                     self.settings.dpf_namespace,
-                    command=[
+                    [
                         "python3",
                         "-c",
                         _HOSTED_BATCH_READ_SCRIPT,
                         json.dumps(read_plan, separators=(",", ":")),
                     ],
-                    stderr=False,
-                    stdin=False,
-                    stdout=True,
-                    tty=False,
                 )
             except Exception:
                 logger.exception("failed to read Argus logs in %s", pod.metadata.name)
