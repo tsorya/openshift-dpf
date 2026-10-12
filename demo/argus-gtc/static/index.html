@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="theme-color" content="#111318" />
   <title>Invisible VM, Visible Threat — Argus GTC Demo</title>
-  <link rel="stylesheet" href="/assets/style.css?v=44" />
+  <link rel="stylesheet" href="/assets/style.css?v=45" />
 </head>
 <body class="guided-page">
   <header class="demo-header">
@@ -110,6 +110,18 @@
           <div class="monitor-agent-turn agent-reply"><span id="monitor-agent-reply-label">Agent reply</span><p id="monitor-agent-reply" role="status" aria-live="polite"></p></div>
         </div>
         <p class="monitor-agent-conversation-note">Each send starts a new request. Your message and reply stay in this browser tab; shared run status and Argus evidence appear below.</p>
+      </section>
+
+      <section class="monitor-agent-request" id="monitor-agent-request" aria-labelledby="monitor-agent-request-title" hidden>
+        <div class="monitor-comparison-heading">
+          <h2 id="monitor-agent-request-title">What we asked the agent to do</h2>
+          <span id="monitor-agent-request-run-id"></span>
+        </div>
+        <div class="monitor-agent-turn">
+          <span>Exact instruction sent</span>
+          <p id="monitor-agent-request-instruction"></p>
+        </div>
+        <p class="monitor-agent-conversation-note">The tool report, canary response, and Argus observation below show what happened after this request.</p>
       </section>
 
       <section class="monitor-run-comparison" id="monitor-run-comparison" aria-labelledby="monitor-comparison-title" hidden>
@@ -611,6 +623,6 @@
 
 
   <script src="/assets/app.js?v=52"></script>
-  <script src="/assets/monitor.js?v=21"></script>
+  <script src="/assets/monitor.js?v=22"></script>
 </body>
 </html>

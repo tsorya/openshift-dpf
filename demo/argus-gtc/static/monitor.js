@@ -501,7 +501,7 @@
   function renderAgentConversation() {
     const card = byId("monitor-agent-conversation");
     const run = api.lastLocalNormalConversation;
-    card.hidden = api.story !== "agent" || !run;
+    card.hidden = api.story !== "agent" || selectedAgentAction !== "baseline" || !run;
     if (card.hidden) return;
 
     const data = run.data || {};
@@ -526,6 +526,23 @@
       label.textContent = "No text reply";
       reply.textContent = "No text reply was returned. Open Technical view for the full result.";
     }
+  }
+
+  function renderAgentRequest() {
+    const card = byId("monitor-agent-request");
+    const run = currentRun();
+    card.hidden = api.story !== "agent" || selectedAgentAction !== "host-reachability" ||
+      run?.profile !== "host-reachability";
+    if (card.hidden) return;
+
+    const shared = api.run?.runId === run.runId ? api.run.serverState : null;
+    const instruction = run.data?.instruction || shared?.instruction || run.serverState?.instruction;
+    byId("monitor-agent-request-run-id").textContent = run.runId ? `Run ${run.runId}` : "";
+    byId("monitor-agent-request-instruction").textContent = instruction || (
+      run.error || run.lost
+        ? "The server did not publish an instruction for this run."
+        : "Waiting for the server to publish the exact instruction…"
+    );
   }
 
   function nativeRecord(event) {
@@ -950,6 +967,7 @@
     renderRunComparison();
     renderDiscovery();
     renderAgentConversation();
+    renderAgentRequest();
     renderAgentChecks();
     renderPanels();
   }

@@ -975,6 +975,9 @@ def create_app() -> FastAPI:
                 workload=agent_status.get("pod_name") or "argus-gtc-agent",
                 observes=body.profile != "baseline",
             )
+            if body.profile == "host-reachability":
+                # This fixed request is safe to show in shared run state while it runs.
+                _update_demo_run(app, run_id, instruction=request_message)
             app.state.scenarios.activate_external_context(scenario_id, run_id)
             app.state.agent_tool_results.pop(run_id, None)
             app.state.shell_sessions.pop(run_id, None)
