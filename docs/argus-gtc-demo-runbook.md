@@ -36,7 +36,7 @@ Build and push the demo server from the repository root, then set
 
 ```bash
 docker buildx build --platform linux/amd64 --push \
-  -t quay.io/itsoiref/argus-gtc-demo:v68-rx-mapping-triage \
+  -t quay.io/itsoiref/argus-gtc-demo:v69-agent-reply-text \
   -f demo/argus-gtc/Containerfile demo/argus-gtc
 ```
 
@@ -75,7 +75,7 @@ Set the image in `.env` (or export it), then deploy:
 
 ```bash
 ARGUS_GTC_DEMO_IMAGE=quay.io/itsoiref/argus-gtc-demo:workload-ubi9-v3-python-scenarios \
-ARGUS_GTC_SERVER_IMAGE=quay.io/itsoiref/argus-gtc-demo:v68-rx-mapping-triage@sha256:50dd4846970536339dd2769fadd103ff961ac52e3b5b5aeabc971c347dd9d830 \
+ARGUS_GTC_SERVER_IMAGE=quay.io/itsoiref/argus-gtc-demo:v69-agent-reply-text@sha256:b6f0989da7803d273c5d11e6bd87d373fb360a064aa2ffdb58c57a95d67b1725 \
 ARGUS_GTC_AGENT_IMAGE=quay.io/itsoiref/argus-gtc-agent:nat-1.8.0-v19-agent-shell \
 make deploy-argus-gtc-demo
 ```
@@ -96,7 +96,7 @@ This command:
 | Variable | Default | Purpose |
 |----------|---------|---------|
 | `ARGUS_GTC_DEMO_IMAGE` | `quay.io/itsoiref/argus-gtc-demo:workload-ubi9-v3-python-scenarios` | Kata workload + sink image; UBI9/glibc Bash and Python 3 support the scenarios |
-| `ARGUS_GTC_SERVER_IMAGE` | `quay.io/itsoiref/argus-gtc-demo:v68-rx-mapping-triage@sha256:50dd4846970536339dd2769fadd103ff961ac52e3b5b5aeabc971c347dd9d830` | Demo server, UI, and canary image |
+| `ARGUS_GTC_SERVER_IMAGE` | `quay.io/itsoiref/argus-gtc-demo:v69-agent-reply-text@sha256:b6f0989da7803d273c5d11e6bd87d373fb360a064aa2ffdb58c57a95d67b1725` | Demo server, UI, and canary image |
 | `ARGUS_GTC_AGENT_IMAGE` | `quay.io/itsoiref/argus-gtc-agent:nat-1.8.0-v19-agent-shell` | Pre-built NeMo Agent Toolkit image |
 | `ARGUS_GTC_MODEL_BASE_URL` | *(empty)* | OpenAI-compatible API base URL; for OpenAI use `https://api.openai.com/v1` |
 | `ARGUS_GTC_MODEL_NAME` | `gpt-6-luna` | OpenAI API model ID; must be enabled for your API account |

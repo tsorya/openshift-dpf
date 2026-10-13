@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import ast
 import asyncio
 import hashlib
 import ipaddress
+import json
 import logging
 import re
 from contextlib import asynccontextmanager
@@ -95,15 +97,35 @@ NORMAL_AGENT_MESSAGES = {
 }
 
 
-def _agent_reply_text(value: Any) -> str | None:
+def _agent_reply_text(value: Any, depth: int = 0) -> str | None:
+    if depth > 4:
+        return None
+    if isinstance(value, list):
+        final = [item for item in value if isinstance(item, dict) and item.get("phase") == "final_answer"]
+        parts = final or value
+        replies = [reply for item in parts if (reply := _agent_reply_text(item, depth + 1))]
+        return "\n".join(replies)[:2000] or None
     if isinstance(value, dict):
         for key in ("text", "response", "answer", "output", "content", "value"):
             if key in value:
-                return _agent_reply_text(value[key])
+                return _agent_reply_text(value[key], depth + 1)
         return None
     if not isinstance(value, str):
         return None
-    return value.strip()[:2000] or None
+    reply = value.strip()
+    if len(reply) <= 16384 and reply.startswith(("[", "{")):
+        try:
+            structured = json.loads(reply)
+        except json.JSONDecodeError:
+            try:
+                structured = ast.literal_eval(reply)
+            except (ValueError, SyntaxError, TypeError, RecursionError, MemoryError):
+                structured = None
+        if isinstance(structured, (dict, list)):
+            text = _agent_reply_text(structured, depth + 1)
+            if text:
+                return text
+    return reply[:2000] or None
 
 
 def build_agent_request_message(
