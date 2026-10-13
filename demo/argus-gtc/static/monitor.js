@@ -581,6 +581,22 @@
       (event.pod_name || "").toLowerCase().startsWith("invisible-vm");
   }
 
+  function smallReadExecuteMapping(event) {
+    const raw = event.raw?.message_header || event.raw;
+    const memory = raw?.activity_data?.process_memory_details;
+    if (!memory) return false;
+    const start = Number(memory.virtual_memory_area_start_address);
+    const end = Number(memory.virtual_memory_area_end_address);
+    return event.activity_name === "New Executable Anonymous Memory Mapped" &&
+      (event.message_type || "").toUpperCase() === "ALERT" &&
+      (event.severity || "").toUpperCase() === "WARNING" &&
+      (event.pod_name || "").toLowerCase().startsWith("invisible-vm") &&
+      String(memory.memory_permissions || "").toLowerCase() === "r-xp" &&
+      String(memory.file_path || "").toLowerCase() === "anonymous mapping" &&
+      ["0", "false"].includes(String(memory.is_main_process_executable).toLowerCase()) &&
+      Number.isSafeInteger(start) && Number.isSafeInteger(end) && end - start === 8192;
+  }
+
   function isLate(event) {
     const occurred = Date.parse(event.occurred_at || "");
     const received = Date.parse(event.received_at || "");
@@ -879,18 +895,22 @@
     );
     const nativeAlerts = records.filter((event) =>
       (event.message_type || "").toUpperCase() === "ALERT" &&
-      !api.isRuntimeNoise(event) && !alertBaselineIds.has(event.id)
+      !api.isRuntimeNoise(event) && !smallReadExecuteMapping(event) &&
+      !alertBaselineIds.has(event.id)
     );
     const hiddenMemoryNoise = records.filter((event) =>
       (event.message_type || "").toUpperCase() === "ALERT" &&
       routineMemoryNoise(event) && !alertBaselineIds.has(event.id)
+    );
+    const smallReadExecuteMappings = records.filter((event) =>
+      smallReadExecuteMapping(event) && !alertBaselineIds.has(event.id)
     );
     const alertGroups = groupAlertRecords(nativeAlerts);
     byId("monitor-event-count").textContent = `${records.length} native record${records.length === 1 ? "" : "s"} in scope`;
     activityToggle.textContent = `${activityOpen ? "Hide" : "Show"} Activity (${records.length})`;
     const alertCount = byId("monitor-alert-count");
     alertCount.textContent = String(alertGroups.length);
-    alertCount.title = `${nativeAlerts.length} visible native alert records; ${hiddenMemoryNoise.length} routine workload memory teardown records remain in Activity`;
+    alertCount.title = `${nativeAlerts.length} visible native alert records; ${smallReadExecuteMappings.length} small read-execute mapping warnings and ${hiddenMemoryNoise.length} routine memory teardown records remain in Activity`;
     alertCount.setAttribute("aria-label", `${alertGroups.length} alert groups containing ${nativeAlerts.length} native alert records`);
     byId("monitor-history-state").textContent = historyText();
     const newlyReceived = pauseBaselineIds
@@ -945,6 +965,12 @@
     }
 
     const alertFragment = document.createDocumentFragment();
+    if (smallReadExecuteMappings.length) {
+      alertFragment.append(element(
+        "p", "monitor-empty monitor-filter-note",
+        `${smallReadExecuteMappings.length} 8 KiB r-xp anonymous mapping warning${smallReadExecuteMappings.length === 1 ? " is" : "s are"} shown in Activity. The process command identifies what Argus scanned; these warnings do not verify a scenario result.`
+      ));
+    }
     if (hiddenMemoryNoise.length) {
       alertFragment.append(element(
         "p", "monitor-empty monitor-filter-note",
