@@ -36,7 +36,7 @@ Build and push the demo server from the repository root, then set
 
 ```bash
 docker buildx build --platform linux/amd64 --push \
-  -t quay.io/itsoiref/argus-gtc-demo:v69-agent-reply-text \
+  -t quay.io/itsoiref/argus-gtc-demo:v70-agent-identity \
   -f demo/argus-gtc/Containerfile demo/argus-gtc
 ```
 
@@ -75,7 +75,7 @@ Set the image in `.env` (or export it), then deploy:
 
 ```bash
 ARGUS_GTC_DEMO_IMAGE=quay.io/itsoiref/argus-gtc-demo:workload-ubi9-v3-python-scenarios \
-ARGUS_GTC_SERVER_IMAGE=quay.io/itsoiref/argus-gtc-demo:v69-agent-reply-text@sha256:b6f0989da7803d273c5d11e6bd87d373fb360a064aa2ffdb58c57a95d67b1725 \
+ARGUS_GTC_SERVER_IMAGE=quay.io/itsoiref/argus-gtc-demo:v70-agent-identity@sha256:7b478ba4d5e8776a7fcd9bf374f297b2e28816ae93f599a2f98dc99c719061e2 \
 ARGUS_GTC_AGENT_IMAGE=quay.io/itsoiref/argus-gtc-agent:nat-1.8.0-v19-agent-shell \
 make deploy-argus-gtc-demo
 ```
@@ -96,7 +96,7 @@ This command:
 | Variable | Default | Purpose |
 |----------|---------|---------|
 | `ARGUS_GTC_DEMO_IMAGE` | `quay.io/itsoiref/argus-gtc-demo:workload-ubi9-v3-python-scenarios` | Kata workload + sink image; UBI9/glibc Bash and Python 3 support the scenarios |
-| `ARGUS_GTC_SERVER_IMAGE` | `quay.io/itsoiref/argus-gtc-demo:v69-agent-reply-text@sha256:b6f0989da7803d273c5d11e6bd87d373fb360a064aa2ffdb58c57a95d67b1725` | Demo server, UI, and canary image |
+| `ARGUS_GTC_SERVER_IMAGE` | `quay.io/itsoiref/argus-gtc-demo:v70-agent-identity@sha256:7b478ba4d5e8776a7fcd9bf374f297b2e28816ae93f599a2f98dc99c719061e2` | Demo server, UI, and canary image |
 | `ARGUS_GTC_AGENT_IMAGE` | `quay.io/itsoiref/argus-gtc-agent:nat-1.8.0-v19-agent-shell` | Pre-built NeMo Agent Toolkit image |
 | `ARGUS_GTC_MODEL_BASE_URL` | *(empty)* | OpenAI-compatible API base URL; for OpenAI use `https://api.openai.com/v1` |
 | `ARGUS_GTC_MODEL_NAME` | `gpt-6-luna` | OpenAI API model ID; must be enabled for your API account |
@@ -126,7 +126,7 @@ The AI story uses only `argus-gtc-agent`, a separate Kata workload on the manage
 
 Open `/agent` directly or choose **AI agent behavior** in the header navigation. This page uses the same collapsible Activity feed and visible Alerts layout scoped to `argus-gtc-agent`. Its five evidence checks summarize the latest run without treating a tool report, listener response, native Argus event, native alert, and OVN deny as interchangeable. Selecting an AI request shows its description without sending it. Use the **Workload security** link to return to `/` and `invisible-vm`.
 
-1. **Talk to agent.** Edit the example question or type your own short message, such as “Who are you, and what are you running?”, then select **Send to agent**. The page shows the message and the Kata agent's actual reply. The agent application runs in a Kata workload and calls the configured model endpoint; the model itself is not presented as running in the pod. No shell action is requested; a run with no recorded shell action is the expected baseline. Listener and shell-specific Argus checks are Not applicable. Each send is a separate request without chat history. The message and reply stay in the sending page session and are excluded from the shared run-state API.
+1. **Talk to agent.** Edit the example question or type your own short message, such as “Who are you, and what are you running?”, then select **Send to agent**. The page shows the message and the Kata agent's actual reply. The normal request supplies the agent's application identity, Kata workload, and configured model ID; its answer should distinguish those supplied facts from an independent health check. The agent application calls the configured model endpoint; the model itself is not presented as running in the pod. No shell action is requested; a run with no recorded shell action is the expected baseline. Listener and shell-specific Argus checks are Not applicable. Each send is a separate request without chat history. The message and reply stay in the sending page session and are excluded from the shared run-state API.
 2. **Demo shell request.** Select this action to leave the conversation view, then ask the agent to call its fixed demo shell tool. The page summarizes the request in plain language; expand **Show exact instruction** to see the server's verbatim prompt. The server checks the agent token and active run ID before allowing the tool; there is no separate presenter approval step. The tool opens Bash inside the agent's Kata pod to the fixed canary for at most 20 seconds. Keep the evidence separate: authenticated tool report; canary `id` output; matching native Argus process/socket event; native alert, if any; OVN deny, if any. A connected socket without listener output is not a confirmed working shell.
 3. **Independent observation.** Show the matching native Argus record from `argus-gtc-agent`. Only describe a HIGH alert when the record itself contains `message_type=ALERT` and `severity=HIGH`. A timeout alone is not proof of an OVN policy block.
 4. **Recap.** State what the agent attempted, what the listener confirmed, what Argus observed, whether Argus raised a native alert, and whether OVN recorded a matching deny. Do not blend this evidence with `invisible-vm`.

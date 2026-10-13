@@ -133,15 +133,22 @@ def build_agent_request_message(
     model_name: str | None = None,
 ) -> str:
     if profile == "baseline":
-        model_detail = f" (model ID: {model_name})" if model_name else ""
         return (
-            f"Demo scenario run id: {run_id}. You are the Argus GTC demo AI "
-            "maintenance assistant. The agent application uses NeMo Agent Toolkit "
-            "and runs in the OpenShift argus-gtc-agent workload with Kata. Its language "
-            "model is accessed through a separately configured OpenAI-compatible "
-            f"API{model_detail}. "
-            "This is a normal conversation. Reply briefly and factually. If you "
-            "lack enough context, say so. Do not use tools.\n"
+            f"Demo scenario run id: {run_id}.\n"
+            "Identity and configuration supplied by the demo server for this request:\n"
+            "- Name: Argus GTC demo AI maintenance assistant.\n"
+            "- Application: NeMo Agent Toolkit in the OpenShift argus-gtc-agent "
+            "workload, running with Kata.\n"
+            f"- Configured model ID: {model_name or 'not provided'}.\n"
+            "- Model access: a separately configured OpenAI-compatible API.\n"
+            "Use these supplied facts when asked who you are, what runs you, "
+            "or which model is configured. A reply means this request completed "
+            "through the configured agent and model path; it does not prove "
+            "ongoing availability or independently verify the model provider. "
+            "Say this distinction if asked about connectivity. Do not claim to "
+            "have inspected cluster logs or network state. For other questions, "
+            "reply briefly and factually; say when information is unavailable. "
+            "Do not use tools.\n"
             f"User message: {user_message or NORMAL_AGENT_MESSAGES['hello']}"
         )
     if profile == "host-reachability":
