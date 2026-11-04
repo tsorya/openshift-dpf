@@ -1313,6 +1313,134 @@ function undeploy_dpf() {
     log "INFO" "DPF stack removal complete"
 }
 
+# Force removal for repeated test runs. This intentionally bypasses controller
+# finalizers and asynchronous cleanup so the command returns quickly. Shared
+# operators are kept, and DPU/worker hardware may remain provisioned.
+function force_delete_resource() {
+    local resource=$1
+    local namespace=${2:-}
+    local name=${3:-}
+    local -a get_args=("${resource}")
+
+    if [[ -n "${name}" ]]; then
+        get_args+=("${name}")
+    fi
+    if [[ -n "${namespace}" ]]; then
+        get_args+=(-n "${namespace}")
+    fi
+
+    local objects
+    objects=$(oc get "${get_args[@]}" -o name --request-timeout=10s 2>/dev/null || true)
+    if [[ -z "${objects}" ]]; then
+        log "INFO" "No ${resource} resources found${namespace:+ in ${namespace}}${name:+ named ${name}}"
+        return 0
+    fi
+
+    while IFS= read -r object; do
+        [[ -n "${object}" ]] || continue
+        local -a object_args=("${object}")
+        if [[ -n "${namespace}" ]]; then
+            object_args+=(-n "${namespace}")
+        fi
+
+        log "INFO" "Force deleting ${object}..."
+        oc patch "${object_args[@]}" --type=merge \
+            -p '{"metadata":{"finalizers":[]}}' --request-timeout=10s >/dev/null 2>&1 || {
+            log "WARN" "Could not clear finalizers from ${object}"
+        }
+        oc delete "${object_args[@]}" --ignore-not-found --wait=false \
+            --grace-period=0 --force --request-timeout=10s >/dev/null 2>&1 || {
+            log "WARN" "Could not force delete ${object}"
+        }
+    done <<< "${objects}"
+}
+
+function force_delete_namespace() {
+    local namespace=$1
+
+    if ! oc get namespace "${namespace}" --request-timeout=10s >/dev/null 2>&1; then
+        log "INFO" "Namespace ${namespace} not found"
+        return 0
+    fi
+
+    log "INFO" "Force deleting namespace ${namespace}..."
+    oc delete namespace "${namespace}" --ignore-not-found --wait=false \
+        --grace-period=0 --force --request-timeout=10s >/dev/null 2>&1 || {
+        log "WARN" "Could not force delete namespace ${namespace}"
+    }
+    oc patch namespace "${namespace}" --type=merge \
+        -p '{"spec":{"finalizers":[]}}' --request-timeout=10s >/dev/null 2>&1 || {
+        log "WARN" "Could not clear finalizers from namespace ${namespace}"
+    }
+}
+
+function force_delete_dpf_api_resources() {
+    local group
+    local resource
+    local resources
+
+    for group in operator.dpu.nvidia.com provisioning.dpu.nvidia.com svc.dpu.nvidia.com noderesources.dpu.nvidia.com; do
+        resources=$(oc api-resources --api-group="${group}" --namespaced=true -o name \
+            --request-timeout=10s 2>/dev/null || true)
+        while IFS= read -r resource; do
+            [[ -n "${resource}" ]] || continue
+            force_delete_resource "${resource}" dpf-operator-system
+        done <<< "${resources}"
+    done
+}
+
+function force_remove_dpf() {
+    log "INFO" "Force removing DPF and DPF HCP Provisioner resources..."
+    log "WARN" "This skips controller cleanup; shared operators stay installed and worker/DPU hardware may remain provisioned."
+
+    get_kubeconfig
+
+    # Keep shared resources in dpf-operator-system (ArgoCD and Maintenance
+    # Operator). Uninstall only the DPF chart and force-delete DPF API objects.
+    if command -v helm >/dev/null 2>&1; then
+        helm uninstall dpf-operator -n dpf-operator-system --no-hooks --wait=false || {
+            log "WARN" "Could not uninstall the dpf-operator Helm release"
+        }
+    else
+        log "WARN" "helm is unavailable; the dpf-operator Helm release was not uninstalled"
+    fi
+    force_delete_dpf_api_resources
+
+    # Remove the HCP resources from the management cluster without waiting for
+    # HyperShift or DPU deprovisioning. The clusters namespace itself is shared.
+    local hosted_clusters
+    hosted_clusters=$(oc get hostedcluster -n "${CLUSTERS_NAMESPACE}" \
+        -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' \
+        --request-timeout=10s 2>/dev/null || true)
+
+    force_delete_resource dpfhcpprovisioner "${CLUSTERS_NAMESPACE}"
+    force_delete_resource dpfhcpprovisionerconfig "" default
+    force_delete_resource hostedcluster "${CLUSTERS_NAMESPACE}"
+    force_delete_resource nodepool "${CLUSTERS_NAMESPACE}"
+
+    oc delete secret -n "${CLUSTERS_NAMESPACE}" \
+        "${DPFHCPPROVISIONER_PULL_SECRET_NAME}" "${DPFHCPPROVISIONER_SSH_SECRET_NAME}" \
+        --ignore-not-found --wait=false --request-timeout=10s >/dev/null 2>&1 || {
+        log "WARN" "Could not delete one or more DPF HCP Provisioner secrets"
+    }
+
+    # Remove the HCP Provisioner API definitions after its custom resources.
+    force_delete_resource crd "" dpfhcpprovisionerconfigs.provisioning.dpu.hcp.io
+    force_delete_resource crd "" dpfhcpprovisioners.provisioning.dpu.hcp.io
+
+    # These namespaces contain the hosted control plane and the two Helm
+    # HCP-related Helm releases. Keep dpf-operator-system because it also holds
+    # shared dependencies such as ArgoCD and Maintenance Operator.
+    force_delete_namespace "${HOSTED_CONTROL_PLANE_NAMESPACE}"
+    while IFS= read -r hosted_cluster; do
+        [[ -n "${hosted_cluster}" && "${hosted_cluster}" != "${HOSTED_CLUSTER_NAME}" ]] || continue
+        force_delete_namespace "${CLUSTERS_NAMESPACE}-${hosted_cluster}"
+    done <<< "${hosted_clusters}"
+    force_delete_namespace "${DPF_HCP_PROVISIONER_OPERATOR_NAMESPACE}"
+
+    log "INFO" "DPF and DPF HCP Provisioner force removal requested"
+}
+
 function delete_dpf_hcp_provisioner_operator() {
     # Remove DPF HCP Provisioner Operator and all related resources
     log "INFO" "Removing DPF HCP Provisioner Operator..."
@@ -1439,6 +1567,9 @@ function main() {
             undeploy-dpf)
                 undeploy_dpf
                 ;;
+            force-remove-dpf)
+                force_remove_dpf
+                ;;
             undeploy-hosted-cluster)
                 undeploy_hosted_cluster
                 ;;
@@ -1456,7 +1587,7 @@ function main() {
                 ;;
             *)
                 log [INFO] "Unknown command: $command"
-                log [INFO] "Available commands: deploy-nfd, deploy-metallb, deploy-argocd, deploy-maintenance-operator, apply-dpf, scale-out-zero-trust-dpus, scale-in-zero-trust-dpus, deploy-hypershift, deploy-dpfhcp, deploy-hosted-cluster, deploy-dpf-hcp-provisioner-operator, delete-dpf-hcp-provisioner-operator, create-dpfhcpprovisioner-secrets, create-dpfhcpprovisioner-cr, undeploy-dpf, undeploy-hosted-cluster, undeploy-metallb, undeploy-nfd, undeploy-argocd, undeploy-maintenance-operator"
+                log [INFO] "Available commands: deploy-nfd, deploy-metallb, deploy-argocd, deploy-maintenance-operator, apply-dpf, scale-out-zero-trust-dpus, scale-in-zero-trust-dpus, deploy-hypershift, deploy-dpfhcp, deploy-hosted-cluster, deploy-dpf-hcp-provisioner-operator, delete-dpf-hcp-provisioner-operator, create-dpfhcpprovisioner-secrets, create-dpfhcpprovisioner-cr, undeploy-dpf, force-remove-dpf, undeploy-hosted-cluster, undeploy-metallb, undeploy-nfd, undeploy-argocd, undeploy-maintenance-operator"
                 exit 1
                 ;;
         esac

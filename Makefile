@@ -331,11 +331,15 @@ clean-all:
 	@bash $(CLEANUP_SCRIPT) clean-all
 
 .PHONY: reset-to-base-cluster
-reset-to-base-cluster: undeploy-observability undeploy-ovn-injector undeploy-dpu-services delete-all-workers undeploy-dpf
+reset-to-base-cluster: force-remove-dpf
 	@echo ""
 	@echo "================================================================================"
-	@echo "Cluster reset to compact cluster state complete."
+	@echo "DPF force removal requested; shared dependencies remain and workers were not deprovisioned."
 	@echo "================================================================================"
+
+.PHONY: force-remove-dpf
+force-remove-dpf:
+	@$(DPF_SCRIPT) force-remove-dpf
 
 .PHONY: delete-all-workers
 delete-all-workers:
@@ -584,12 +588,13 @@ help:
 	@echo "  clean            - Remove generated files"
 	@echo "  clean-all        - Delete libvirt VMs, delete cluster and generated files, power off physical workers (ipmitool)"
 	@echo "                     Set POWER_OFF_WORKERS=false to leave physical workers powered on"
-	@echo "  reset-to-base-cluster  - Remove DPF stack, workers, and return to compact cluster state"
+	@echo "  reset-to-base-cluster  - Force-remove DPF and DPF HCP provisioner; keep dependencies"
+	@echo "  force-remove-dpf       - Quickly remove DPF/HCP resources and skip worker deprovisioning"
 	@echo "  undeploy-observability - Remove observability stack (Grafana, metrics, dashboards)"
 	@echo "  undeploy-ovn-injector  - Remove OVN resource injector"
 	@echo "  undeploy-dpu-services  - Remove DPU services (DPUDeployment, BFB, configs)"
 	@echo "  delete-all-workers     - Delete all non-control-plane worker nodes"
-	@echo "  undeploy-dpf           - Remove full DPF stack (HyperShift, DPF operator, NFD, ArgoCD, MetalLB, etc.)"
+	@echo "  undeploy-dpf           - Fully undeploy DPF and its dependencies (can take a long time)"
 	@echo ""
 	@echo "VM Management:"
 	@echo "  create-vms        - Create virtual machines for the cluster"
