@@ -1313,9 +1313,9 @@ function undeploy_dpf() {
     log "INFO" "DPF stack removal complete"
 }
 
-# Force removal for repeated test runs. This intentionally bypasses controller
-# finalizers and asynchronous cleanup so the command returns quickly. Everything
-# in dpf-operator-system is removed; DPU/worker hardware may remain provisioned.
+# Force removal for repeated test runs. This bypasses controller cleanup and
+# waits for API resources and namespaces to disappear (up to 120 seconds per
+# step). DPU/worker hardware may remain provisioned.
 function force_delete_resource() {
     local resource=$1
     local namespace=${2:-}
@@ -1330,7 +1330,17 @@ function force_delete_resource() {
     fi
 
     local objects
-    objects=$(oc get "${get_args[@]}" -o name --request-timeout=10s 2>/dev/null || true)
+    if ! objects=$(oc get "${get_args[@]}" -o name --request-timeout=10s 2>&1); then
+        if [[ "${objects}" == *"doesn't have a resource type"* || \
+              "${objects}" == *"does not have a resource type"* || \
+              "${objects}" == *"no matches for kind"* || \
+              "${objects}" == *"couldn't find resource"* ]]; then
+            log "INFO" "${resource} API is not installed; nothing to remove"
+            return 0
+        fi
+        log "ERROR" "Could not list ${resource} resources${namespace:+ in ${namespace}}: ${objects}"
+        return 1
+    fi
     if [[ -z "${objects}" ]]; then
         log "INFO" "No ${resource} resources found${namespace:+ in ${namespace}}${name:+ named ${name}}"
         return 0
@@ -1353,12 +1363,45 @@ function force_delete_resource() {
             log "WARN" "Could not force delete ${object}"
         }
     done <<< "${objects}"
+
+    local deadline=$((SECONDS + 120))
+    local remaining
+    while (( SECONDS < deadline )); do
+        if ! remaining=$(oc get "${get_args[@]}" -o name --request-timeout=10s 2>&1); then
+            if [[ "${remaining}" == *"doesn't have a resource type"* || \
+                  "${remaining}" == *"does not have a resource type"* || \
+                  "${remaining}" == *"no matches for kind"* || \
+                  "${remaining}" == *"couldn't find resource"* ]]; then
+                log "INFO" "Verified ${resource} API is no longer installed"
+                return 0
+            fi
+            log "ERROR" "Could not verify deletion of ${resource}${namespace:+ in ${namespace}}: ${remaining}"
+            return 1
+        fi
+        if [[ -z "${remaining}" ]]; then
+            log "INFO" "Verified all requested ${resource} resources are deleted"
+            return 0
+        fi
+        log "INFO" "Waiting for ${resource} resources to disappear${namespace:+ from ${namespace}}..."
+        sleep 5
+    done
+
+    log "ERROR" "Timed out waiting for ${resource} resources to disappear${namespace:+ from ${namespace}}"
+    oc get "${get_args[@]}" -o name --request-timeout=10s || true
+    return 1
 }
 
 function force_delete_namespace() {
     local namespace=$1
+    local timeout_seconds=${2:-120}
+    local namespace_object
 
-    if ! oc get namespace "${namespace}" --request-timeout=10s >/dev/null 2>&1; then
+    if ! namespace_object=$(oc get namespace "${namespace}" --ignore-not-found \
+        -o name --request-timeout=10s 2>&1); then
+        log "ERROR" "Could not check namespace ${namespace}: ${namespace_object}"
+        return 1
+    fi
+    if [[ -z "${namespace_object}" ]]; then
         log "INFO" "Namespace ${namespace} not found"
         return 0
     fi
@@ -1372,6 +1415,57 @@ function force_delete_namespace() {
         -p '{"spec":{"finalizers":[]}}' --request-timeout=10s >/dev/null 2>&1 || {
         log "WARN" "Could not clear finalizers from namespace ${namespace}"
     }
+
+    local deadline=$((SECONDS + timeout_seconds))
+    while (( SECONDS < deadline )); do
+        if ! namespace_object=$(oc get namespace "${namespace}" --ignore-not-found \
+            -o name --request-timeout=10s 2>&1); then
+            log "ERROR" "Could not verify deletion of namespace ${namespace}: ${namespace_object}"
+            return 1
+        fi
+        if [[ -z "${namespace_object}" ]]; then
+            log "INFO" "Verified namespace ${namespace} is deleted"
+            return 0
+        fi
+        log "INFO" "Waiting for namespace ${namespace} to disappear..."
+        sleep 5
+    done
+
+    log "ERROR" "Timed out waiting for namespace ${namespace} to disappear"
+    return 1
+}
+
+function force_delete_pods_and_wait() {
+    local namespace=$1
+    local namespace_object
+    local pods
+
+    if ! namespace_object=$(oc get namespace "${namespace}" --ignore-not-found \
+        -o name --request-timeout=10s 2>&1); then
+        log "ERROR" "Could not check namespace ${namespace} before deleting its pods: ${namespace_object}"
+        return 1
+    fi
+    if [[ -z "${namespace_object}" ]]; then
+        log "INFO" "Namespace ${namespace} is already absent; no pods remain"
+        return 0
+    fi
+
+    force_delete_resource pod "${namespace}"
+
+    if ! pods=$(oc get pods -n "${namespace}" -o name --request-timeout=10s 2>&1); then
+        if [[ "${pods}" == *"not found"* ]]; then
+            log "INFO" "Namespace ${namespace} disappeared while verifying pod deletion"
+            return 0
+        fi
+        log "ERROR" "Could not verify pod deletion in ${namespace}: ${pods}"
+        return 1
+    fi
+    if [[ -n "${pods}" ]]; then
+        log "ERROR" "Pods remain in ${namespace} after force deletion: ${pods}"
+        return 1
+    fi
+
+    log "INFO" "Verified all pods in ${namespace} are deleted"
 }
 
 function force_remove_dpf() {
@@ -1386,22 +1480,30 @@ function force_remove_dpf() {
     force_delete_namespace "dpf-operator-system"
 
     # Remove the HCP resources from the management cluster without waiting for
-    # HyperShift or DPU deprovisioning. The clusters namespace itself is shared.
+    # DPU deprovisioning. The clusters namespace itself is shared.
     local hosted_clusters
-    hosted_clusters=$(oc get hostedcluster -n "${CLUSTERS_NAMESPACE}" \
+    if ! hosted_clusters=$(oc get hostedcluster -n "${CLUSTERS_NAMESPACE}" \
         -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' \
-        --request-timeout=10s 2>/dev/null || true)
+        --request-timeout=10s 2>&1); then
+        if [[ "${hosted_clusters}" == *"doesn't have a resource type"* || \
+              "${hosted_clusters}" == *"does not have a resource type"* || \
+              "${hosted_clusters}" == *"no matches for kind"* || \
+              "${hosted_clusters}" == *"couldn't find resource"* ]]; then
+            log "INFO" "HostedCluster API is not installed; no hosted clusters to remove"
+            hosted_clusters=""
+        else
+            log "ERROR" "Could not list HostedClusters: ${hosted_clusters}"
+            return 1
+        fi
+    fi
 
     force_delete_resource dpfhcpprovisioner "${CLUSTERS_NAMESPACE}"
     force_delete_resource dpfhcpprovisionerconfig "" default
     force_delete_resource hostedcluster "${CLUSTERS_NAMESPACE}"
     force_delete_resource nodepool "${CLUSTERS_NAMESPACE}"
 
-    oc delete secret -n "${CLUSTERS_NAMESPACE}" \
-        "${DPFHCPPROVISIONER_PULL_SECRET_NAME}" "${DPFHCPPROVISIONER_SSH_SECRET_NAME}" \
-        --ignore-not-found --wait=false --request-timeout=10s >/dev/null 2>&1 || {
-        log "WARN" "Could not delete one or more DPF HCP Provisioner secrets"
-    }
+    force_delete_resource secret "${CLUSTERS_NAMESPACE}" "${DPFHCPPROVISIONER_PULL_SECRET_NAME}"
+    force_delete_resource secret "${CLUSTERS_NAMESPACE}" "${DPFHCPPROVISIONER_SSH_SECRET_NAME}"
 
     # Remove the HCP Provisioner API definitions after its custom resources.
     force_delete_resource crd "" dpfhcpprovisionerconfigs.provisioning.dpu.hcp.io
@@ -1409,14 +1511,17 @@ function force_remove_dpf() {
 
     # These namespaces contain the hosted control plane and the HCP-related
     # Helm releases.
+    force_delete_pods_and_wait "${HOSTED_CONTROL_PLANE_NAMESPACE}"
     force_delete_namespace "${HOSTED_CONTROL_PLANE_NAMESPACE}"
     while IFS= read -r hosted_cluster; do
         [[ -n "${hosted_cluster}" && "${hosted_cluster}" != "${HOSTED_CLUSTER_NAME}" ]] || continue
-        force_delete_namespace "${CLUSTERS_NAMESPACE}-${hosted_cluster}"
+        local hosted_control_plane_namespace="${CLUSTERS_NAMESPACE}-${hosted_cluster}"
+        force_delete_pods_and_wait "${hosted_control_plane_namespace}"
+        force_delete_namespace "${hosted_control_plane_namespace}"
     done <<< "${hosted_clusters}"
     force_delete_namespace "${DPF_HCP_PROVISIONER_OPERATOR_NAMESPACE}"
 
-    log "INFO" "DPF and DPF HCP Provisioner force removal requested"
+    log "INFO" "DPF and DPF HCP Provisioner force removal completed and verified"
 }
 
 function delete_dpf_hcp_provisioner_operator() {
