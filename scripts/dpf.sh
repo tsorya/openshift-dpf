@@ -1316,6 +1316,14 @@ function undeploy_dpf() {
 # Force removal for repeated test runs. This bypasses controller cleanup and
 # waits for API resources and namespaces to disappear (up to 120 seconds per
 # step). DPU/worker hardware may remain provisioned.
+function is_missing_api_resource_error() {
+    local message=$1
+    [[ "${message}" == *"doesn't have a resource type"* || \
+       "${message}" == *"does not have a resource type"* || \
+       "${message}" == *"no matches for kind"* || \
+       "${message}" == *"couldn't find resource"* ]]
+}
+
 function force_delete_resource() {
     local resource=$1
     local namespace=${2:-}
@@ -1331,15 +1339,14 @@ function force_delete_resource() {
     fi
 
     local objects
-    if ! objects=$(oc get "${get_args[@]}" -o name --request-timeout=10s 2>&1); then
-        if [[ "${objects}" == *"doesn't have a resource type"* || \
-              "${objects}" == *"does not have a resource type"* || \
-              "${objects}" == *"no matches for kind"* || \
-              "${objects}" == *"couldn't find resource"* ]]; then
+    local query_error
+    if ! objects=$(oc get "${get_args[@]}" -o name --request-timeout=10s 2>/dev/null); then
+        query_error=$(oc get "${get_args[@]}" -o name --request-timeout=10s 2>&1 >/dev/null || true)
+        if is_missing_api_resource_error "${query_error}"; then
             log "INFO" "${resource} API is not installed; nothing to remove"
             return 0
         fi
-        log "ERROR" "Could not list ${resource} resources${namespace:+ in ${namespace}}: ${objects}"
+        log "ERROR" "Could not list ${resource} resources${namespace:+ in ${namespace}}: ${query_error}"
         return 1
     fi
     if [[ -z "${objects}" ]]; then
@@ -1372,15 +1379,13 @@ function force_delete_resource() {
     local deadline=$((SECONDS + 120))
     local remaining
     while (( SECONDS < deadline )); do
-        if ! remaining=$(oc get "${get_args[@]}" -o name --request-timeout=10s 2>&1); then
-            if [[ "${remaining}" == *"doesn't have a resource type"* || \
-                  "${remaining}" == *"does not have a resource type"* || \
-                  "${remaining}" == *"no matches for kind"* || \
-                  "${remaining}" == *"couldn't find resource"* ]]; then
+        if ! remaining=$(oc get "${get_args[@]}" -o name --request-timeout=10s 2>/dev/null); then
+            query_error=$(oc get "${get_args[@]}" -o name --request-timeout=10s 2>&1 >/dev/null || true)
+            if is_missing_api_resource_error "${query_error}"; then
                 log "INFO" "Verified ${resource} API is no longer installed"
                 return 0
             fi
-            log "ERROR" "Could not verify deletion of ${resource}${namespace:+ in ${namespace}}: ${remaining}"
+            log "ERROR" "Could not verify deletion of ${resource}${namespace:+ in ${namespace}}: ${query_error}"
             return 1
         fi
         if [[ -z "${remaining}" ]]; then
@@ -1401,6 +1406,7 @@ function force_delete_namespace_resources() {
     local resources
     local resource
     local remaining_objects
+    local query_error
     local deadline
     local resources_remain
 
@@ -1423,15 +1429,16 @@ function force_delete_namespace_resources() {
         resources_remain=false
         while IFS= read -r resource; do
             [[ -n "${resource}" ]] || continue
-            if ! remaining_objects=$(oc get "${resource}" -n "${namespace}" \
-                -o name --request-timeout=10s 2>&1); then
-                if [[ "${remaining_objects}" == *"doesn't have a resource type"* || \
-                      "${remaining_objects}" == *"does not have a resource type"* || \
-                      "${remaining_objects}" == *"no matches for kind"* || \
-                      "${remaining_objects}" == *"couldn't find resource"* ]]; then
+            if remaining_objects=$(oc get "${resource}" -n "${namespace}" \
+                -o name --request-timeout=10s 2>/dev/null); then
+                :
+            else
+                query_error=$(oc get "${resource}" -n "${namespace}" \
+                    -o name --request-timeout=10s 2>&1 >/dev/null || true)
+                if is_missing_api_resource_error "${query_error}"; then
                     continue
                 fi
-                log "ERROR" "Could not verify ${resource} deletion in ${namespace}: ${remaining_objects}"
+                log "ERROR" "Could not verify ${resource} deletion in ${namespace}: ${query_error}"
                 return 1
             fi
 
@@ -1460,8 +1467,8 @@ function force_delete_namespace() {
     local namespace_object
 
     if ! namespace_object=$(oc get namespace "${namespace}" --ignore-not-found \
-        -o name --request-timeout=10s 2>&1); then
-        log "ERROR" "Could not check namespace ${namespace}: ${namespace_object}"
+        -o name --request-timeout=10s 2>/dev/null); then
+        log "ERROR" "Could not check namespace ${namespace}"
         return 1
     fi
     if [[ -z "${namespace_object}" ]]; then
@@ -1488,8 +1495,8 @@ function force_delete_namespace() {
     local deadline=$((SECONDS + timeout_seconds))
     while (( SECONDS < deadline )); do
         if ! namespace_object=$(oc get namespace "${namespace}" --ignore-not-found \
-            -o name --request-timeout=10s 2>&1); then
-            log "ERROR" "Could not verify deletion of namespace ${namespace}: ${namespace_object}"
+            -o name --request-timeout=10s 2>/dev/null); then
+            log "ERROR" "Could not verify deletion of namespace ${namespace}"
             return 1
         fi
         if [[ -z "${namespace_object}" ]]; then
@@ -1510,8 +1517,8 @@ function force_delete_pods_and_wait() {
     local pods
 
     if ! namespace_object=$(oc get namespace "${namespace}" --ignore-not-found \
-        -o name --request-timeout=10s 2>&1); then
-        log "ERROR" "Could not check namespace ${namespace} before deleting its pods: ${namespace_object}"
+        -o name --request-timeout=10s 2>/dev/null); then
+        log "ERROR" "Could not check namespace ${namespace} before deleting its pods"
         return 1
     fi
     if [[ -z "${namespace_object}" ]]; then
@@ -1521,12 +1528,17 @@ function force_delete_pods_and_wait() {
 
     force_delete_resource pod "${namespace}"
 
-    if ! pods=$(oc get pods -n "${namespace}" -o name --request-timeout=10s 2>&1); then
-        if [[ "${pods}" == *"not found"* ]]; then
+    if ! pods=$(oc get pods -n "${namespace}" -o name --request-timeout=10s 2>/dev/null); then
+        if ! namespace_object=$(oc get namespace "${namespace}" --ignore-not-found \
+            -o name --request-timeout=10s 2>/dev/null); then
+            log "ERROR" "Could not verify namespace ${namespace} after pod deletion"
+            return 1
+        fi
+        if [[ -z "${namespace_object}" ]]; then
             log "INFO" "Namespace ${namespace} disappeared while verifying pod deletion"
             return 0
         fi
-        log "ERROR" "Could not verify pod deletion in ${namespace}: ${pods}"
+        log "ERROR" "Could not verify pod deletion in ${namespace}"
         return 1
     fi
     if [[ -n "${pods}" ]]; then
@@ -1551,17 +1563,18 @@ function force_remove_dpf() {
     # Remove the HCP resources from the management cluster without waiting for
     # DPU deprovisioning. The clusters namespace itself is shared.
     local hosted_clusters
+    local hosted_cluster_error
     if ! hosted_clusters=$(oc get hostedcluster -n "${CLUSTERS_NAMESPACE}" \
         -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' \
-        --request-timeout=10s 2>&1); then
-        if [[ "${hosted_clusters}" == *"doesn't have a resource type"* || \
-              "${hosted_clusters}" == *"does not have a resource type"* || \
-              "${hosted_clusters}" == *"no matches for kind"* || \
-              "${hosted_clusters}" == *"couldn't find resource"* ]]; then
+        --request-timeout=10s 2>/dev/null); then
+        hosted_cluster_error=$(oc get hostedcluster -n "${CLUSTERS_NAMESPACE}" \
+            -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' \
+            --request-timeout=10s 2>&1 >/dev/null || true)
+        if is_missing_api_resource_error "${hosted_cluster_error}"; then
             log "INFO" "HostedCluster API is not installed; no hosted clusters to remove"
             hosted_clusters=""
         else
-            log "ERROR" "Could not list HostedClusters: ${hosted_clusters}"
+            log "ERROR" "Could not list HostedClusters: ${hosted_cluster_error}"
             return 1
         fi
     fi
