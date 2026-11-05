@@ -1314,8 +1314,8 @@ function undeploy_dpf() {
 }
 
 # Force removal for repeated test runs. This intentionally bypasses controller
-# finalizers and asynchronous cleanup so the command returns quickly. Shared
-# operators are kept, and DPU/worker hardware may remain provisioned.
+# finalizers and asynchronous cleanup so the command returns quickly. Everything
+# in dpf-operator-system is removed; DPU/worker hardware may remain provisioned.
 function force_delete_resource() {
     local resource=$1
     local namespace=${2:-}
@@ -1374,37 +1374,16 @@ function force_delete_namespace() {
     }
 }
 
-function force_delete_dpf_api_resources() {
-    local group
-    local resource
-    local resources
-
-    for group in operator.dpu.nvidia.com provisioning.dpu.nvidia.com svc.dpu.nvidia.com noderesources.dpu.nvidia.com; do
-        resources=$(oc api-resources --api-group="${group}" --namespaced=true -o name \
-            --request-timeout=10s 2>/dev/null || true)
-        while IFS= read -r resource; do
-            [[ -n "${resource}" ]] || continue
-            force_delete_resource "${resource}" dpf-operator-system
-        done <<< "${resources}"
-    done
-}
-
 function force_remove_dpf() {
     log "INFO" "Force removing DPF and DPF HCP Provisioner resources..."
-    log "WARN" "This skips controller cleanup; shared operators stay installed and worker/DPU hardware may remain provisioned."
+    log "WARN" "This deletes everything in dpf-operator-system, including ArgoCD and Maintenance Operator, and skips controller cleanup; worker/DPU hardware may remain provisioned."
 
     get_kubeconfig
 
-    # Keep shared resources in dpf-operator-system (ArgoCD and Maintenance
-    # Operator). Uninstall only the DPF chart and force-delete DPF API objects.
-    if command -v helm >/dev/null 2>&1; then
-        helm uninstall dpf-operator -n dpf-operator-system --no-hooks --wait=false || {
-            log "WARN" "Could not uninstall the dpf-operator Helm release"
-        }
-    else
-        log "WARN" "helm is unavailable; the dpf-operator Helm release was not uninstalled"
-    fi
-    force_delete_dpf_api_resources
+    # Remove the whole namespace, including DPF, ArgoCD, Maintenance Operator,
+    # Grafana, and any other resources deployed there. Dependencies in other
+    # namespaces (such as NFD) are left alone.
+    force_delete_namespace "dpf-operator-system"
 
     # Remove the HCP resources from the management cluster without waiting for
     # HyperShift or DPU deprovisioning. The clusters namespace itself is shared.
@@ -1428,9 +1407,8 @@ function force_remove_dpf() {
     force_delete_resource crd "" dpfhcpprovisionerconfigs.provisioning.dpu.hcp.io
     force_delete_resource crd "" dpfhcpprovisioners.provisioning.dpu.hcp.io
 
-    # These namespaces contain the hosted control plane and the two Helm
-    # HCP-related Helm releases. Keep dpf-operator-system because it also holds
-    # shared dependencies such as ArgoCD and Maintenance Operator.
+    # These namespaces contain the hosted control plane and the HCP-related
+    # Helm releases.
     force_delete_namespace "${HOSTED_CONTROL_PLANE_NAMESPACE}"
     while IFS= read -r hosted_cluster; do
         [[ -n "${hosted_cluster}" && "${hosted_cluster}" != "${HOSTED_CLUSTER_NAME}" ]] || continue

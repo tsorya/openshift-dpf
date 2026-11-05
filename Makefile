@@ -334,7 +334,7 @@ clean-all:
 reset-to-base-cluster: force-remove-dpf
 	@echo ""
 	@echo "================================================================================"
-	@echo "DPF force removal requested; shared dependencies remain and workers were not deprovisioned."
+	@echo "DPF force removal requested; dpf-operator-system was deleted and workers were not deprovisioned."
 	@echo "================================================================================"
 
 .PHONY: force-remove-dpf
@@ -588,8 +588,8 @@ help:
 	@echo "  clean            - Remove generated files"
 	@echo "  clean-all        - Delete libvirt VMs, delete cluster and generated files, power off physical workers (ipmitool)"
 	@echo "                     Set POWER_OFF_WORKERS=false to leave physical workers powered on"
-	@echo "  reset-to-base-cluster  - Force-remove DPF and DPF HCP provisioner; keep dependencies"
-	@echo "  force-remove-dpf       - Quickly remove DPF/HCP resources and skip worker deprovisioning"
+	@echo "  reset-to-base-cluster  - Force-remove DPF and DPF HCP provisioner; delete dpf-operator-system"
+	@echo "  force-remove-dpf       - Quickly remove DPF/HCP resources and dpf-operator-system"
 	@echo "  undeploy-observability - Remove observability stack (Grafana, metrics, dashboards)"
 	@echo "  undeploy-ovn-injector  - Remove OVN resource injector"
 	@echo "  undeploy-dpu-services  - Remove DPU services (DPUDeployment, BFB, configs)"
