@@ -1391,6 +1391,23 @@ function force_delete_resource() {
     return 1
 }
 
+function force_delete_namespace_resources() {
+    local namespace=$1
+    local resources
+    local resource
+
+    if ! resources=$(oc api-resources --namespaced=true --verbs=list,patch,delete \
+        -o name --request-timeout=10s 2>/dev/null); then
+        log "ERROR" "Could not list namespaced resource types before deleting ${namespace}"
+        return 1
+    fi
+
+    while IFS= read -r resource; do
+        [[ -n "${resource}" ]] || continue
+        force_delete_resource "${resource}" "${namespace}"
+    done <<< "${resources}"
+}
+
 function force_delete_namespace() {
     local namespace=$1
     local timeout_seconds=${2:-120}
@@ -1411,6 +1428,12 @@ function force_delete_namespace() {
         --grace-period=0 --force --request-timeout=10s >/dev/null 2>&1 || {
         log "WARN" "Could not force delete namespace ${namespace}"
     }
+
+    # Clearing the namespace finalizer alone is insufficient when child
+    # resources still have their own finalizers. Remove all listable,
+    # patchable, and deletable namespaced resources first.
+    force_delete_namespace_resources "${namespace}"
+
     oc patch namespace "${namespace}" --type=merge \
         -p '{"spec":{"finalizers":[]}}' --request-timeout=10s >/dev/null 2>&1 || {
         log "WARN" "Could not clear finalizers from namespace ${namespace}"
