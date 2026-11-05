@@ -1337,6 +1337,7 @@ function force_delete_resource() {
     if [[ -n "${namespace}" ]]; then
         get_args+=(-n "${namespace}")
     fi
+    get_args+=(--ignore-not-found)
 
     local objects
     local query_error
@@ -1461,6 +1462,33 @@ function force_delete_namespace_resources() {
     done
 }
 
+function force_delete_webhooks_for_namespace() {
+    local namespace=$1
+    local resource
+    local webhooks_json
+    local webhook_configs
+
+    for resource in validatingwebhookconfigurations.admissionregistration.k8s.io \
+        mutatingwebhookconfigurations.admissionregistration.k8s.io; do
+        if ! webhooks_json=$(oc get "${resource}" -o json --request-timeout=10s 2>/dev/null); then
+            log "WARN" "Could not inspect ${resource} for services in ${namespace}"
+            continue
+        fi
+        if ! webhook_configs=$(jq -r --arg namespace "${namespace}" \
+            '.items[] | select(any(.webhooks[]?; .clientConfig.service.namespace == $namespace)) | .metadata.name' \
+            <<< "${webhooks_json}"); then
+            log "ERROR" "Could not parse ${resource} while checking webhook services in ${namespace}"
+            return 1
+        fi
+
+        while IFS= read -r webhook_config; do
+            [[ -n "${webhook_config}" ]] || continue
+            log "INFO" "Removing ${resource}/${webhook_config} because it points to ${namespace}..."
+            force_delete_resource "${resource}" "" "${webhook_config}"
+        done <<< "${webhook_configs}"
+    done
+}
+
 function force_delete_namespace() {
     local namespace=$1
     local timeout_seconds=${2:-120}
@@ -1477,6 +1505,10 @@ function force_delete_namespace() {
     fi
 
     log "INFO" "Force deleting namespace ${namespace}..."
+    # Remove admission hooks backed by this namespace first. Their services
+    # will disappear with the namespace and can otherwise block finalizer
+    # patches on the resources being force-deleted.
+    force_delete_webhooks_for_namespace "${namespace}"
     oc delete namespace "${namespace}" --ignore-not-found --wait=false \
         --grace-period=0 --force --request-timeout=10s >/dev/null 2>&1 || {
         log "WARN" "Could not force delete namespace ${namespace}"
