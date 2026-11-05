@@ -1320,6 +1320,7 @@ function force_delete_resource() {
     local resource=$1
     local namespace=${2:-}
     local name=${3:-}
+    local wait_for_deletion=${4:-true}
     local -a get_args=("${resource}")
 
     if [[ -n "${name}" ]]; then
@@ -1364,6 +1365,10 @@ function force_delete_resource() {
         }
     done <<< "${objects}"
 
+    if [[ "${wait_for_deletion}" != "true" ]]; then
+        return 0
+    fi
+
     local deadline=$((SECONDS + 120))
     local remaining
     while (( SECONDS < deadline )); do
@@ -1395,6 +1400,9 @@ function force_delete_namespace_resources() {
     local namespace=$1
     local resources
     local resource
+    local remaining_objects
+    local deadline
+    local resources_remain
 
     if ! resources=$(oc api-resources --namespaced=true --verbs=list,patch,delete \
         -o name --request-timeout=10s 2>/dev/null); then
@@ -1404,8 +1412,46 @@ function force_delete_namespace_resources() {
 
     while IFS= read -r resource; do
         [[ -n "${resource}" ]] || continue
-        force_delete_resource "${resource}" "${namespace}"
+        # Send every delete request before waiting. Controllers can recreate
+        # dependent objects (for example, Endpoints while Services still
+        # exist), so per-resource waits here can stall the whole cleanup.
+        force_delete_resource "${resource}" "${namespace}" "" false
     done <<< "${resources}"
+
+    deadline=$((SECONDS + 120))
+    while true; do
+        resources_remain=false
+        while IFS= read -r resource; do
+            [[ -n "${resource}" ]] || continue
+            if ! remaining_objects=$(oc get "${resource}" -n "${namespace}" \
+                -o name --request-timeout=10s 2>&1); then
+                if [[ "${remaining_objects}" == *"doesn't have a resource type"* || \
+                      "${remaining_objects}" == *"does not have a resource type"* || \
+                      "${remaining_objects}" == *"no matches for kind"* || \
+                      "${remaining_objects}" == *"couldn't find resource"* ]]; then
+                    continue
+                fi
+                log "ERROR" "Could not verify ${resource} deletion in ${namespace}: ${remaining_objects}"
+                return 1
+            fi
+
+            if [[ -n "${remaining_objects}" ]]; then
+                resources_remain=true
+                force_delete_resource "${resource}" "${namespace}" "" false
+            fi
+        done <<< "${resources}"
+
+        if [[ "${resources_remain}" == "false" ]]; then
+            log "INFO" "Verified all namespaced resources are deleted from ${namespace}"
+            return 0
+        fi
+        if (( SECONDS >= deadline )); then
+            log "ERROR" "Timed out waiting for namespaced resources to disappear from ${namespace}"
+            return 1
+        fi
+        log "INFO" "Waiting for remaining namespaced resources to disappear from ${namespace}..."
+        sleep 5
+    done
 }
 
 function force_delete_namespace() {
