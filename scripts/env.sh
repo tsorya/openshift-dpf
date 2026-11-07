@@ -424,8 +424,13 @@ validate_zero_trust_mode() {
         echo "ERROR: Zero Trust validation requires DPF_DEPLOYMENT_MODE=zero-trust" >&2
         return 1
     fi
-    if [ "${HYPERSHIFT_INSTALL_METHOD:-}" != "binary" ]; then
-        echo "ERROR: Zero Trust installation requires HYPERSHIFT_INSTALL_METHOD=binary" >&2
+    if [ "${ZT_THREE_CLUSTER_CI:-false}" = "true" ]; then
+        if [ "${HYPERSHIFT_INSTALL_METHOD:-}" != "mce" ]; then
+            echo "ERROR: ZT_THREE_CLUSTER_CI=true requires HYPERSHIFT_INSTALL_METHOD=mce (got '${HYPERSHIFT_INSTALL_METHOD:-}')" >&2
+            return 1
+        fi
+    elif [ "${HYPERSHIFT_INSTALL_METHOD:-}" != "binary" ]; then
+        echo "ERROR: Zero Trust installation requires HYPERSHIFT_INSTALL_METHOD=binary (set ZT_THREE_CLUSTER_CI=true for mce + tenant flow)" >&2
         return 1
     fi
     validate_zero_trust_redfish_configuration || return 1
@@ -593,8 +598,22 @@ if [[ "${BASH_SOURCE[0]}" != "${0}" ]]; then
     HOSTED_CONTROL_PLANE_NAMESPACE=${HOSTED_CONTROL_PLANE_NAMESPACE:-"${CLUSTERS_NAMESPACE}-${HOSTED_CLUSTER_NAME}"}
     HOSTED_KUBECONFIG="${HOSTED_CLUSTER_NAME}.kubeconfig"
 
+    # Tenant HostedCluster (physical workers); used by make deploy-zt-tenant-cluster
+    ZT_TENANT_CLUSTER_NAME=${ZT_TENANT_CLUSTER_NAME:-${HOSTED_CLUSTER_NAME}-tenant}
+    ZT_TENANT_KUBECONFIG=${ZT_TENANT_KUBECONFIG:-${ZT_TENANT_CLUSTER_NAME}.kubeconfig}
+
     if [ "$(readlink -m "${KUBECONFIG}")" = "$(readlink -m "${HOSTED_KUBECONFIG}")" ]; then
         echo "Error: Management KUBECONFIG '${KUBECONFIG}' must differ from hosted-cluster kubeconfig '${HOSTED_KUBECONFIG}'" >&2
+        exit 1
+    fi
+    if [ -n "${ZT_TENANT_KUBECONFIG:-}" ] &&
+        [ "$(readlink -m "${KUBECONFIG}")" = "$(readlink -m "${ZT_TENANT_KUBECONFIG}")" ]; then
+        echo "Error: Management KUBECONFIG '${KUBECONFIG}' must differ from tenant kubeconfig '${ZT_TENANT_KUBECONFIG}'" >&2
+        exit 1
+    fi
+    if [ -n "${ZT_TENANT_KUBECONFIG:-}" ] && [ -n "${HOSTED_KUBECONFIG:-}" ] &&
+        [ "$(readlink -m "${HOSTED_KUBECONFIG}")" = "$(readlink -m "${ZT_TENANT_KUBECONFIG}")" ]; then
+        echo "Error: DPU hosted kubeconfig '${HOSTED_KUBECONFIG}' must differ from tenant kubeconfig '${ZT_TENANT_KUBECONFIG}'" >&2
         exit 1
     fi
 

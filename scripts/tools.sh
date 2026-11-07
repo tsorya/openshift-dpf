@@ -248,6 +248,34 @@ function install_hypershift_via_mce() {
     log "INFO" "Hypershift installation via MCE completed successfully!"
 }
 
+# Ensure a hypershift CLI binary is available (management-cluster operations only).
+# Uses the same extraction/build path as install_hypershift but skips operator install.
+function ensure_hypershift_cli() {
+    if command -v hypershift &>/dev/null; then
+        return 0
+    fi
+    log "INFO" "hypershift CLI not in PATH; installing locally..."
+
+    if [[ "$(uname -m)" == "x86_64" ]]; then
+        if ! extract_hypershift_binary; then
+            log "ERROR" "Failed to extract hypershift binary from ${HYPERSHIFT_IMAGE}"
+            return 1
+        fi
+    else
+        log "INFO" "Non-x86 host ($(uname -m)), building hypershift from source..."
+        if ! build_hypershift_from_source; then
+            log "ERROR" "Failed to build hypershift from source"
+            return 1
+        fi
+    fi
+
+    mkdir -p "$HOME/.local/bin"
+    install -m 0755 /tmp/hypershift "$HOME/.local/bin/hypershift"
+    rm -f /tmp/hypershift
+    export PATH="$HOME/.local/bin:$PATH"
+    log "INFO" "Installed hypershift CLI to $HOME/.local/bin/hypershift"
+}
+
 function install_oc() {
     # Download the OpenShift CLI
     log "INFO" "Downloading OpenShift CLI..."

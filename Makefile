@@ -40,6 +40,9 @@ WORKER_SECURE_BOOT_SCRIPT := scripts/worker-secure-boot.sh
 # Full teardown orchestration (VMs, workers, Assisted Installer)
 CLEANUP_SCRIPT := scripts/cleanup.sh
 
+# Zero Trust tenant HostedCluster (physical workers + MCE Agent)
+ZT_TENANT_SCRIPT := scripts/zt-tenant-cluster.sh
+
 .PHONY: all
 all:
 	@mkdir -p logs
@@ -271,6 +274,17 @@ scale-in-zt-dpus: validate-zt-mode
 	@$(DPF_SCRIPT) scale-in-zero-trust-dpus "$(DPU_NODE)"
 	@$(POST_INSTALL_SCRIPT) prepare-zt-services
 	@$(POST_INSTALL_SCRIPT) update-zt-hbn-config
+
+# Three-cluster Zero Trust CI: MCE + Agent NodePool tenant on same physical hosts as DPU workers.
+# Prerequisites: DPU HostedCluster + DPFHCPProvisioner Ready (e.g. make all-zt); set ZT_TENANT_* (see docs).
+# Does not run validate-zt-mode so HYPERSHIFT_INSTALL_METHOD=mce is allowed for this phase without changing all-zt.
+.PHONY: deploy-zt-tenant-cluster
+deploy-zt-tenant-cluster:
+	@bash $(ZT_TENANT_SCRIPT) deploy
+
+.PHONY: validate-zt-tenant-config
+validate-zt-tenant-config:
+	@bash $(ZT_TENANT_SCRIPT) validate
 
 .PHONY: deploy-observability
 deploy-observability:
@@ -611,6 +625,7 @@ help:
 	@echo "  all               - Complete setup: verify, create cluster, VMs, install, and wait for completion (enable-kata last if KATA_ENABLED=true)"
 	@echo "  create-base-cluster - Create and install a base OpenShift cluster through worker provisioning"
 	@echo "  all-zt            - Zero Trust setup through DPU services and hosted-cluster authorization"
+	@echo "  deploy-zt-tenant-cluster - After all-zt: tenant HostedCluster on physical hosts (MCE Agent + BMH; see docs)"
 	@echo "  create-cluster    - Create a new cluster"
 	@echo "  create-day2-cluster - Create a day2 cluster for worker nodes with DPUs"
 	@echo "  get-day2-iso      - Get ISO URL for worker nodes with DPUs (uses day2 cluster)"

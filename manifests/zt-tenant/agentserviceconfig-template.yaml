@@ -1,0 +1,33 @@
+apiVersion: agent-install.openshift.io/v1beta1
+kind: AgentServiceConfig
+metadata:
+  name: agent
+  namespace: multicluster-engine
+spec:
+  databaseStorage:
+    storageClassName: <ZT_TENANT_AGENT_SERVICE_DATABASE_STORAGE_CLASS>
+    accessModes:
+      - ReadWriteOnce
+    resources:
+      requests:
+        storage: 10Gi
+  filesystemStorage:
+    storageClassName: <ZT_TENANT_AGENT_SERVICE_FILESYSTEM_STORAGE_CLASS>
+    accessModes:
+      - ReadWriteOnce
+    resources:
+      requests:
+        storage: 100Gi
+  imageStorage:
+    storageClassName: <ZT_TENANT_AGENT_SERVICE_IMAGE_STORAGE_CLASS>
+    accessModes:
+      - ReadWriteOnce
+    resources:
+      requests:
+        storage: 50Gi
+  osImages:
+    - openshiftVersion: "<ZT_TENANT_OPENSHIFT_VERSION_MINOR>"
+      version: "<ZT_TENANT_RHCOS_VERSION>"
+      url: "<ZT_TENANT_RHCOS_ISO_URL>"
+      rootFSUrl: "<ZT_TENANT_RHCOS_ROOTFS_URL>"
+      cpuArchitecture: "<ZT_TENANT_RHCOS_CPU_ARCHITECTURE>"
