@@ -424,15 +424,14 @@ validate_zero_trust_mode() {
         echo "ERROR: Zero Trust validation requires DPF_DEPLOYMENT_MODE=zero-trust" >&2
         return 1
     fi
-    if [ "${ZT_THREE_CLUSTER_CI:-false}" = "true" ]; then
-        if [ "${HYPERSHIFT_INSTALL_METHOD:-}" != "mce" ]; then
-            echo "ERROR: ZT_THREE_CLUSTER_CI=true requires HYPERSHIFT_INSTALL_METHOD=mce (got '${HYPERSHIFT_INSTALL_METHOD:-}')" >&2
+    case "${HYPERSHIFT_INSTALL_METHOD:-}" in
+        binary|mce)
+            ;;
+        *)
+            echo "ERROR: Zero Trust installation requires HYPERSHIFT_INSTALL_METHOD=binary or mce (got '${HYPERSHIFT_INSTALL_METHOD:-}')" >&2
             return 1
-        fi
-    elif [ "${HYPERSHIFT_INSTALL_METHOD:-}" != "binary" ]; then
-        echo "ERROR: Zero Trust installation requires HYPERSHIFT_INSTALL_METHOD=binary (set ZT_THREE_CLUSTER_CI=true for mce + tenant flow)" >&2
-        return 1
-    fi
+            ;;
+    esac
     validate_zero_trust_redfish_configuration || return 1
 
     for variable in \

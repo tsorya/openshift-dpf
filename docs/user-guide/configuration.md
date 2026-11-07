@@ -189,13 +189,14 @@ After `make all-zt`, `make deploy-zt-tenant-cluster` provisions a **second** Hos
 
 **CI / env requirements (in addition to Zero Trust worker + DPU inventory):**
 
-- **`ZT_THREE_CLUSTER_CI=true`** and **`HYPERSHIFT_INSTALL_METHOD=mce`** — use this pair for CI that runs both `make all-zt` and `make deploy-zt-tenant-cluster`. Default Zero Trust still requires `binary` only; the flag switches validation to require MCE for the shared HyperShift + Assisted stack.
+- **`HYPERSHIFT_INSTALL_METHOD=mce`** — use with Zero Trust when the hub installs HyperShift via MCE (required for `make deploy-zt-tenant-cluster`); **`binary`** remains supported for the default HyperShift CLI path. Zero Trust accepts either `binary` or `mce`.
 - **`ZT_TENANT_BASE_DOMAIN`** — DNS base domain for the tenant API (must not collide with the DPU hosted cluster).
 - **`ZT_TENANT_CLUSTER_NETWORK_CIDR`** / **`ZT_TENANT_SERVICE_NETWORK_CIDR`** — guest pod and service networks for the tenant cluster; must **not** overlap management-cluster `POD_CIDR`, `SERVICE_CIDR`, or `FLANNEL_POD_CIDR`, DPU hosted-cluster pod/service CIDRs, or **`DPU_HOST_CIDR`** (defaults: `10.136.0.0/14`, `172.31.0.0/16`).
 - **`ZT_TENANT_PULL_SECRET_NAME`** — name of the pull secret in the tenant hosted control plane namespace (matches `InfraEnv.spec.pullSecretRef`; default `zt-tenant-pull-secret`).
 - **`ZT_TENANT_MACHINE_NETWORK_CIDRS`** — BMC/L2 networks that can reach the Assisted discovery image (comma-separated CIDRs). Defaults from `API_VIP/24` when unset; set explicitly if that guess is wrong.
 - **`ZT_TENANT_OCP_RELEASE_IMAGE`** — release payload for the tenant (defaults to `OCP_RELEASE_IMAGE`).
-- **RHCOS for AgentServiceConfig** (when `ZT_TENANT_DEPLOY_AGENT_SERVICE_CONFIG=true`): `ZT_TENANT_RHCOS_ISO_URL`, `ZT_TENANT_RHCOS_ROOTFS_URL`, `ZT_TENANT_RHCOS_VERSION`, `ZT_TENANT_OPENSHIFT_VERSION_MINOR`, plus storage classes for the Assisted operator (`ZT_TENANT_AGENT_SERVICE_*_STORAGE_CLASS`, defaulting to `ETCD_STORAGE_CLASS`).
+- **`ZT_TENANT_OCP_RELEASE_IMAGE`** (defaults to `OCP_RELEASE_IMAGE`) — version the tenant HostedCluster and NodePool use; MCE Assisted is expected to already expose matching **x86_64** discovery/install images via its **`AgentServiceConfig`**.
+- **`ZT_TENANT_DEPLOY_AGENT_SERVICE_CONFIG`** — default **`false`**: do **not** apply a custom `AgentServiceConfig`; rely on MCE. Set **`true`** only on greenfield labs with no `agentserviceconfig/agent` CR; then set `ZT_TENANT_RHCOS_ISO_URL`, `ZT_TENANT_RHCOS_ROOTFS_URL`, `ZT_TENANT_RHCOS_VERSION`, `ZT_TENANT_OPENSHIFT_VERSION_MINOR`, and `ZT_TENANT_AGENT_SERVICE_*_STORAGE_CLASS`.
 
 **Sequence:**
 

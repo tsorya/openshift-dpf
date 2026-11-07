@@ -67,7 +67,7 @@ validate_zt_tenant_configuration() {
     _tenant_require_zero_trust || return 1
 
     if [ "${HYPERSHIFT_INSTALL_METHOD:-}" != "mce" ]; then
-        log [ERROR] "deploy-zt-tenant-cluster requires HYPERSHIFT_INSTALL_METHOD=mce (set ZT_THREE_CLUSTER_CI=true and mce in .env for the full three-cluster flow)"
+        log [ERROR] "deploy-zt-tenant-cluster requires HYPERSHIFT_INSTALL_METHOD=mce (shared MCE HyperShift + Assisted)"
         return 1
     fi
 
@@ -136,7 +136,7 @@ validate_zt_tenant_configuration() {
         done
     done < <(list_zero_trust_dpu_hosts)
 
-    if [ "${ZT_TENANT_DEPLOY_AGENT_SERVICE_CONFIG:-true}" = "true" ]; then
+    if [ "${ZT_TENANT_DEPLOY_AGENT_SERVICE_CONFIG:-false}" = "true" ]; then
         local fs_sc db_sc img_sc
         fs_sc="${ZT_TENANT_AGENT_SERVICE_FILESYSTEM_STORAGE_CLASS:-${ETCD_STORAGE_CLASS:-}}"
         db_sc="${ZT_TENANT_AGENT_SERVICE_DATABASE_STORAGE_CLASS:-${ETCD_STORAGE_CLASS:-}}"
@@ -276,7 +276,14 @@ ensure_hypershift_operator_ready() {
 }
 
 ensure_agent_service_config() {
-    [ "${ZT_TENANT_DEPLOY_AGENT_SERVICE_CONFIG:-true}" = "true" ] || { log [INFO] "Skipping AgentServiceConfig (ZT_TENANT_DEPLOY_AGENT_SERVICE_CONFIG=false)"; return 0; }
+    if [ "${ZT_TENANT_DEPLOY_AGENT_SERVICE_CONFIG:-false}" != "true" ]; then
+        if ! oc get agentserviceconfig agent -n multicluster-engine &>/dev/null; then
+            log [ERROR] "AgentServiceConfig agent not found in multicluster-engine; MCE must provide it or set ZT_TENANT_DEPLOY_AGENT_SERVICE_CONFIG=true"
+            return 1
+        fi
+        log [INFO] "Using MCE AgentServiceConfig (ZT_TENANT_DEPLOY_AGENT_SERVICE_CONFIG=false)"
+        return 0
+    fi
 
     if oc get agentserviceconfig agent -n multicluster-engine &>/dev/null; then
         log [INFO] "AgentServiceConfig agent already exists"
