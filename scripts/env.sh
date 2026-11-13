@@ -851,6 +851,13 @@ if [[ "${BASH_SOURCE[0]}" != "${0}" ]]; then
     # Apply the documented default at runtime, not only in env.defaults: an
     # .env generated before HYPERSHIFT_INSTALL_METHOD existed leaves it empty,
     # which validate_zero_trust_mode would reject as an invalid value.
+    # The tenant automation runs on MCE's shared HyperShift + Assisted Service,
+    # so it defaults to mce: either the tenant script itself or the full flow
+    # with ZT_DEPLOY_TENANT_CLUSTER=true. An explicit value still wins.
+    if [ "$(basename "${0:-}")" = "zt-tenant-cluster.sh" ] ||
+       [ "${ZT_DEPLOY_TENANT_CLUSTER:-false}" = "true" ]; then
+        HYPERSHIFT_INSTALL_METHOD="${HYPERSHIFT_INSTALL_METHOD:-mce}"
+    fi
     HYPERSHIFT_INSTALL_METHOD="${HYPERSHIFT_INSTALL_METHOD:-binary}"
     export HYPERSHIFT_INSTALL_METHOD
 

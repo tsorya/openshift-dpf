@@ -788,7 +788,7 @@ help:
 	@echo "                        Zero Trust uses the HyperShift CLI, staticClusterManager, and Redfish"
 	@echo "  DPF_VERSION      - DPF operator version (default: $(DPF_VERSION))"
 	@echo "  KATA_ENABLED     - If true, make all runs enable-kata last (default: false)"
-	@echo "  ZT_DEPLOY_TENANT_CLUSTER - If true, make all-zt ends by deploying the tenant HostedCluster (default: false; requires HYPERSHIFT_INSTALL_METHOD=mce)"
+	@echo "  ZT_DEPLOY_TENANT_CLUSTER - If true, make all-zt ends by deploying the tenant HostedCluster (default: false; defaults HYPERSHIFT_INSTALL_METHOD to mce)"
 	@echo "  ARGUS_ENABLED    - If true, deploy DOCA Argus with DPU services (default: false)"
 	@echo "  SKIP_DEPLOY_STORAGE - If true, skip LSO/LVM/ODF deployment; ETCD_STORAGE_CLASS must point to existing StorageClass (default: false)"
 	@echo "  ETCD_STORAGE_CLASS - StorageClass for hosted cluster etcd (default: $(ETCD_STORAGE_CLASS)); required when SKIP_DEPLOY_STORAGE=true"
