@@ -12,11 +12,13 @@ All scenarios are **bounded and allowlisted**. They do not use malware, internet
 
 1. `KATA_ENABLED=true` and `KATA_SRIOV_PF_INDEX=0` (Argus requires PF0 VFs).
    The demo target needs two free PF0 Kata VFs: one for `invisible-vm` and one for `argus-gtc-agent`.
-2. The demo target cluster must already have the `kata-coldplug` RuntimeClass,
-   PF0 Kata VF resource pool, and Kata network attachment definition. For the
-   tenant flow, those prerequisites must be available in the tenant
-   HostedCluster; `make deploy-argus-gtc-demo-tenant` does not install Kata or
-   DPU networking there.
+2. The demo target cluster must already have its Kata RuntimeClass, a PF0 Kata
+   VF resource pool, and a network attachment definition mapped to that class.
+   For a separate target such as the tenant HostedCluster, the defaults are
+   RuntimeClass `kata` and NAD `dpf-ovn-kubernetes-kata`; adjust
+   `ARGUS_GTC_KATA_RUNTIME_CLASS` or `ARGUS_GTC_KATA_NAD_NAME` if that cluster
+   uses different names. `make deploy-argus-gtc-demo-tenant` does not install
+   Kata or DPU networking there.
 3. Deploy DOCA Argus on the existing DPU flow with `make enable-argus` and
    `ARGUS_REPRESENTOR_ID` set. The demo reads Argus reports from the DPU
    HostedCluster.
@@ -112,6 +114,7 @@ This command:
 
 - Removes the legacy Argus log-cleaner DaemonSet (if present).
 - Deploys the Kata workload, scenario sink, NetworkPolicy, and UI to the selected demo target cluster (management by default; tenant with `make deploy-argus-gtc-demo-tenant`).
+- Runs both Kata pods with the target cluster's configured RuntimeClass. Tenant deployments default to the standard `kata` class; the demo does not create a RuntimeClass.
 - Configures the demo server to read DPU deployment status with a read-only management token and native Argus reports through a scoped DPU HostedCluster token.
 - Deploys the NeMo Agent Toolkit pod in its own Kata VM on the same worker as `invisible-vm` in the selected demo target cluster.
 - Deploys an in-cluster canary Service on TCP/31999 (NodePort exists, but the agent configuration uses the canary Service DNS name). Bash still runs inside the agent pod. The UI Route is the public entry; do not create a Route to the agent.

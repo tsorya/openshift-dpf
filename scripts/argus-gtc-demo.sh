@@ -18,6 +18,8 @@ source "$(dirname "${BASH_SOURCE[0]}")/cluster.sh"
 source "$(dirname "${BASH_SOURCE[0]}")/verify.sh"
 
 DEMO_NAMESPACE="argus-gtc-demo"
+DEMO_KATA_RUNTIME_CLASS=""
+DEMO_KATA_NAD_NAME=""
 DEMO_MANIFESTS_DIR="${MANIFESTS_DIR}/argus-gtc-demo"
 GENERATED_DEMO_DIR="${GENERATED_DIR}/argus-gtc-demo"
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -45,18 +47,18 @@ function require_demo_prereqs() {
         log "ERROR" "Argus GTC demo requires KATA_SRIOV_PF_INDEX=0"
         exit 1
     fi
-    if ! oc get runtimeclass "${KATA_RUNTIME_CLASS}" &>/dev/null; then
-        log "ERROR" "RuntimeClass ${KATA_RUNTIME_CLASS} not found in the demo target cluster (KUBECONFIG=${KUBECONFIG}, context=$(oc config current-context 2>/dev/null || echo unknown))"
+    if ! oc get runtimeclass "${DEMO_KATA_RUNTIME_CLASS}" &>/dev/null; then
+        log "ERROR" "Kata RuntimeClass ${DEMO_KATA_RUNTIME_CLASS} not found in the demo target cluster (KUBECONFIG=${KUBECONFIG}, context=$(oc config current-context 2>/dev/null || echo unknown))"
         local available
         available=$(oc get runtimeclass -o jsonpath='{range .items[*]}{.metadata.name}{" "}{end}' 2>/dev/null || true)
         if [ -n "${available}" ]; then
             log "ERROR" "RuntimeClasses on this cluster: ${available}"
         fi
-        log "ERROR" "Configure ${KATA_RUNTIME_CLASS} and the PF0 Kata VF pool on the demo target cluster before deploying the demo"
+        log "ERROR" "Configure RuntimeClass ${DEMO_KATA_RUNTIME_CLASS} and the PF0 Kata VF pool on the demo target cluster before deploying the demo"
         exit 1
     fi
-    if ! oc get net-attach-def -n "${OVNK_NAMESPACE}" "${KATA_NAD_NAME}" &>/dev/null; then
-        log "ERROR" "Kata NetworkAttachmentDefinition ${OVNK_NAMESPACE}/${KATA_NAD_NAME} is missing in the demo target cluster"
+    if ! oc get net-attach-def -n "${OVNK_NAMESPACE}" "${DEMO_KATA_NAD_NAME}" &>/dev/null; then
+        log "ERROR" "Kata NetworkAttachmentDefinition ${OVNK_NAMESPACE}/${DEMO_KATA_NAD_NAME} is missing in the demo target cluster"
         exit 1
     fi
     if ! KUBECONFIG="${HOSTED_KUBECONFIG}" oc get pods -n dpf-operator-system 2>/dev/null | grep -q doca-argus; then
@@ -174,7 +176,7 @@ function render_demo_manifests() {
         update_file_multi_replace \
             "${manifest}" "${out}" \
             "<WORKER_ROLE>" "${worker_role}" \
-            "<KATA_RUNTIME_CLASS>" "${KATA_RUNTIME_CLASS}" \
+            "<ARGUS_GTC_KATA_RUNTIME_CLASS>" "${DEMO_KATA_RUNTIME_CLASS}" \
             "<ARGUS_GTC_DEMO_IMAGE>" "${ARGUS_GTC_DEMO_IMAGE}" \
             "<ARGUS_GTC_SERVER_IMAGE>" "${ARGUS_GTC_SERVER_IMAGE}" \
             "<ARGUS_GTC_AGENT_IMAGE>" "${ARGUS_GTC_AGENT_IMAGE}" \
@@ -242,9 +244,14 @@ function initialize_demo_kubeconfigs() {
     fi
 
     if [ "${DEMO_KUBECONFIG}" = "${MANAGEMENT_KUBECONFIG}" ]; then
+        DEMO_KATA_RUNTIME_CLASS="${KATA_RUNTIME_CLASS}"
+        DEMO_KATA_NAD_NAME="${KATA_NAD_NAME}"
         log "INFO" "Demo target is the management cluster (${DEMO_KUBECONFIG})"
     else
+        DEMO_KATA_RUNTIME_CLASS="${ARGUS_GTC_KATA_RUNTIME_CLASS:-kata}"
+        DEMO_KATA_NAD_NAME="${ARGUS_GTC_KATA_NAD_NAME:-dpf-ovn-kubernetes-${DEMO_KATA_RUNTIME_CLASS}}"
         log "INFO" "Demo target is ${DEMO_KUBECONFIG}; management operations remain on ${MANAGEMENT_KUBECONFIG}"
+        log "INFO" "Using standard Kata RuntimeClass ${DEMO_KATA_RUNTIME_CLASS} on the demo target"
     fi
 }
 

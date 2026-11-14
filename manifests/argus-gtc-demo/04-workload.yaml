@@ -21,7 +21,7 @@ spec:
       labels:
         app: invisible-vm
     spec:
-      runtimeClassName: <KATA_RUNTIME_CLASS>
+      runtimeClassName: <ARGUS_GTC_KATA_RUNTIME_CLASS>
       nodeSelector:
         node-role.kubernetes.io/<WORKER_ROLE>: ""
       initContainers:

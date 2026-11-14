@@ -818,6 +818,8 @@ help:
 	@echo "  ARGUS_ENABLED    - If true, deploy DOCA Argus with DPU services (default: false)"
 	@echo "  ARGUS_REPRESENTOR_ID - DPU PF0 VU string used by the Argus Kata demo"
 	@echo "  ARGUS_GTC_DEMO_KUBECONFIG - Optional kubeconfig for the demo app and Kata workloads (default: KUBECONFIG)"
+	@echo "  ARGUS_GTC_KATA_RUNTIME_CLASS - Kata RuntimeClass on a separate demo target (default: kata)"
+	@echo "  ARGUS_GTC_KATA_NAD_NAME - Matching OVN Kata NAD on a separate demo target (default: dpf-ovn-kubernetes-kata)"
 	@echo "  SKIP_DEPLOY_STORAGE - If true, skip LSO/LVM/ODF deployment; ETCD_STORAGE_CLASS must point to existing StorageClass (default: false)"
 	@echo "  ETCD_STORAGE_CLASS - StorageClass for hosted cluster etcd (default: $(ETCD_STORAGE_CLASS)); required when SKIP_DEPLOY_STORAGE=true"
 	@echo ""

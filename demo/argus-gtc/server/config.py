@@ -14,7 +14,7 @@ class Settings(BaseSettings):
     workload_name: str = "invisible-vm"
     sink_name: str = "scenario-sink"
     sink_port: int = 4444
-    kata_runtime_class: str = "kata-coldplug"
+    kata_runtime_class: str = "kata"
     dpf_namespace: str = "dpf-operator-system"
     dpu_deployment_name: str = "dpudeployment"
     argus_service_name: str = "argus"

@@ -25,7 +25,7 @@ spec:
         demo.argus.nvidia.com/agent-auth-hash: <ARGUS_GTC_AGENT_TOKEN_SHA256>
         demo.argus.nvidia.com/model-key-hash: <ARGUS_GTC_MODEL_API_KEY_SHA256>
     spec:
-      runtimeClassName: <KATA_RUNTIME_CLASS>
+      runtimeClassName: <ARGUS_GTC_KATA_RUNTIME_CLASS>
       automountServiceAccountToken: false
       nodeSelector:
         node-role.kubernetes.io/<WORKER_ROLE>: ""

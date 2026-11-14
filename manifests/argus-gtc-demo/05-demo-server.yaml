@@ -35,7 +35,7 @@ spec:
             - name: ARGUS_GTC_NAMESPACE
               value: argus-gtc-demo
             - name: ARGUS_GTC_KATA_RUNTIME_CLASS
-              value: <KATA_RUNTIME_CLASS>
+              value: <ARGUS_GTC_KATA_RUNTIME_CLASS>
             - name: ARGUS_GTC_HOSTED_KUBECONFIG
               value: /etc/hosted/kubeconfig
             - name: ARGUS_GTC_MANAGEMENT_KUBECONFIG
