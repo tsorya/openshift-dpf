@@ -2,8 +2,9 @@
 # argus-gtc-demo.sh - Deploy/cleanup the Argus GTC demo stack
 #
 # Prerequisites:
-#   KATA_ENABLED=true KATA_SRIOV_PF_INDEX=0
-#   make enable-ovn-injector && make enable-kata && make enable-argus
+#   Target Kata RuntimeClass, PF0 VF pool, and matching network attachment are ready.
+#   DOCA Argus is already deployed on the DPU HostedCluster.
+#   Kata and DPU networking are not installed by this demo deploy command.
 #
 # Usage:
 #   make deploy-argus-gtc-demo
@@ -39,14 +40,6 @@ function kata_worker_role() {
 }
 
 function require_demo_prereqs() {
-    if [ "${KATA_ENABLED}" != "true" ]; then
-        log "ERROR" "KATA_ENABLED must be true for the Argus GTC demo"
-        exit 1
-    fi
-    if [ "${KATA_SRIOV_PF_INDEX}" != "0" ]; then
-        log "ERROR" "Argus GTC demo requires KATA_SRIOV_PF_INDEX=0"
-        exit 1
-    fi
     if ! oc get runtimeclass "${DEMO_KATA_RUNTIME_CLASS}" &>/dev/null; then
         log "ERROR" "Kata RuntimeClass ${DEMO_KATA_RUNTIME_CLASS} not found in the demo target cluster (KUBECONFIG=${KUBECONFIG}, context=$(oc config current-context 2>/dev/null || echo unknown))"
         local available

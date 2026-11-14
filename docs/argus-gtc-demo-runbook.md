@@ -10,8 +10,10 @@ All scenarios are **bounded and allowlisted**. They do not use malware, internet
 
 ## Prerequisites
 
-1. `KATA_ENABLED=true` and `KATA_SRIOV_PF_INDEX=0` (Argus requires PF0 VFs).
-   The demo target needs two free PF0 Kata VFs: one for `invisible-vm` and one for `argus-gtc-agent`.
+1. The one-time DPU/Argus setup has configured a PF0 Kata VF pool. The demo
+   target needs two free PF0 Kata VFs: one for `invisible-vm` and one for
+   `argus-gtc-agent`. `KATA_ENABLED=true` and `KATA_SRIOV_PF_INDEX=0` are setup
+   settings; the demo deploy command does not require them once Kata is ready.
 2. The demo target cluster must already have its Kata RuntimeClass, a PF0 Kata
    VF resource pool, and a network attachment definition mapped to that class.
    For a separate target such as the tenant HostedCluster, the defaults are
@@ -103,6 +105,10 @@ kubeconfig:
 ```bash
 make deploy-argus-gtc-demo-tenant
 ```
+
+When Kata, the PF0 VF pool, and the matching network attachment are already
+configured, this command starts the demo directly. It does not run
+`make enable-kata` or install Kata/DPU networking.
 
 The tenant target uses `ZT_TENANT_KUBECONFIG` for namespace creation, routes,
 Kata workloads, and the agent. It reads DPU deployment status from management
