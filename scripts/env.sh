@@ -958,7 +958,12 @@ if [[ "${BASH_SOURCE[0]}" != "${0}" ]]; then
     KATA_INJECTOR_RESOURCE_NAME=${KATA_INJECTOR_RESOURCE_NAME:-${SRIOV_DP_RESOURCE_PREFIX}/${KATA_SRIOV_DP_CONFIG_NAME}}
     KATA_TEST_REPLICAS=${KATA_TEST_REPLICAS:-1}
     KATA_SKIP_RHCOS_LAYER=${KATA_SKIP_RHCOS_LAYER:-false}
+    # Argus GTC demo defaults also apply to older .env files with blank fields.
+    ARGUS_GTC_DEMO_IMAGE=${ARGUS_GTC_DEMO_IMAGE:-quay.io/itsoiref/argus-gtc-demo:workload-ubi9-v2}
+    ARGUS_GTC_SERVER_IMAGE=${ARGUS_GTC_SERVER_IMAGE:-quay.io/itsoiref/argus-gtc-demo:v47-memory-phonehome}
+    ARGUS_GTC_AGENT_IMAGE=${ARGUS_GTC_AGENT_IMAGE:-quay.io/itsoiref/argus-gtc-agent:nat-1.8.0-v19-agent-shell}
     ARGUS_GTC_KATA_RUNTIME_CLASS=${ARGUS_GTC_KATA_RUNTIME_CLASS:-kata}
+    ARGUS_GTC_MODEL_NAME=${ARGUS_GTC_MODEL_NAME:-gpt-6-luna}
     ARGUS_ENABLED=${ARGUS_ENABLED:-false}
     if [ "${ARGUS_ENABLED}" != "true" ] && [ "${ARGUS_ENABLED}" != "false" ]; then
         echo "Error: ARGUS_ENABLED must be true or false (got '${ARGUS_ENABLED}')" >&2

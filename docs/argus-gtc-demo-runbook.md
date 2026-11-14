@@ -60,9 +60,9 @@ Build and push the separate NeMo Agent Toolkit pod image:
 
 ```bash
 docker build --platform linux/amd64 \
-  -t quay.io/itsoiref/argus-gtc-agent:nat-1.8.0-v14-agent-shell \
+  -t quay.io/itsoiref/argus-gtc-agent:nat-1.8.0-v19-agent-shell \
   -f demo/argus-gtc-agent/Containerfile demo/argus-gtc-agent
-docker push quay.io/itsoiref/argus-gtc-agent:nat-1.8.0-v14-agent-shell
+docker push quay.io/itsoiref/argus-gtc-agent:nat-1.8.0-v19-agent-shell
 ```
 
 Configure these values in the generated `.env` before deployment. The model
@@ -73,7 +73,7 @@ needs outbound TCP/443. The demo shell is allowed only to the worker-host
 canary on TCP/31999.
 
 ```text
-ARGUS_GTC_AGENT_IMAGE=quay.io/itsoiref/argus-gtc-agent:nat-1.8.0-v14-agent-shell
+ARGUS_GTC_AGENT_IMAGE=quay.io/itsoiref/argus-gtc-agent:nat-1.8.0-v19-agent-shell
 ARGUS_GTC_MODEL_BASE_URL=https://api.openai.com/v1
 ARGUS_GTC_MODEL_NAME=gpt-6-luna
 ARGUS_GTC_MODEL_API_KEY=<OpenAI-API-key>
@@ -86,7 +86,7 @@ Set the image in `.env` (or export it), then deploy:
 ```bash
 ARGUS_GTC_DEMO_IMAGE=quay.io/itsoiref/argus-gtc-demo:workload-ubi9-v2 \
 ARGUS_GTC_SERVER_IMAGE=quay.io/itsoiref/argus-gtc-demo:v47-memory-phonehome \
-ARGUS_GTC_AGENT_IMAGE=quay.io/itsoiref/argus-gtc-agent:nat-1.8.0-v14-agent-shell \
+ARGUS_GTC_AGENT_IMAGE=quay.io/itsoiref/argus-gtc-agent:nat-1.8.0-v19-agent-shell \
 make deploy-argus-gtc-demo
 ```
 
@@ -127,7 +127,9 @@ This command:
 |----------|---------|---------|
 | `ARGUS_GTC_DEMO_IMAGE` | `quay.io/itsoiref/argus-gtc-demo:workload-ubi9-v2` | Kata workload + sink image; UBI9/glibc Bash and Python 3 support the scenarios |
 | `ARGUS_GTC_SERVER_IMAGE` | `quay.io/itsoiref/argus-gtc-demo:v47-memory-phonehome` | Demo server, UI, and canary image |
-| `ARGUS_GTC_AGENT_IMAGE` | `quay.io/itsoiref/argus-gtc-agent:nat-1.8.0-v14-agent-shell` | Pre-built NeMo Agent Toolkit image |
+| `ARGUS_GTC_AGENT_IMAGE` | `quay.io/itsoiref/argus-gtc-agent:nat-1.8.0-v19-agent-shell` | Pre-built NeMo Agent Toolkit image |
+| `ARGUS_GTC_KATA_RUNTIME_CLASS` | `kata` | Existing tenant Kata RuntimeClass; no VF passthrough |
+| `ZT_TENANT_KUBECONFIG` | `tenant.kubeconfig` | Tenant cluster kubeconfig selected by `make start-argus-gtc-demo-tenant` |
 | `ARGUS_GTC_MODEL_BASE_URL` | *(empty)* | OpenAI-compatible API base URL; for OpenAI use `https://api.openai.com/v1` |
 | `ARGUS_GTC_MODEL_NAME` | `gpt-6-luna` | OpenAI API model ID; must be enabled for your API account |
 | `ARGUS_GTC_MODEL_API_KEY` | *(empty)* | Model API key; stored in a Kubernetes Secret and injected into the agent pod |
