@@ -11,10 +11,25 @@ All scenarios are **bounded and allowlisted**. They do not use malware, internet
 ## Prerequisites
 
 1. `KATA_ENABLED=true` and `KATA_SRIOV_PF_INDEX=0` (Argus requires PF0 VFs).
-   The worker needs two free PF0 Kata VFs: one for `invisible-vm` and one for `argus-gtc-agent`.
-2. `make enable-ovn-injector`, `make enable-kata`, `make enable-argus` with `ARGUS_REPRESENTOR_ID` set.
-3. `make deploy-observability` recommended for DTS panels (Thanos metrics).
-4. Hosted cluster kubeconfig available (`doca.kubeconfig` or secret fetch).
+   The demo target needs two free PF0 Kata VFs: one for `invisible-vm` and one for `argus-gtc-agent`.
+2. The demo target cluster must already have the `kata-coldplug` RuntimeClass,
+   PF0 Kata VF resource pool, and Kata network attachment definition. For the
+   tenant flow, those prerequisites must be available in the tenant
+   HostedCluster; `make deploy-argus-gtc-demo-tenant` does not install Kata or
+   DPU networking there.
+3. Deploy DOCA Argus on the existing DPU flow with `make enable-argus` and
+   `ARGUS_REPRESENTOR_ID` set. The demo reads Argus reports from the DPU
+   HostedCluster.
+4. DTS panels query Thanos in the selected demo target cluster. Make sure DTS
+   metrics are scraped there; the existing `make deploy-observability` target
+   acts on `KUBECONFIG`, not automatically on the tenant cluster.
+5. For the tenant target, deploy the tenant HostedCluster first and make sure
+   `ZT_TENANT_KUBECONFIG` points to its kubeconfig. The default file is
+   `tenant.kubeconfig`.
+6. DPU hosted-cluster kubeconfig available locally (`doca.kubeconfig` or
+   secret fetch). The deploy script uses it to create a namespace-scoped
+   24-hour reader token; it does not copy this admin kubeconfig into the demo
+   namespace.
 
 ## Build the demo images
 
@@ -79,12 +94,26 @@ ARGUS_GTC_AGENT_IMAGE=quay.io/itsoiref/argus-gtc-agent:nat-1.8.0-v14-agent-shell
 make deploy-argus-gtc-demo
 ```
 
+That target keeps the existing behavior and deploys the UI and workloads to
+`KUBECONFIG`. To deploy them to the tenant HostedCluster, use its generated
+kubeconfig:
+
+```bash
+make deploy-argus-gtc-demo-tenant
+```
+
+The tenant target uses `ZT_TENANT_KUBECONFIG` for namespace creation, routes,
+Kata workloads, and the agent. It reads DPU deployment status from management
+and Argus reports from the DPU HostedCluster through separate namespace-scoped
+service-account tokens requested for 24 hours. Re-running the deploy target
+refreshes both tokens and restarts the demo server with them.
+
 This command:
 
 - Removes the legacy Argus log-cleaner DaemonSet (if present).
-- Deploys the Kata workload, scenario sink, NetworkPolicy, and UI on the management cluster.
-- Configures the demo server to read native Argus reports from the hosted Argus pod through the hosted kubeconfig.
-- Deploys the NeMo Agent Toolkit pod in its own Kata VM on the same worker as `invisible-vm`.
+- Deploys the Kata workload, scenario sink, NetworkPolicy, and UI to the selected demo target cluster (management by default; tenant with `make deploy-argus-gtc-demo-tenant`).
+- Configures the demo server to read DPU deployment status with a read-only management token and native Argus reports through a scoped DPU HostedCluster token.
+- Deploys the NeMo Agent Toolkit pod in its own Kata VM on the same worker as `invisible-vm` in the selected demo target cluster.
 - Deploys an in-cluster canary Service on TCP/31999 (NodePort exists, but the agent configuration uses the canary Service DNS name). Bash still runs inside the agent pod. The UI Route is the public entry; do not create a Route to the agent.
 - Applies a cluster-scoped AdminNetworkPolicy selecting only the agent pod. It allows TCP/31999 to nodes (the canary) and denies every other node destination. Deployment requires the AdminNetworkPolicy API, OVN-Kubernetes, cluster-admin permissions, and a free priority 0.
 - Allows the agent pod outbound TCP/443 for direct model API calls. The Kubernetes NetworkPolicy destination is any IPv4 address; the OpenAI hostname is selected by `ARGUS_GTC_MODEL_BASE_URL`. Canary egress is scoped to worker InternalIPs on TCP/31999. Do not disable the namespace NetworkPolicy for `invisible-vm`.
@@ -119,7 +148,7 @@ The stream scope defaults to the selected workload. **All demo workloads** and *
 
 ### AI agent behavior path
 
-The AI story uses only `argus-gtc-agent`, a separate Kata workload on the management cluster. It is not `invisible-vm`, and the UI does not present the scripted workload's stop control as an AI response. The agent's configured target is the `argus-gtc-canary` Service name on TCP/31999; the listener is a controlled action destination, separate from the DPU observer.
+The AI story uses only `argus-gtc-agent`, a separate Kata workload in the selected demo target cluster. It is not `invisible-vm`, and the UI does not present the scripted workload's stop control as an AI response. The agent's configured target is the `argus-gtc-canary` Service name on TCP/31999; the listener is a controlled action destination, separate from the DPU observer.
 
 Open `/agent` directly or choose **AI agent behavior** in the header navigation. This page uses the same stream and alerts layout scoped to `argus-gtc-agent`. Its five evidence checks summarize the latest run without treating a tool report, listener response, native Argus event, native alert, and OVN deny as interchangeable. Selecting an AI request shows its description without sending it. Use the **Workload security** link to return to `/` and `invisible-vm`.
 
@@ -136,18 +165,25 @@ For both stories, use the actual workload name and the three separate health sig
 make cleanup-argus-gtc-demo
 ```
 
-Removes only the demo resources on the management cluster and any legacy
-`argus-gtc-demo` namespace left on the hosted cluster. Argus, DPU services,
-and Kata infrastructure are untouched. It also deletes only the named
-`argus-gtc-agent-host-access` AdminNetworkPolicy.
+For a tenant deployment, use:
+
+```bash
+make cleanup-argus-gtc-demo-tenant
+```
+
+Cleanup removes the demo resources from the selected demo target, its scoped
+reader roles and service accounts from the management and DPU HostedClusters,
+and any legacy `argus-gtc-demo` namespace left on the DPU HostedCluster. Argus,
+DPU services, and Kata infrastructure are untouched. It also deletes only the
+named `argus-gtc-agent-host-access` AdminNetworkPolicy.
 
 ## Troubleshooting
 
 | Symptom | Check |
 |---------|-------|
-| No Argus events in UI | Argus pods Running on hosted cluster; the demo server's hosted kubeconfig can list/exec into `doca-argus-*`; logs under `/var/log/doca_argus_activity_report/`; log-cleaner absent |
+| No Argus events in UI | Argus pods Running on hosted cluster; the demo server's scoped hosted token can list and exec into `doca-argus-*`; logs under `/var/log/doca_argus_activity_report/`; log-cleaner absent |
 | Argus status Pending | `KUBECONFIG=doca.kubeconfig oc get pods -n dpf-operator-system \| grep argus` |
-| DPU status Degraded | Open `/api/status` and inspect `details.dpu`. A `403` means re-apply demo RBAC (`make deploy-argus-gtc-demo`). If `ready: false` with conditions, check `oc get dpudeployment dpudeployment -n dpf-operator-system` |
+| DPU status Degraded | Open `/api/status` and inspect `details.dpu`. Re-run the matching deploy target to refresh management read access. If `ready: false` with conditions, check `oc get dpudeployment dpudeployment -n dpf-operator-system` using the management kubeconfig. |
 | Workload Pending | Kata VF pool on PF0; NAD/injector applied |
 | UI image pull errors | Ensure `ARGUS_GTC_SERVER_IMAGE` points to a registry the cluster can pull (image pull secret if private) |
 | Agent actions disabled | Check `ARGUS_GTC_MODEL_BASE_URL`, `ARGUS_GTC_MODEL_NAME`, and `oc -n argus-gtc-demo rollout status deploy/argus-gtc-agent` |
@@ -155,7 +191,7 @@ and Kata infrastructure are untouched. It also deletes only the named
 | Agent does not call the tool | Use a tool-calling-compatible model and inspect its response. The UI reports no tool call without inferring a deliberate refusal; do not claim an attempted connection. |
 | Canary has no `uid=` output | Confirm `argus-gtc-canary` is Ready, NodePort 31999 is allocated, and the agent ANP allows TCP/31999 to nodes. Check canary logs. |
 | Shell connected but Argus did not show it | Inspect native Argus logs for `TCP Network Connection State Change`, `Network Connection Created`, `Process Created`, or `Reverse Shell Detected` with `argus-gtc-agent-shell-<run-id>` or the agent pod. Check that Argus is scanning the agent's Kata VF on PF0. The UI does not mark this run as Argus observed without a matching native event. |
-| Argus report tailing fails | Check the demo server logs and verify the hosted kubeconfig has `get/list` access to Argus pods and `create` access to `pods/exec` in `dpf-operator-system` |
+| Argus report tailing fails | Check the demo server logs and the `argus-gtc-hosted-reader` Role/RoleBinding in DPU HostedCluster `dpf-operator-system`; re-run the matching deploy target to refresh its token. |
 | Executable Memory returns `no-native-event` | Confirm the Python action completed and held the mapping for 45 seconds. Inspect native Argus reports for `New Executable Anonymous Memory Mapped` on `invisible-vm` with the run marker; confirm the live memory collector is enabled. A process event by itself is insufficient. |
 | Audit Evasion returns `no-native-alert` | Confirm the live Argus config has `shell_command.disable_scan=false`, `shell_history_cleared=true`, and `shell_history_disabled=true`; inspect `/var/log/doca_argus/` for profile or collection failures. A correlated `Executable Permissions Removed` MEDIUM alert does not satisfy this scenario. |
 
@@ -174,16 +210,21 @@ Do not fabricate Argus fields; use captured samples to tune UI refresh intervals
 ## Architecture
 
 ```text
-Management cluster                Hosted/DPU cluster
-─────────────────────            ───────────────────
-invisible-vm (Kata) ── VF ──> BlueField DPU <── DMA ── doca-argus pods
-argus-gtc-agent (Kata) ── VF ────────┘                    │
-       ├── HTTPS/443 ──> OpenAI API                       │
-       ├── Bash TCP/31999 ──> canary Service           │
-       └── auth/report ──> demo server                    │
-argus-gtc-canary Service DNS/ClusterIP :31999 (NodePort also published)
-                 ── id/exit ──> agent shell
-browser ── Route ──> argus-gtc-demo UI ── /generate ──> agent ClusterIP
-(no Route on the agent)
-       ↑                    native process/socket <──────┘
+Management cluster         DPU HostedCluster             Demo target cluster
+───────────────────        ─────────────────             ───────────────────
+DPUDeployment status       doca-argus pods               UI Route
+       ↑                           │                     demo server
+scoped 24h token                    │                     invisible-vm (Kata)
+       │                    scoped hosted token           argus-gtc-agent (Kata)
+       └─────────────── demo server reads status/logs ─────────┘
+                                                          │
+browser ── Route ──> UI ── /generate ──> agent ClusterIP │
+                               ├── HTTPS/443 ──> OpenAI API
+                               └── TCP/31999 ──> canary Service
+                                                    │
+                                     id/exit ────────┘
+
+The demo target is the management cluster by default. `make
+deploy-argus-gtc-demo-tenant` selects the tenant HostedCluster using
+`ZT_TENANT_KUBECONFIG`; Argus observations continue to use the DPU HostedCluster.
 ```

@@ -23,6 +23,10 @@ GENERATED_DEMO_DIR="${GENERATED_DIR}/argus-gtc-demo"
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 MANIFESTS_DIR=${MANIFESTS_DIR:-"${REPO_ROOT}/manifests"}
 GENERATED_DIR=${GENERATED_DIR:-"${MANIFESTS_DIR}/generated"}
+MANAGEMENT_KUBECONFIG=""
+DEMO_KUBECONFIG=""
+
+trap 'rm -f "${GENERATED_DEMO_DIR}/.hosted-kubeconfig" "${GENERATED_DEMO_DIR}/.management-kubeconfig"' EXIT
 
 function kata_worker_role() {
     if oc get mcp worker-dpu &>/dev/null; then
@@ -42,24 +46,17 @@ function require_demo_prereqs() {
         exit 1
     fi
     if ! oc get runtimeclass "${KATA_RUNTIME_CLASS}" &>/dev/null; then
-        log "ERROR" "RuntimeClass ${KATA_RUNTIME_CLASS} not found (KUBECONFIG=${KUBECONFIG}, context=$(oc config current-context 2>/dev/null || echo unknown))"
+        log "ERROR" "RuntimeClass ${KATA_RUNTIME_CLASS} not found in the demo target cluster (KUBECONFIG=${KUBECONFIG}, context=$(oc config current-context 2>/dev/null || echo unknown))"
         local available
         available=$(oc get runtimeclass -o jsonpath='{range .items[*]}{.metadata.name}{" "}{end}' 2>/dev/null || true)
         if [ -n "${available}" ]; then
             log "ERROR" "RuntimeClasses on this cluster: ${available}"
         fi
-        local cluster_kc="kubeconfig.${CLUSTER_NAME}"
-        if [ -f "${cluster_kc}" ] && [ "${KUBECONFIG}" != "${cluster_kc}" ]; then
-            if KUBECONFIG="${cluster_kc}" oc get runtimeclass "${KATA_RUNTIME_CLASS}" &>/dev/null; then
-                log "ERROR" "${KATA_RUNTIME_CLASS} exists in ${cluster_kc}; .env KUBECONFIG points elsewhere"
-                log "ERROR" "Fix .env or run: make KUBECONFIG=${cluster_kc} deploy-argus-gtc-demo"
-            fi
-        fi
-        log "ERROR" "Run make enable-kata on the management cluster, or fix KUBECONFIG in .env"
+        log "ERROR" "Configure ${KATA_RUNTIME_CLASS} and the PF0 Kata VF pool on the demo target cluster before deploying the demo"
         exit 1
     fi
-    if ! ensure_hosted_kubeconfig; then
-        log "ERROR" "Hosted cluster kubeconfig is required for Argus status and log collection"
+    if ! oc get net-attach-def -n "${OVNK_NAMESPACE}" "${KATA_NAD_NAME}" &>/dev/null; then
+        log "ERROR" "Kata NetworkAttachmentDefinition ${OVNK_NAMESPACE}/${KATA_NAD_NAME} is missing in the demo target cluster"
         exit 1
     fi
     if ! KUBECONFIG="${HOSTED_KUBECONFIG}" oc get pods -n dpf-operator-system 2>/dev/null | grep -q doca-argus; then
@@ -154,7 +151,7 @@ function agent_canary_egress_to() {
 }
 
 function render_demo_manifests() {
-    local worker_role ingest_token ingest_token_hash server_url agent_token agent_token_hash model_key_hash agent_model_name canary_egress
+    local worker_role ingest_token ingest_token_hash server_url agent_token agent_token_hash model_key_hash agent_model_name canary_egress hosted_kubeconfig_hash management_kubeconfig_hash
     worker_role=$(kata_worker_role)
     ingest_token="${ARGUS_GTC_INGEST_TOKEN:-$(openssl rand -hex 16)}"
     ingest_token_hash=$(printf '%s' "${ingest_token}" | sha256sum | awk '{print $1}')
@@ -163,11 +160,16 @@ function render_demo_manifests() {
     model_key_hash=$(printf '%s' "${ARGUS_GTC_MODEL_API_KEY:-}" | sha256sum | awk '{print $1}')
     agent_model_name="${ARGUS_GTC_MODEL_NAME:-unconfigured-model}"
     canary_egress=$(agent_canary_egress_to)
+    hosted_kubeconfig_hash=$(sha256sum "${GENERATED_DEMO_DIR}/.hosted-kubeconfig" | awk '{print $1}')
+    management_kubeconfig_hash=$(sha256sum "${GENERATED_DEMO_DIR}/.management-kubeconfig" | awk '{print $1}')
     mkdir -p "${GENERATED_DEMO_DIR}"
 
     for manifest in "${DEMO_MANIFESTS_DIR}"/*.yaml; do
         local base out
         base=$(basename "${manifest}")
+        if [ "${base}" = "10-management-rbac.yaml" ] || [ "${base}" = "11-hosted-rbac.yaml" ]; then
+            continue
+        fi
         out="${GENERATED_DEMO_DIR}/${base}"
         update_file_multi_replace \
             "${manifest}" "${out}" \
@@ -179,6 +181,8 @@ function render_demo_manifests() {
             "<ARGUS_GTC_INGEST_TOKEN_SHA256>" "${ingest_token_hash}" \
             "<ARGUS_GTC_AGENT_TOKEN_SHA256>" "${agent_token_hash}" \
             "<ARGUS_GTC_MODEL_API_KEY_SHA256>" "${model_key_hash}" \
+            "<ARGUS_GTC_HOSTED_KUBECONFIG_SHA256>" "${hosted_kubeconfig_hash}" \
+            "<ARGUS_GTC_MANAGEMENT_KUBECONFIG_SHA256>" "${management_kubeconfig_hash}" \
             "<ARGUS_GTC_MODEL_BASE_URL>" "${ARGUS_GTC_MODEL_BASE_URL:-}" \
             "<ARGUS_GTC_MODEL_NAME>" "${ARGUS_GTC_MODEL_NAME:-}" \
             "<ARGUS_GTC_AGENT_MODEL_NAME>" "${agent_model_name}" \
@@ -191,11 +195,70 @@ function render_demo_manifests() {
     (umask 077; printf '%s\n' "${agent_token}" > "${GENERATED_DEMO_DIR}/.agent-token")
 }
 
+function write_scoped_kubeconfig() {
+    local source_kubeconfig="$1" namespace="$2" service_account="$3" output_path="$4"
+    local token cluster kubeconfig
+
+    token=$(KUBECONFIG="${source_kubeconfig}" oc -n "${namespace}" create token \
+        "${service_account}" --duration=24h)
+    cluster=$(KUBECONFIG="${source_kubeconfig}" oc config view \
+        --raw --minify --flatten -o json | jq -c '.clusters[0].cluster')
+    kubeconfig=$(jq -cn \
+        --argjson cluster "${cluster}" \
+        --rawfile token <(printf '%s' "${token}") \
+        '{apiVersion:"v1",kind:"Config",clusters:[{name:"target",cluster:$cluster}],contexts:[{name:"target",context:{cluster:"target",user:"argus-gtc-reader"}}],"current-context":"target",users:[{name:"argus-gtc-reader",user:{token:$token}}]}')
+    (umask 077; printf '%s\n' "${kubeconfig}" > "${output_path}")
+}
+
 function create_hosted_kubeconfig_secret() {
+    local kubeconfig_path="${GENERATED_DEMO_DIR}/.hosted-kubeconfig"
+    mkdir -p "${GENERATED_DEMO_DIR}"
     oc create namespace "${DEMO_NAMESPACE}" --dry-run=client -o yaml | oc apply -f -
-    oc -n "${DEMO_NAMESPACE}" create secret generic argus-gtc-hosted-kubeconfig \
-        --from-file=kubeconfig="${HOSTED_KUBECONFIG}" \
-        --dry-run=client -o yaml | oc apply -f -
+
+    log "INFO" "Creating scoped DPU HostedCluster access for Argus pod status and logs"
+    KUBECONFIG="${HOSTED_KUBECONFIG}" oc apply -f "${DEMO_MANIFESTS_DIR}/11-hosted-rbac.yaml"
+    write_scoped_kubeconfig "${HOSTED_KUBECONFIG}" dpf-operator-system \
+        argus-gtc-hosted-reader "${kubeconfig_path}"
+    KUBECONFIG="${DEMO_KUBECONFIG}" oc -n "${DEMO_NAMESPACE}" create secret generic \
+        argus-gtc-hosted-kubeconfig \
+        --from-file=kubeconfig="${kubeconfig_path}" \
+        --dry-run=client -o yaml | KUBECONFIG="${DEMO_KUBECONFIG}" oc apply -f -
+}
+
+function initialize_demo_kubeconfigs() {
+    get_kubeconfig
+    MANAGEMENT_KUBECONFIG="$(canonical_path "${KUBECONFIG}")"
+    DEMO_KUBECONFIG="$(_strip_surrounding_quotes "${ARGUS_GTC_DEMO_KUBECONFIG:-${MANAGEMENT_KUBECONFIG}}")"
+    DEMO_KUBECONFIG="$(canonical_path "${DEMO_KUBECONFIG}")"
+
+    if [ ! -r "${DEMO_KUBECONFIG}" ]; then
+        log "ERROR" "Demo target kubeconfig is missing or unreadable: ${DEMO_KUBECONFIG}"
+        log "ERROR" "For the tenant target, create the tenant cluster first and check ZT_TENANT_KUBECONFIG=${ZT_TENANT_KUBECONFIG}"
+        return 1
+    fi
+    if [ "${DEMO_KUBECONFIG}" = "$(canonical_path "${HOSTED_KUBECONFIG}")" ]; then
+        log "ERROR" "Demo target kubeconfig must not be the DPU hosted-cluster kubeconfig"
+        return 1
+    fi
+
+    if [ "${DEMO_KUBECONFIG}" = "${MANAGEMENT_KUBECONFIG}" ]; then
+        log "INFO" "Demo target is the management cluster (${DEMO_KUBECONFIG})"
+    else
+        log "INFO" "Demo target is ${DEMO_KUBECONFIG}; management operations remain on ${MANAGEMENT_KUBECONFIG}"
+    fi
+}
+
+function create_management_kubeconfig_secret() {
+    local kubeconfig_path="${GENERATED_DEMO_DIR}/.management-kubeconfig"
+
+    log "INFO" "Creating read-only management-cluster access for DPU status"
+    KUBECONFIG="${MANAGEMENT_KUBECONFIG}" oc apply -f "${DEMO_MANIFESTS_DIR}/10-management-rbac.yaml"
+    write_scoped_kubeconfig "${MANAGEMENT_KUBECONFIG}" dpf-operator-system \
+        argus-gtc-management-reader "${kubeconfig_path}"
+    KUBECONFIG="${DEMO_KUBECONFIG}" oc -n "${DEMO_NAMESPACE}" create secret generic \
+        argus-gtc-management-kubeconfig \
+        --from-file=kubeconfig="${kubeconfig_path}" \
+        --dry-run=client -o yaml | KUBECONFIG="${DEMO_KUBECONFIG}" oc apply -f -
 }
 
 function wait_for_demo_ready() {
@@ -207,18 +270,24 @@ function wait_for_demo_ready() {
 }
 
 function deploy_argus_gtc_demo() {
-    get_kubeconfig
-    log "INFO" "Management cluster: KUBECONFIG=${KUBECONFIG} context=$(oc config current-context 2>/dev/null || echo unknown)"
+    initialize_demo_kubeconfigs || exit 1
+    if ! ensure_hosted_kubeconfig; then
+        log "ERROR" "Hosted cluster kubeconfig is required for Argus status and log collection"
+        exit 1
+    fi
+    export KUBECONFIG="${DEMO_KUBECONFIG}"
+    log "INFO" "Demo target context: $(oc config current-context 2>/dev/null || echo unknown)"
     require_demo_prereqs
     require_agent_network_policy_prereqs
     remove_argus_log_cleaner
     remove_legacy_hosted_collector
 
     log "INFO" "Using pre-built demo server image ${ARGUS_GTC_SERVER_IMAGE}"
-    render_demo_manifests
     create_hosted_kubeconfig_secret
+    create_management_kubeconfig_secret
+    render_demo_manifests
 
-    log "INFO" "Applying management-cluster demo manifests"
+    log "INFO" "Applying demo manifests to ${DEMO_KUBECONFIG}"
     apply_manifest "${GENERATED_DEMO_DIR}/00-namespace.yaml" "true"
     apply_manifest "${GENERATED_DEMO_DIR}/01-rbac.yaml" "true"
     apply_manifest "${GENERATED_DEMO_DIR}/02-networkpolicy.yaml" "true"
@@ -261,19 +330,37 @@ function deploy_argus_gtc_demo() {
         log "INFO" "Demo UI service: http://argus-gtc-demo.${DEMO_NAMESPACE}.svc:8080"
     fi
 
-    log "INFO" "Argus GTC demo deployed. The server reads Argus reports through the hosted kubeconfig. See docs/argus-gtc-demo-runbook.md"
+    log "INFO" "Argus GTC demo deployed to ${DEMO_KUBECONFIG}. Argus reports are read through the DPU hosted kubeconfig. See docs/argus-gtc-demo-runbook.md"
 }
 
 function cleanup_argus_gtc_demo() {
-    get_kubeconfig
-    log "INFO" "Removing Argus GTC demo resources from management cluster"
-    oc delete rolebinding argus-gtc-demo-dpu-read -n dpf-operator-system --ignore-not-found
-    oc delete role argus-gtc-demo-dpu-read -n dpf-operator-system --ignore-not-found
+    initialize_demo_kubeconfigs || exit 1
+    if ! ensure_hosted_kubeconfig; then
+        log "WARN" "DPU hosted-cluster kubeconfig unavailable; skipping legacy hosted namespace cleanup"
+    fi
+
+    export KUBECONFIG="${DEMO_KUBECONFIG}"
+    log "INFO" "Removing Argus GTC demo resources from ${DEMO_KUBECONFIG}"
     oc delete clusterrolebinding argus-gtc-demo-monitoring-view --ignore-not-found
     oc delete adminnetworkpolicy argus-gtc-agent-host-access --ignore-not-found
     oc delete namespace "${DEMO_NAMESPACE}" --ignore-not-found --wait=false
 
-    if ensure_hosted_kubeconfig; then
+    KUBECONFIG="${MANAGEMENT_KUBECONFIG}" oc delete rolebinding argus-gtc-demo-dpu-read \
+        -n dpf-operator-system --ignore-not-found
+    KUBECONFIG="${MANAGEMENT_KUBECONFIG}" oc delete role argus-gtc-demo-dpu-read \
+        -n dpf-operator-system --ignore-not-found
+    KUBECONFIG="${MANAGEMENT_KUBECONFIG}" oc delete serviceaccount \
+        argus-gtc-management-reader -n dpf-operator-system --ignore-not-found
+    if [ -f "${HOSTED_KUBECONFIG}" ] && [ -s "${HOSTED_KUBECONFIG}" ]; then
+        KUBECONFIG="${HOSTED_KUBECONFIG}" oc delete rolebinding argus-gtc-hosted-reader \
+            -n dpf-operator-system --ignore-not-found
+        KUBECONFIG="${HOSTED_KUBECONFIG}" oc delete role argus-gtc-hosted-reader \
+            -n dpf-operator-system --ignore-not-found
+        KUBECONFIG="${HOSTED_KUBECONFIG}" oc delete serviceaccount \
+            argus-gtc-hosted-reader -n dpf-operator-system --ignore-not-found
+    fi
+
+    if [ -f "${HOSTED_KUBECONFIG}" ] && [ -s "${HOSTED_KUBECONFIG}" ]; then
         log "INFO" "Removing legacy hosted collector namespace"
         KUBECONFIG="${HOSTED_KUBECONFIG}" oc delete namespace "${DEMO_NAMESPACE}" --ignore-not-found --wait=false
     fi

@@ -18,6 +18,8 @@ spec:
         demo.argus.nvidia.com/ingest-token-hash: <ARGUS_GTC_INGEST_TOKEN_SHA256>
         demo.argus.nvidia.com/agent-auth-hash: <ARGUS_GTC_AGENT_TOKEN_SHA256>
         demo.argus.nvidia.com/model-key-hash: <ARGUS_GTC_MODEL_API_KEY_SHA256>
+        demo.argus.nvidia.com/hosted-kubeconfig-hash: <ARGUS_GTC_HOSTED_KUBECONFIG_SHA256>
+        demo.argus.nvidia.com/management-kubeconfig-hash: <ARGUS_GTC_MANAGEMENT_KUBECONFIG_SHA256>
     spec:
       serviceAccountName: argus-gtc-demo
       containers:
@@ -36,6 +38,8 @@ spec:
               value: <KATA_RUNTIME_CLASS>
             - name: ARGUS_GTC_HOSTED_KUBECONFIG
               value: /etc/hosted/kubeconfig
+            - name: ARGUS_GTC_MANAGEMENT_KUBECONFIG
+              value: /etc/management/kubeconfig
             - name: ARGUS_GTC_INGEST_TOKEN
               valueFrom:
                 secretKeyRef:
@@ -71,6 +75,9 @@ spec:
             - name: hosted-kubeconfig
               mountPath: /etc/hosted
               readOnly: true
+            - name: management-kubeconfig
+              mountPath: /etc/management
+              readOnly: true
           readinessProbe:
             httpGet:
               path: /api/health
@@ -98,6 +105,9 @@ spec:
         - name: hosted-kubeconfig
           secret:
             secretName: argus-gtc-hosted-kubeconfig
+        - name: management-kubeconfig
+          secret:
+            secretName: argus-gtc-management-kubeconfig
 ---
 apiVersion: v1
 kind: Service

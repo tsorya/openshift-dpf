@@ -346,9 +346,17 @@ deploy-kata-test:
 deploy-argus-gtc-demo:
 	@scripts/argus-gtc-demo.sh deploy
 
+.PHONY: deploy-argus-gtc-demo-tenant
+deploy-argus-gtc-demo-tenant:
+	@ARGUS_GTC_DEMO_KUBECONFIG="$${ZT_TENANT_KUBECONFIG:-tenant.kubeconfig}" scripts/argus-gtc-demo.sh deploy
+
 .PHONY: cleanup-argus-gtc-demo
 cleanup-argus-gtc-demo:
 	@scripts/argus-gtc-demo.sh cleanup
+
+.PHONY: cleanup-argus-gtc-demo-tenant
+cleanup-argus-gtc-demo-tenant:
+	@ARGUS_GTC_DEMO_KUBECONFIG="$${ZT_TENANT_KUBECONFIG:-tenant.kubeconfig}" scripts/argus-gtc-demo.sh cleanup
 
 .PHONY: watch-argus-gtc-acl
 watch-argus-gtc-acl:
@@ -707,6 +715,8 @@ help:
 	@echo "  enable-argus      - Install the DOCA Argus DPU service (ARGUS_ENABLED=true; Kata demo requires PF0 and ARGUS_REPRESENTOR_ID)"
 	@echo "  deploy-argus-gtc-demo - Deploy Argus GTC demo UI and workload"
 	@echo "  cleanup-argus-gtc-demo - Remove Argus GTC demo resources only"
+	@echo "  deploy-argus-gtc-demo-tenant - Deploy demo to tenant HostedCluster (ZT_TENANT_KUBECONFIG)"
+	@echo "  cleanup-argus-gtc-demo-tenant - Remove demo from tenant HostedCluster"
 	@echo "  watch-argus-gtc-acl - Stream the demo agent's OVN ACL drop evidence to the UI"
 	@echo "  deploy-kata-test  - Deploy kata-dpu-test Deployment (KATA_TEST_REPLICAS, default 1)"
 	@echo "  cleanup-kata-vfs  - Rebind stale vfio-pci VFs to mlx5_core on worker-dpu (FORCE=true to skip running-pod check)"
@@ -807,6 +817,7 @@ help:
 	@echo "  KATA_SRIOV_PF_INDEX - Kata VF pool PF index (Argus demo requires 0)"
 	@echo "  ARGUS_ENABLED    - If true, deploy DOCA Argus with DPU services (default: false)"
 	@echo "  ARGUS_REPRESENTOR_ID - DPU PF0 VU string used by the Argus Kata demo"
+	@echo "  ARGUS_GTC_DEMO_KUBECONFIG - Optional kubeconfig for the demo app and Kata workloads (default: KUBECONFIG)"
 	@echo "  SKIP_DEPLOY_STORAGE - If true, skip LSO/LVM/ODF deployment; ETCD_STORAGE_CLASS must point to existing StorageClass (default: false)"
 	@echo "  ETCD_STORAGE_CLASS - StorageClass for hosted cluster etcd (default: $(ETCD_STORAGE_CLASS)); required when SKIP_DEPLOY_STORAGE=true"
 	@echo ""

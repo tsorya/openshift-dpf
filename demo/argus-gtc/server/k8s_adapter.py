@@ -30,6 +30,22 @@ class K8sAdapter:
         self.apps = client.AppsV1Api()
         self.core = client.CoreV1Api()
         self.custom = client.CustomObjectsApi()
+        if self.settings.management_kubeconfig:
+            self.management_custom = self._management_api()
+        else:
+            self.management_custom = self.custom
+
+    def _management_api(self) -> client.CustomObjectsApi | None:
+        if not self.settings.management_kubeconfig:
+            return None
+        try:
+            api_client = config.new_client_from_config(
+                self.settings.management_kubeconfig
+            )
+            return client.CustomObjectsApi(api_client)
+        except Exception:
+            logger.exception("failed to load management kubeconfig")
+            return None
 
     def _hosted_api(self) -> client.CustomObjectsApi | None:
         if not self.settings.hosted_kubeconfig:
@@ -211,8 +227,10 @@ class K8sAdapter:
         return None
 
     def get_dpudeployment_status(self) -> dict[str, Any]:
+        if self.management_custom is None:
+            return {"ready": False, "message": "management kubeconfig unavailable"}
         try:
-            obj = self.custom.get_namespaced_custom_object(
+            obj = self.management_custom.get_namespaced_custom_object(
                 group="svc.dpu.nvidia.com",
                 version="v1alpha1",
                 namespace=self.settings.dpf_namespace,
@@ -349,29 +367,32 @@ class K8sAdapter:
         auto_scan = None
         representor_id = None
         dma_device = None
-        try:
-            obj = self.custom.get_namespaced_custom_object(
-                group="svc.dpu.nvidia.com",
-                version="v1alpha1",
-                namespace=self.settings.dpf_namespace,
-                plural="dpuserviceconfigurations",
-                name=self.settings.argus_service_name,
-            )
-            content = (
-                obj.get("spec", {})
-                .get("serviceConfiguration", {})
-                .get("helmChart", {})
-                .get("values", {})
-                .get("config", {})
-                .get("content", {})
-                .get("apsh_config", {})
-            )
-            auto_scan = content.get("auto_scan")
-            bm = (content.get("systems") or {}).get("bm") or {}
-            representor_id = bm.get("representor_id")
-            dma_device = bm.get("dma_device_name")
-        except ApiException:
-            logger.debug("argus DPUServiceConfiguration not readable", exc_info=True)
+        if self.management_custom is None:
+            logger.debug("management kubeconfig unavailable; DPU coverage is incomplete")
+        else:
+            try:
+                obj = self.management_custom.get_namespaced_custom_object(
+                    group="svc.dpu.nvidia.com",
+                    version="v1alpha1",
+                    namespace=self.settings.dpf_namespace,
+                    plural="dpuserviceconfigurations",
+                    name=self.settings.argus_service_name,
+                )
+                content = (
+                    obj.get("spec", {})
+                    .get("serviceConfiguration", {})
+                    .get("helmChart", {})
+                    .get("values", {})
+                    .get("config", {})
+                    .get("content", {})
+                    .get("apsh_config", {})
+                )
+                auto_scan = content.get("auto_scan")
+                bm = (content.get("systems") or {}).get("bm") or {}
+                representor_id = bm.get("representor_id")
+                dma_device = bm.get("dma_device_name")
+            except ApiException:
+                logger.debug("argus DPUServiceConfiguration not readable", exc_info=True)
 
         kata_runtime = self.settings.kata_runtime_class
         return {
