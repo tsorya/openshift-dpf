@@ -350,6 +350,11 @@ deploy-argus-gtc-demo:
 deploy-argus-gtc-demo-tenant:
 	@ARGUS_GTC_DEMO_KUBECONFIG="$${ZT_TENANT_KUBECONFIG:-tenant.kubeconfig}" scripts/argus-gtc-demo.sh deploy
 
+.PHONY: start-argus-gtc-demo-tenant
+start-argus-gtc-demo-tenant:
+	@$(MAKE) --no-print-directory ARGUS_ENABLED=true KATA_ENABLED=false enable-argus
+	@$(MAKE) --no-print-directory deploy-argus-gtc-demo-tenant
+
 .PHONY: cleanup-argus-gtc-demo
 cleanup-argus-gtc-demo:
 	@scripts/argus-gtc-demo.sh cleanup
@@ -712,10 +717,11 @@ help:
 	@echo "  scale-out-zt-dpus - Create DPUNodes for hosts added to WORKER_<N>_DPU_BMC_IPS and refresh per-DPU services"
 	@echo "  scale-in-zt-dpus - Remove one host's Zero Trust DPUNode and DPUs (usage: make scale-in-zt-dpus DPU_NODE=dpu-node-worker-<N>)"
 	@echo "  enable-kata       - OSC (inert KataConfig) + kata-coldplug on worker-dpu (also last make all step when KATA_ENABLED=true)"
-	@echo "  enable-argus      - Install the DOCA Argus DPU service (ARGUS_ENABLED=true; Kata demo requires PF0 and ARGUS_REPRESENTOR_ID)"
+	@echo "  enable-argus      - Install the DOCA Argus DPU service (Kata VF introspection requires PF0 and ARGUS_REPRESENTOR_ID)"
 	@echo "  deploy-argus-gtc-demo - Deploy Argus GTC demo UI and workload"
 	@echo "  cleanup-argus-gtc-demo - Remove Argus GTC demo resources only"
-	@echo "  deploy-argus-gtc-demo-tenant - Start demo on tenant HostedCluster (Kata/Argus already configured)"
+	@echo "  deploy-argus-gtc-demo-tenant - Deploy demo to tenant HostedCluster (Argus already enabled)"
+	@echo "  start-argus-gtc-demo-tenant - Start Argus in non-Kata mode, then deploy tenant demo"
 	@echo "  cleanup-argus-gtc-demo-tenant - Remove demo from tenant HostedCluster"
 	@echo "  watch-argus-gtc-acl - Stream the demo agent's OVN ACL drop evidence to the UI"
 	@echo "  deploy-kata-test  - Deploy kata-dpu-test Deployment (KATA_TEST_REPLICAS, default 1)"
@@ -814,12 +820,11 @@ help:
 	@echo "  DPF_VERSION      - DPF operator version (default: $(DPF_VERSION))"
 	@echo "  KATA_ENABLED     - If true, make all runs enable-kata last (default: false)"
 	@echo "  ZT_DEPLOY_TENANT_CLUSTER - If true, make all-zt ends by deploying the tenant HostedCluster (default: false; defaults HYPERSHIFT_INSTALL_METHOD to mce)"
-	@echo "  KATA_SRIOV_PF_INDEX - PF index for Kata VF pool setup (Argus must use PF0)"
+	@echo "  KATA_SRIOV_PF_INDEX - PF index for Kata VF pool setup (Argus VF introspection uses PF0)"
 	@echo "  ARGUS_ENABLED    - If true, deploy DOCA Argus with DPU services (default: false)"
-	@echo "  ARGUS_REPRESENTOR_ID - DPU PF0 VU string used by the Argus Kata demo"
+	@echo "  ARGUS_REPRESENTOR_ID - DPU PF0 VU string used for Argus Kata VF introspection"
 	@echo "  ARGUS_GTC_DEMO_KUBECONFIG - Optional kubeconfig for the demo app and Kata workloads (default: KUBECONFIG)"
 	@echo "  ARGUS_GTC_KATA_RUNTIME_CLASS - Kata RuntimeClass on a separate demo target (default: kata)"
-	@echo "  ARGUS_GTC_KATA_NAD_NAME - Matching OVN Kata NAD on a separate demo target (default: dpf-ovn-kubernetes-kata)"
 	@echo "  SKIP_DEPLOY_STORAGE - If true, skip LSO/LVM/ODF deployment; ETCD_STORAGE_CLASS must point to existing StorageClass (default: false)"
 	@echo "  ETCD_STORAGE_CLASS - StorageClass for hosted cluster etcd (default: $(ETCD_STORAGE_CLASS)); required when SKIP_DEPLOY_STORAGE=true"
 	@echo ""

@@ -395,27 +395,37 @@ class K8sAdapter:
                 logger.debug("argus DPUServiceConfiguration not readable", exc_info=True)
 
         kata_runtime = self.settings.kata_runtime_class
+        kata_vf_passthrough = self.settings.kata_vf_passthrough
+        if kata_vf_passthrough:
+            scope = "DPU-attached worker via DMA — not a cluster-wide pod watch"
+            includes = [
+                "Every process on the DPU-attached worker, including OpenShift system pods",
+                f"Kata VMs whose SR-IOV VF is on PF0 (RuntimeClass {kata_runtime})",
+                "runc pods on that same worker (no guest hypervisor)",
+                "Separate AI agent Kata VM on the DPU-attached worker",
+            ]
+            excludes = [
+                "Pods on other workers / control-plane VMs",
+                "Kata VFs on PF1 — Argus cannot introspect them",
+            ]
+        else:
+            scope = "DPU service telemetry — not a cluster-wide pod watch"
+            includes = ["Native telemetry emitted by the DOCA Argus service in its configured scope"]
+            excludes = ["Kata guest process introspection for demo pods (no DPU VF passthrough)"]
         return {
             "selects_all_cluster_pods": False,
-            "scope": "DPU-attached worker via DMA — not a cluster-wide pod watch",
+            "scope": scope,
             "worker_node": node,
             "auto_scan": auto_scan,
             "representor_id": representor_id,
             "dma_device": dma_device,
             "kata_runtime_class": kata_runtime,
-            "kata_pf0_only": True,
+            "kata_vf_passthrough": kata_vf_passthrough,
             "guest_agent": False,
             "ai_agent_pod": "argus-gtc-agent",
             "demo_workloads": demo_workloads,
-            "includes": [
-                "Every process on the DPU-attached worker, including OpenShift system pods",
-                f"Kata VMs whose SR-IOV VF is on PF0 (RuntimeClass {kata_runtime})",
-                "runc pods on that same worker (no guest hypervisor)",
-                "Separate AI agent Kata VM on the DPU-attached worker",
-            ],
-            "excludes": [
-                "Pods on other workers / control-plane VMs",
-                "Kata VFs on PF1 — Argus cannot introspect them",
+            "includes": includes,
+            "excludes": excludes + [
                 "In-guest security agents — Argus runs on the DPU instead",
                 "OVN policy verdicts — those come from OVN ACL audit logs, not Argus",
             ],

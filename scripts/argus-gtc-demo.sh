@@ -2,8 +2,8 @@
 # argus-gtc-demo.sh - Deploy/cleanup the Argus GTC demo stack
 #
 # Prerequisites:
-#   Target Kata RuntimeClass, PF0 VF pool, and matching network attachment are ready.
-#   DOCA Argus is already deployed on the DPU HostedCluster.
+#   Target Kata RuntimeClass is ready. Tenant deployments use Kata without VF passthrough.
+#   DOCA Argus is already deployed on the DPU HostedCluster, or use the combined Make target.
 #   Kata and DPU networking are not installed by this demo deploy command.
 #
 # Usage:
@@ -21,6 +21,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/verify.sh"
 DEMO_NAMESPACE="argus-gtc-demo"
 DEMO_KATA_RUNTIME_CLASS=""
 DEMO_KATA_NAD_NAME=""
+DEMO_KATA_VF_PASSTHROUGH="false"
 DEMO_MANIFESTS_DIR="${MANIFESTS_DIR}/argus-gtc-demo"
 GENERATED_DEMO_DIR="${GENERATED_DIR}/argus-gtc-demo"
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -47,11 +48,12 @@ function require_demo_prereqs() {
         if [ -n "${available}" ]; then
             log "ERROR" "RuntimeClasses on this cluster: ${available}"
         fi
-        log "ERROR" "Configure RuntimeClass ${DEMO_KATA_RUNTIME_CLASS} and the PF0 Kata VF pool on the demo target cluster before deploying the demo"
+        log "ERROR" "Configure RuntimeClass ${DEMO_KATA_RUNTIME_CLASS} on the demo target cluster before deploying the demo"
         exit 1
     fi
-    if ! oc get net-attach-def -n "${OVNK_NAMESPACE}" "${DEMO_KATA_NAD_NAME}" &>/dev/null; then
-        log "ERROR" "Kata NetworkAttachmentDefinition ${OVNK_NAMESPACE}/${DEMO_KATA_NAD_NAME} is missing in the demo target cluster"
+    if [ "${DEMO_KATA_VF_PASSTHROUGH}" = "true" ] &&
+        ! oc get net-attach-def -n "${OVNK_NAMESPACE}" "${DEMO_KATA_NAD_NAME}" &>/dev/null; then
+        log "ERROR" "Kata VF NetworkAttachmentDefinition ${OVNK_NAMESPACE}/${DEMO_KATA_NAD_NAME} is missing in the demo target cluster"
         exit 1
     fi
     if ! KUBECONFIG="${HOSTED_KUBECONFIG}" oc get pods -n dpf-operator-system 2>/dev/null | grep -q doca-argus; then
@@ -170,6 +172,7 @@ function render_demo_manifests() {
             "${manifest}" "${out}" \
             "<WORKER_ROLE>" "${worker_role}" \
             "<ARGUS_GTC_KATA_RUNTIME_CLASS>" "${DEMO_KATA_RUNTIME_CLASS}" \
+            "<ARGUS_GTC_KATA_VF_PASSTHROUGH>" "${DEMO_KATA_VF_PASSTHROUGH}" \
             "<ARGUS_GTC_DEMO_IMAGE>" "${ARGUS_GTC_DEMO_IMAGE}" \
             "<ARGUS_GTC_SERVER_IMAGE>" "${ARGUS_GTC_SERVER_IMAGE}" \
             "<ARGUS_GTC_AGENT_IMAGE>" "${ARGUS_GTC_AGENT_IMAGE}" \
@@ -239,12 +242,20 @@ function initialize_demo_kubeconfigs() {
     if [ "${DEMO_KUBECONFIG}" = "${MANAGEMENT_KUBECONFIG}" ]; then
         DEMO_KATA_RUNTIME_CLASS="${KATA_RUNTIME_CLASS}"
         DEMO_KATA_NAD_NAME="${KATA_NAD_NAME}"
+        if [ "${KATA_ENABLED}" = "true" ]; then
+            if [ "${KATA_SRIOV_PF_INDEX}" != "0" ]; then
+                log "ERROR" "Management-cluster Kata VF introspection requires KATA_SRIOV_PF_INDEX=0"
+                return 1
+            fi
+            DEMO_KATA_VF_PASSTHROUGH="true"
+        fi
         log "INFO" "Demo target is the management cluster (${DEMO_KUBECONFIG})"
     else
         DEMO_KATA_RUNTIME_CLASS="${ARGUS_GTC_KATA_RUNTIME_CLASS:-kata}"
-        DEMO_KATA_NAD_NAME="${ARGUS_GTC_KATA_NAD_NAME:-dpf-ovn-kubernetes-${DEMO_KATA_RUNTIME_CLASS}}"
+        DEMO_KATA_NAD_NAME=""
+        DEMO_KATA_VF_PASSTHROUGH="false"
         log "INFO" "Demo target is ${DEMO_KUBECONFIG}; management operations remain on ${MANAGEMENT_KUBECONFIG}"
-        log "INFO" "Using standard Kata RuntimeClass ${DEMO_KATA_RUNTIME_CLASS} on the demo target"
+        log "INFO" "Using standard Kata RuntimeClass ${DEMO_KATA_RUNTIME_CLASS} without DPU VF passthrough"
     fi
 }
 

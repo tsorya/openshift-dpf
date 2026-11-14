@@ -36,6 +36,8 @@ spec:
               value: argus-gtc-demo
             - name: ARGUS_GTC_KATA_RUNTIME_CLASS
               value: <ARGUS_GTC_KATA_RUNTIME_CLASS>
+            - name: ARGUS_GTC_KATA_VF_PASSTHROUGH
+              value: "<ARGUS_GTC_KATA_VF_PASSTHROUGH>"
             - name: ARGUS_GTC_HOSTED_KUBECONFIG
               value: /etc/hosted/kubeconfig
             - name: ARGUS_GTC_MANAGEMENT_KUBECONFIG

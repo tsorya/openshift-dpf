@@ -959,7 +959,6 @@ if [[ "${BASH_SOURCE[0]}" != "${0}" ]]; then
     KATA_TEST_REPLICAS=${KATA_TEST_REPLICAS:-1}
     KATA_SKIP_RHCOS_LAYER=${KATA_SKIP_RHCOS_LAYER:-false}
     ARGUS_GTC_KATA_RUNTIME_CLASS=${ARGUS_GTC_KATA_RUNTIME_CLASS:-kata}
-    ARGUS_GTC_KATA_NAD_NAME=${ARGUS_GTC_KATA_NAD_NAME:-dpf-ovn-kubernetes-${ARGUS_GTC_KATA_RUNTIME_CLASS}}
     ARGUS_ENABLED=${ARGUS_ENABLED:-false}
     if [ "${ARGUS_ENABLED}" != "true" ] && [ "${ARGUS_ENABLED}" != "false" ]; then
         echo "Error: ARGUS_ENABLED must be true or false (got '${ARGUS_ENABLED}')" >&2

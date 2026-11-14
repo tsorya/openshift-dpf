@@ -15,6 +15,7 @@ class Settings(BaseSettings):
     sink_name: str = "scenario-sink"
     sink_port: int = 4444
     kata_runtime_class: str = "kata"
+    kata_vf_passthrough: bool = False
     dpf_namespace: str = "dpf-operator-system"
     dpu_deployment_name: str = "dpudeployment"
     argus_service_name: str = "argus"

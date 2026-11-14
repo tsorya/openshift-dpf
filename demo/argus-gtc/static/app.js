@@ -870,7 +870,7 @@ function updateCoverage(coverage) {
   setText("coverage-representor", coverage.representor_id);
   const kataBits = [];
   if (coverage.kata_runtime_class) kataBits.push(coverage.kata_runtime_class);
-  kataBits.push(coverage.kata_pf0_only ? "PF0 VFs only" : "PF unknown");
+  kataBits.push(coverage.kata_vf_passthrough ? "PF0 VF passthrough" : "no VF passthrough");
   kataBits.push(coverage.guest_agent ? "guest agent" : "no in-guest security agent");
   setText("coverage-kata", kataBits.join(" · "));
 

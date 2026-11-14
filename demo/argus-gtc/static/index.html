@@ -313,14 +313,14 @@
           <h2>What Argus is watching</h2>
         </div>
       </div>
-      <p class="coverage-context"><strong>Management-cluster Kata workload</strong> observed through its BlueField DPU. DOCA Argus runs in the HyperShift-hosted DPU cluster.</p>
-      <p class="coverage-scope" id="coverage-scope">DPU-attached worker via DMA — not a Kubernetes pod selector.</p>
+      <p class="coverage-context">DOCA Argus runs in the HyperShift-hosted DPU cluster. Guest process visibility from Kata depends on DPU VF passthrough.</p>
+      <p class="coverage-scope" id="coverage-scope">DPU service telemetry — not a cluster-wide pod watch.</p>
       <dl class="coverage-meta">
         <div><dt>DPU service plane</dt><dd>HyperShift</dd></div>
         <div><dt>Worker</dt><dd id="coverage-node">—</dd></div>
         <div><dt>Auto-scan</dt><dd id="coverage-scan">—</dd></div>
         <div><dt>Representor</dt><dd id="coverage-representor">—</dd></div>
-        <div><dt>Kata</dt><dd id="coverage-kata">PF0 VFs only, no in-guest security agent</dd></div>
+        <div><dt>Kata</dt><dd id="coverage-kata">kata · no VF passthrough, no in-guest security agent</dd></div>
       </dl>
       <h3>In this demo</h3>
       <ul class="coverage-list" id="coverage-demo">

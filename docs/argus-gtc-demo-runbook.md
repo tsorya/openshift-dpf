@@ -2,7 +2,7 @@
 
 **Title:** Invisible VM, Visible Threat
 
-This demo shows activity inside an isolated Kata workload with **no in-guest security agent**. DOCA Argus observes from the BlueField DPU, and OpenShift supplies workload identity so an operator can respond. The AI application is a separate workload in its own Kata VM; it is an application agent, not a security agent installed inside the guest. OVN-Kubernetes policy evidence remains separate from native Argus telemetry.
+This tenant demo runs the workload and AI agent with the cluster's existing `kata` RuntimeClass, without DPU VF passthrough or an in-guest security agent. DOCA Argus runs separately on the BlueField DPU. In this mode Argus does not introspect processes inside the Kata guests; the UI can still show workload state and DPU-scoped Argus telemetry. OVN-Kubernetes policy evidence remains separate from native Argus telemetry.
 
 ## Safety note
 
@@ -10,27 +10,19 @@ All scenarios are **bounded and allowlisted**. They do not use malware, internet
 
 ## Prerequisites
 
-1. The one-time DPU/Argus setup has configured a PF0 Kata VF pool. The demo
-   target needs two free PF0 Kata VFs: one for `invisible-vm` and one for
-   `argus-gtc-agent`. `KATA_ENABLED=true` and `KATA_SRIOV_PF_INDEX=0` are setup
-   settings; the demo deploy command does not require them once Kata is ready.
-2. The demo target cluster must already have its Kata RuntimeClass, a PF0 Kata
-   VF resource pool, and a network attachment definition mapped to that class.
-   For a separate target such as the tenant HostedCluster, the defaults are
-   RuntimeClass `kata` and NAD `dpf-ovn-kubernetes-kata`; adjust
-   `ARGUS_GTC_KATA_RUNTIME_CLASS` or `ARGUS_GTC_KATA_NAD_NAME` if that cluster
-   uses different names. `make deploy-argus-gtc-demo-tenant` does not install
-   Kata or DPU networking there.
-3. Deploy DOCA Argus on the existing DPU flow with `make enable-argus` and
-   `ARGUS_REPRESENTOR_ID` set. The demo reads Argus reports from the DPU
-   HostedCluster.
-4. DTS panels query Thanos in the selected demo target cluster. Make sure DTS
+1. The tenant cluster already has the standard `kata` RuntimeClass available.
+   No Kata installation, PF0 VF pool, or Kata NAD is needed for this no-VF path.
+2. The DPUDeployment exists on the management cluster. The combined start
+   target enables Argus with its non-Kata configuration; no
+   `ARGUS_REPRESENTOR_ID` or Kata VF pool is required. The demo reads Argus
+   reports from the DPU HostedCluster.
+3. DTS panels query Thanos in the selected demo target cluster. Make sure DTS
    metrics are scraped there; the existing `make deploy-observability` target
    acts on `KUBECONFIG`, not automatically on the tenant cluster.
-5. For the tenant target, deploy the tenant HostedCluster first and make sure
+4. For the tenant target, deploy the tenant HostedCluster first and make sure
    `ZT_TENANT_KUBECONFIG` points to its kubeconfig. The default file is
    `tenant.kubeconfig`.
-6. DPU hosted-cluster kubeconfig available locally (`doca.kubeconfig` or
+5. DPU hosted-cluster kubeconfig available locally (`doca.kubeconfig` or
    secret fetch). The deploy script uses it to create a namespace-scoped
    24-hour reader token; it does not copy this admin kubeconfig into the demo
    namespace.
@@ -99,16 +91,17 @@ make deploy-argus-gtc-demo
 ```
 
 That target keeps the existing behavior and deploys the UI and workloads to
-`KUBECONFIG`. To deploy them to the tenant HostedCluster, use its generated
-kubeconfig:
+`KUBECONFIG`. To start Argus in non-Kata mode and deploy the demo to the tenant
+HostedCluster, run:
 
 ```bash
-make deploy-argus-gtc-demo-tenant
+make start-argus-gtc-demo-tenant
 ```
 
-When Kata, the PF0 VF pool, and the matching network attachment are already
-configured, this command starts the demo directly. It does not run
-`make enable-kata` or install Kata/DPU networking.
+This command enables or updates Argus on the DPU side, then deploys the demo to
+`ZT_TENANT_KUBECONFIG`. It does not run `make enable-kata`, install Kata, or
+configure DPU VFs. To redeploy only the demo after Argus is already running,
+use `make deploy-argus-gtc-demo-tenant`.
 
 The tenant target uses `ZT_TENANT_KUBECONFIG` for namespace creation, routes,
 Kata workloads, and the agent. It reads DPU deployment status from management
@@ -120,7 +113,7 @@ This command:
 
 - Removes the legacy Argus log-cleaner DaemonSet (if present).
 - Deploys the Kata workload, scenario sink, NetworkPolicy, and UI to the selected demo target cluster (management by default; tenant with `make deploy-argus-gtc-demo-tenant`).
-- Runs both Kata pods with the target cluster's configured RuntimeClass. Tenant deployments default to the standard `kata` class; the demo does not create a RuntimeClass.
+- Runs both Kata pods with the target cluster's configured RuntimeClass. Tenant deployments default to standard `kata` without DPU VF passthrough; the demo does not create a RuntimeClass.
 - Configures the demo server to read DPU deployment status with a read-only management token and native Argus reports through a scoped DPU HostedCluster token.
 - Deploys the NeMo Agent Toolkit pod in its own Kata VM on the same worker as `invisible-vm` in the selected demo target cluster.
 - Deploys an in-cluster canary Service on TCP/31999 (NodePort exists, but the agent configuration uses the canary Service DNS name). Bash still runs inside the agent pod. The UI Route is the public entry; do not create a Route to the agent.
@@ -193,13 +186,13 @@ named `argus-gtc-agent-host-access` AdminNetworkPolicy.
 | No Argus events in UI | Argus pods Running on hosted cluster; the demo server's scoped hosted token can list and exec into `doca-argus-*`; logs under `/var/log/doca_argus_activity_report/`; log-cleaner absent |
 | Argus status Pending | `KUBECONFIG=doca.kubeconfig oc get pods -n dpf-operator-system \| grep argus` |
 | DPU status Degraded | Open `/api/status` and inspect `details.dpu`. Re-run the matching deploy target to refresh management read access. If `ready: false` with conditions, check `oc get dpudeployment dpudeployment -n dpf-operator-system` using the management kubeconfig. |
-| Workload Pending | Kata VF pool on PF0; NAD/injector applied |
+| Workload Pending | Confirm RuntimeClass `kata` exists and the tenant worker has enough CPU and memory; the tenant no-VF path does not need a VF pool or Kata NAD |
 | UI image pull errors | Ensure `ARGUS_GTC_SERVER_IMAGE` points to a registry the cluster can pull (image pull secret if private) |
 | Agent actions disabled | Check `ARGUS_GTC_MODEL_BASE_URL`, `ARGUS_GTC_MODEL_NAME`, and `oc -n argus-gtc-demo rollout status deploy/argus-gtc-agent` |
-| Kata agent Pending | Confirm a second PF0 Kata VF is free on the same worker as `invisible-vm`; inspect `oc -n argus-gtc-demo describe pod -l app=argus-gtc-agent` |
+| Kata agent Pending | Both demo pods require placement on one worker; inspect CPU/memory availability and `oc -n argus-gtc-demo describe pod -l app=argus-gtc-agent` |
 | Agent does not call the tool | Use a tool-calling-compatible model and inspect its response. The UI reports no tool call without inferring a deliberate refusal; do not claim an attempted connection. |
 | Canary has no `uid=` output | Confirm `argus-gtc-canary` is Ready, NodePort 31999 is allocated, and the agent ANP allows TCP/31999 to nodes. Check canary logs. |
-| Shell connected but Argus did not show it | Inspect native Argus logs for `TCP Network Connection State Change`, `Network Connection Created`, `Process Created`, or `Reverse Shell Detected` with `argus-gtc-agent-shell-<run-id>` or the agent pod. Check that Argus is scanning the agent's Kata VF on PF0. The UI does not mark this run as Argus observed without a matching native event. |
+| Shell connected but Argus did not show it | Guest process/socket events are not expected in the tenant no-VF mode because Argus cannot introspect inside those Kata guests. The UI does not mark this run as Argus observed without a matching native event. |
 | Argus report tailing fails | Check the demo server logs and the `argus-gtc-hosted-reader` Role/RoleBinding in DPU HostedCluster `dpf-operator-system`; re-run the matching deploy target to refresh its token. |
 | Executable Memory returns `no-native-event` | Confirm the Python action completed and held the mapping for 45 seconds. Inspect native Argus reports for `New Executable Anonymous Memory Mapped` on `invisible-vm` with the run marker; confirm the live memory collector is enabled. A process event by itself is insufficient. |
 | Audit Evasion returns `no-native-alert` | Confirm the live Argus config has `shell_command.disable_scan=false`, `shell_history_cleared=true`, and `shell_history_disabled=true`; inspect `/var/log/doca_argus/` for profile or collection failures. A correlated `Executable Permissions Removed` MEDIUM alert does not satisfy this scenario. |
