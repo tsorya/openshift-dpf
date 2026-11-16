@@ -1,0 +1,33 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: argus-gtc-agent
+  namespace: argus-gtc-demo
+  annotations:
+    haproxy.router.openshift.io/timeout: 180s
+  labels:
+    app: argus-gtc-agent
+spec:
+  selector:
+    app: argus-gtc-agent
+  ports:
+    - name: gateway
+      port: 8081
+      targetPort: gateway
+---
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: argus-gtc-agent
+  namespace: argus-gtc-demo
+  labels:
+    app: argus-gtc-agent
+spec:
+  to:
+    kind: Service
+    name: argus-gtc-agent
+  port:
+    targetPort: gateway
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect

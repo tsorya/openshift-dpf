@@ -1,0 +1,33 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: argus-gtc-demo
+  namespace: argus-gtc-demo
+  labels:
+    app: argus-gtc-demo
+spec:
+  selector:
+    app: argus-gtc-demo
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+---
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: argus-gtc-demo
+  namespace: argus-gtc-demo
+  annotations:
+    haproxy.router.openshift.io/timeout: 180s
+  labels:
+    app: argus-gtc-demo
+spec:
+  to:
+    kind: Service
+    name: argus-gtc-demo
+  port:
+    targetPort: http
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect

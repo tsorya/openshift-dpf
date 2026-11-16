@@ -904,6 +904,7 @@ def create_app() -> FastAPI:
                         response = await client.post(
                             f"{settings.agent_url.rstrip('/')}/generate",
                             json={"input_message": request_message},
+                            headers={"Authorization": f"Bearer {settings.agent_token}"},
                         )
                     response.raise_for_status()
                     agent_response = response.json()

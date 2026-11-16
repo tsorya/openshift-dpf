@@ -47,11 +47,15 @@ ALLOWED_SCENARIOS = frozenset(SCENARIO_CATALOG)
 class ScenarioController:
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
-        try:
-            config.load_incluster_config()
-        except config.ConfigException:
-            config.load_kube_config()
-        self.core = client.CoreV1Api()
+        if settings.tenant_kubeconfig:
+            api_client = config.new_client_from_config(settings.tenant_kubeconfig)
+        else:
+            try:
+                config.load_incluster_config()
+            except config.ConfigException:
+                config.load_kube_config()
+            api_client = client.ApiClient()
+        self.core = client.CoreV1Api(api_client)
         self._active_scenario: str | None = None
         self._active_scenario_run_id: str | None = None
         self._active_started_at: str | None = None

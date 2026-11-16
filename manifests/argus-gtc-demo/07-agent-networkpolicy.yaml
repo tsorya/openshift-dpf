@@ -11,13 +11,9 @@ spec:
     - Ingress
     - Egress
   ingress:
-    - from:
-        - podSelector:
-            matchLabels:
-              app: argus-gtc-demo
-      ports:
+    - ports:
         - protocol: TCP
-          port: 8000
+          port: 8001
   egress:
     - to:
         - podSelector:
@@ -26,8 +22,8 @@ spec:
       ports:
         - protocol: TCP
           port: 8080
-    # Direct OpenAI API access. The separate AdminNetworkPolicy still denies
-    # any node destination except the demo canary port.
+    # Direct model API and infra UI Route callbacks. The AdminNetworkPolicy
+    # scopes node access to the UI route and demo canary.
     - to:
         - ipBlock:
             cidr: 0.0.0.0/0

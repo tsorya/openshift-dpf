@@ -20,6 +20,7 @@ spec:
         demo.argus.nvidia.com/model-key-hash: <ARGUS_GTC_MODEL_API_KEY_SHA256>
         demo.argus.nvidia.com/hosted-kubeconfig-hash: <ARGUS_GTC_HOSTED_KUBECONFIG_SHA256>
         demo.argus.nvidia.com/management-kubeconfig-hash: <ARGUS_GTC_MANAGEMENT_KUBECONFIG_SHA256>
+        demo.argus.nvidia.com/tenant-kubeconfig-hash: <ARGUS_GTC_TENANT_KUBECONFIG_SHA256>
     spec:
       serviceAccountName: argus-gtc-demo
       containers:
@@ -42,6 +43,8 @@ spec:
               value: /etc/hosted/kubeconfig
             - name: ARGUS_GTC_MANAGEMENT_KUBECONFIG
               value: /etc/management/kubeconfig
+            - name: ARGUS_GTC_TENANT_KUBECONFIG
+              value: /etc/tenant/kubeconfig
             - name: ARGUS_GTC_INGEST_TOKEN
               valueFrom:
                 secretKeyRef:
@@ -53,7 +56,7 @@ spec:
                   name: argus-gtc-agent-auth
                   key: token
             - name: ARGUS_GTC_AGENT_URL
-              value: http://argus-gtc-agent.argus-gtc-demo.svc:8081
+              value: <ARGUS_GTC_AGENT_URL>
             - name: ARGUS_GTC_MODEL_BASE_URL
               value: "<ARGUS_GTC_MODEL_BASE_URL>"
             - name: ARGUS_GTC_MODEL_NAME
@@ -79,6 +82,9 @@ spec:
               readOnly: true
             - name: management-kubeconfig
               mountPath: /etc/management
+              readOnly: true
+            - name: tenant-kubeconfig
+              mountPath: /etc/tenant
               readOnly: true
           readinessProbe:
             httpGet:
@@ -110,37 +116,6 @@ spec:
         - name: management-kubeconfig
           secret:
             secretName: argus-gtc-management-kubeconfig
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: argus-gtc-demo
-  namespace: argus-gtc-demo
-  labels:
-    app: argus-gtc-demo
-spec:
-  selector:
-    app: argus-gtc-demo
-  ports:
-    - name: http
-      port: 8080
-      targetPort: http
----
-apiVersion: route.openshift.io/v1
-kind: Route
-metadata:
-  name: argus-gtc-demo
-  namespace: argus-gtc-demo
-  annotations:
-    haproxy.router.openshift.io/timeout: 180s
-  labels:
-    app: argus-gtc-demo
-spec:
-  to:
-    kind: Service
-    name: argus-gtc-demo
-  port:
-    targetPort: http
-  tls:
-    termination: edge
-    insecureEdgeTerminationPolicy: Redirect
+        - name: tenant-kubeconfig
+          secret:
+            secretName: argus-gtc-tenant-kubeconfig

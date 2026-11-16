@@ -26,10 +26,24 @@ def _load_config(kubeconfig: str | None = None) -> None:
 class K8sAdapter:
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
-        _load_config()
-        self.apps = client.AppsV1Api()
-        self.core = client.CoreV1Api()
-        self.custom = client.CustomObjectsApi()
+        if self.settings.tenant_kubeconfig:
+            try:
+                tenant_client = config.new_client_from_config(
+                    self.settings.tenant_kubeconfig
+                )
+            except Exception:
+                logger.exception("failed to load tenant kubeconfig")
+                tenant_client = None
+            if tenant_client is None:
+                raise RuntimeError("tenant kubeconfig could not be loaded")
+            self.apps = client.AppsV1Api(tenant_client)
+            self.core = client.CoreV1Api(tenant_client)
+            self.custom = client.CustomObjectsApi(tenant_client)
+        else:
+            _load_config()
+            self.apps = client.AppsV1Api()
+            self.core = client.CoreV1Api()
+            self.custom = client.CustomObjectsApi()
         if self.settings.management_kubeconfig:
             self.management_custom = self._management_api()
         else:

@@ -1,5 +1,5 @@
-# The AI agent runs in its own Kata VM so Argus can observe its host-connect
-# attempt from the DPU. The existing Kata workload remains unchanged.
+# The AI agent runs in its own Kata VM on the tenant cluster. The local NAT
+# runtime is reachable only through the sidecar's authenticated gateway.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -45,6 +45,7 @@ spec:
           ports:
             - name: http
               containerPort: 8000
+          command: ["nat", "serve", "--config_file", "/app/workflow.yml", "--host", "127.0.0.1", "--port", "8000"]
           env:
             - name: ARGUS_GTC_AGENT_TOKEN
               valueFrom:
@@ -62,6 +63,8 @@ spec:
                   key: api-key
             - name: ARGUS_GTC_HOST_IP
               value: argus-gtc-canary.argus-gtc-demo.svc
+            - name: ARGUS_GTC_DEMO_SERVER_URL
+              value: <ARGUS_GTC_SERVER_URL>
           securityContext:
             allowPrivilegeEscalation: false
             capabilities:
@@ -69,15 +72,15 @@ spec:
             seccompProfile:
               type: RuntimeDefault
           readinessProbe:
-            tcpSocket:
-              port: http
+            exec:
+              command: ["python", "-c", "import socket; socket.create_connection(('127.0.0.1', 8000), timeout=2).close()"]
             initialDelaySeconds: 15
             timeoutSeconds: 3
             periodSeconds: 10
             failureThreshold: 6
           livenessProbe:
-            tcpSocket:
-              port: http
+            exec:
+              command: ["python", "-c", "import socket; socket.create_connection(('127.0.0.1', 8000), timeout=2).close()"]
             initialDelaySeconds: 30
             timeoutSeconds: 3
             periodSeconds: 20
@@ -89,18 +92,43 @@ spec:
             limits:
               cpu: "2"
               memory: 2Gi
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: argus-gtc-agent
-  namespace: argus-gtc-demo
-  labels:
-    app: argus-gtc-agent
-spec:
-  selector:
-    app: argus-gtc-agent
-  ports:
-    - name: http
-      port: 8081
-      targetPort: http
+        - name: gateway
+          image: <ARGUS_GTC_AGENT_IMAGE>
+          imagePullPolicy: IfNotPresent
+          command: ["uvicorn", "argus_gtc_agent.gateway:app", "--host", "0.0.0.0", "--port", "8001"]
+          ports:
+            - name: gateway
+              containerPort: 8001
+          env:
+            - name: ARGUS_GTC_AGENT_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: argus-gtc-agent-auth
+                  key: token
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+            seccompProfile:
+              type: RuntimeDefault
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: gateway
+            initialDelaySeconds: 2
+            timeoutSeconds: 3
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: gateway
+            initialDelaySeconds: 10
+            timeoutSeconds: 3
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 25m
+              memory: 64Mi
+            limits:
+              cpu: 250m
+              memory: 256Mi

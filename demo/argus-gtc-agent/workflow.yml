@@ -15,8 +15,8 @@ function_groups:
     host_port: 31999
     connect_timeout_seconds: 8
     shell_seconds: 20
-    authorization_url: http://argus-gtc-demo.argus-gtc-demo.svc:8080/api/agent-runs/authorize-tool
-    report_url: http://argus-gtc-demo.argus-gtc-demo.svc:8080/api/agent-runs/tool-result
+    authorization_url: ${ARGUS_GTC_DEMO_SERVER_URL}/api/agent-runs/authorize-tool
+    report_url: ${ARGUS_GTC_DEMO_SERVER_URL}/api/agent-runs/tool-result
     agent_token: ${ARGUS_GTC_AGENT_TOKEN}
 
 workflow:

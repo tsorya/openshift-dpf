@@ -46,7 +46,7 @@ spec:
             - name: ARGUS_GTC_SHELL_SECONDS
               value: "20"
             - name: ARGUS_GTC_CANARY_REPORT_URL
-              value: http://argus-gtc-demo.argus-gtc-demo.svc:8080/api/agent-runs/shell-session
+              value: <ARGUS_GTC_SERVER_URL>/api/agent-runs/shell-session
             - name: ARGUS_GTC_AGENT_TOKEN
               valueFrom:
                 secretKeyRef:

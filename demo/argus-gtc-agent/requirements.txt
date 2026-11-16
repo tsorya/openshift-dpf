@@ -1,1 +1,2 @@
 nvidia-nat[langchain,async-endpoints]==1.8.0
+httpx>=0.27,<1

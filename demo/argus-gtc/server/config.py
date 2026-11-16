@@ -40,6 +40,7 @@ class Settings(BaseSettings):
     )
     hosted_kubeconfig: str = ""
     management_kubeconfig: str = ""
+    tenant_kubeconfig: str = ""
 
     demo_image: str = "quay.io/itsoiref/argus-gtc-demo:workload-ubi9-v1"
 

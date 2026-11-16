@@ -348,7 +348,7 @@ deploy-argus-gtc-demo:
 
 .PHONY: deploy-argus-gtc-demo-tenant
 deploy-argus-gtc-demo-tenant:
-	@ARGUS_GTC_DEMO_KUBECONFIG="$${ZT_TENANT_KUBECONFIG:-tenant.kubeconfig}" scripts/argus-gtc-demo.sh deploy
+	@ARGUS_GTC_WORKLOAD_KUBECONFIG="$${ZT_TENANT_KUBECONFIG:-tenant.kubeconfig}" scripts/argus-gtc-demo.sh deploy
 
 .PHONY: start-argus-gtc-demo-tenant
 start-argus-gtc-demo-tenant:
@@ -361,11 +361,17 @@ cleanup-argus-gtc-demo:
 
 .PHONY: cleanup-argus-gtc-demo-tenant
 cleanup-argus-gtc-demo-tenant:
-	@ARGUS_GTC_DEMO_KUBECONFIG="$${ZT_TENANT_KUBECONFIG:-tenant.kubeconfig}" scripts/argus-gtc-demo.sh cleanup
+	@ARGUS_GTC_WORKLOAD_KUBECONFIG="$${ZT_TENANT_KUBECONFIG:-tenant.kubeconfig}" scripts/argus-gtc-demo.sh cleanup
 
 .PHONY: watch-argus-gtc-acl
 watch-argus-gtc-acl:
 	@bash scripts/argus-gtc-acl-watch.sh
+
+.PHONY: watch-argus-gtc-acl-tenant
+watch-argus-gtc-acl-tenant:
+	@demo_route_host="$$(oc --kubeconfig="$${ARGUS_GTC_DEMO_KUBECONFIG:-$${KUBECONFIG}}" -n argus-gtc-demo get route argus-gtc-demo -o jsonpath='{.spec.host}' 2>/dev/null)"; \
+	 if [ -z "$$demo_route_host" ]; then echo "Could not find the infra demo Route host; deploy the tenant demo first." >&2; exit 1; fi; \
+	 ARGUS_GTC_DEMO_URL="https://$$demo_route_host" KUBECONFIG="$${ZT_TENANT_KUBECONFIG:-tenant.kubeconfig}" bash scripts/argus-gtc-acl-watch.sh
 
 .PHONY: cleanup-kata-vfs
 cleanup-kata-vfs:
@@ -720,10 +726,11 @@ help:
 	@echo "  enable-argus      - Install the DOCA Argus DPU service (Kata VF introspection requires PF0 and ARGUS_REPRESENTOR_ID)"
 	@echo "  deploy-argus-gtc-demo - Deploy Argus GTC demo UI and workload"
 	@echo "  cleanup-argus-gtc-demo - Remove Argus GTC demo resources only"
-	@echo "  deploy-argus-gtc-demo-tenant - Deploy demo to tenant HostedCluster (Argus already enabled)"
+	@echo "  deploy-argus-gtc-demo-tenant - Run the UI on infra and Kata workloads on the tenant HostedCluster"
 	@echo "  start-argus-gtc-demo-tenant - Start Argus in non-Kata mode, then deploy tenant demo"
-	@echo "  cleanup-argus-gtc-demo-tenant - Remove demo from tenant HostedCluster"
+	@echo "  cleanup-argus-gtc-demo-tenant - Remove UI from infra and workloads from tenant HostedCluster"
 	@echo "  watch-argus-gtc-acl - Stream the demo agent's OVN ACL drop evidence to the UI"
+	@echo "  watch-argus-gtc-acl-tenant - Stream tenant agent OVN ACL evidence to the infra UI"
 	@echo "  deploy-kata-test  - Deploy kata-dpu-test Deployment (KATA_TEST_REPLICAS, default 1)"
 	@echo "  cleanup-kata-vfs  - Rebind stale vfio-pci VFs to mlx5_core on worker-dpu (FORCE=true to skip running-pod check)"
 	@echo "  configure-flannel - Deploy flannel IPAM controller for automatic podCIDR assignment"
@@ -823,10 +830,11 @@ help:
 	@echo "  KATA_SRIOV_PF_INDEX - PF index for Kata VF pool setup (Argus VF introspection uses PF0)"
 	@echo "  ARGUS_ENABLED    - If true, deploy DOCA Argus with DPU services (default: false)"
 	@echo "  ARGUS_REPRESENTOR_ID - DPU PF0 VU string used for Argus Kata VF introspection"
-	@echo "  ARGUS_GTC_DEMO_KUBECONFIG - Optional kubeconfig for the demo app and Kata workloads (default: KUBECONFIG)"
+	@echo "  ARGUS_GTC_DEMO_KUBECONFIG - Optional kubeconfig for the demo UI/server (default: KUBECONFIG)"
+	@echo "  ARGUS_GTC_WORKLOAD_KUBECONFIG - Optional kubeconfig for Kata workloads (default: ARGUS_GTC_DEMO_KUBECONFIG)"
 	@echo "  ARGUS_GTC_DEMO_IMAGE - Kata workload and sink image (default: quay.io/itsoiref/argus-gtc-demo:workload-ubi9-v2)"
-	@echo "  ARGUS_GTC_SERVER_IMAGE - Demo server/UI image (default: quay.io/itsoiref/argus-gtc-demo:v47-memory-phonehome)"
-	@echo "  ARGUS_GTC_AGENT_IMAGE - Agent image (default: quay.io/itsoiref/argus-gtc-agent:nat-1.8.0-v19-agent-shell)"
+	@echo "  ARGUS_GTC_SERVER_IMAGE - Demo server/UI image (default: quay.io/itsoiref/argus-gtc-demo:v48-infra-ui-tenant-workloads)"
+	@echo "  ARGUS_GTC_AGENT_IMAGE - Agent image (default: quay.io/itsoiref/argus-gtc-agent:nat-1.8.0-v20-tenant-gateway)"
 	@echo "  ARGUS_GTC_KATA_RUNTIME_CLASS - Kata RuntimeClass on a separate demo target (default: kata)"
 	@echo "  SKIP_DEPLOY_STORAGE - If true, skip LSO/LVM/ODF deployment; ETCD_STORAGE_CLASS must point to existing StorageClass (default: false)"
 	@echo "  ETCD_STORAGE_CLASS - StorageClass for hosted cluster etcd (default: $(ETCD_STORAGE_CLASS)); required when SKIP_DEPLOY_STORAGE=true"

@@ -29,8 +29,11 @@ MANIFESTS_DIR=${MANIFESTS_DIR:-"${REPO_ROOT}/manifests"}
 GENERATED_DIR=${GENERATED_DIR:-"${MANIFESTS_DIR}/generated"}
 MANAGEMENT_KUBECONFIG=""
 DEMO_KUBECONFIG=""
+WORKLOAD_KUBECONFIG=""
+DEMO_SERVER_URL=""
+DEMO_AGENT_URL=""
 
-trap 'rm -f "${GENERATED_DEMO_DIR}/.hosted-kubeconfig" "${GENERATED_DEMO_DIR}/.management-kubeconfig"' EXIT
+trap 'rm -f "${GENERATED_DEMO_DIR}/.hosted-kubeconfig" "${GENERATED_DEMO_DIR}/.management-kubeconfig" "${GENERATED_DEMO_DIR}/.tenant-kubeconfig"' EXIT
 
 function kata_worker_role() {
     if oc get mcp worker-dpu &>/dev/null; then
@@ -147,8 +150,61 @@ function agent_canary_egress_to() {
     printf '%s' "${blocks}"
 }
 
+function route_url() {
+    local kubeconfig="$1" route_name="$2" host="" admitted=""
+    for _ in $(seq 1 30); do
+        host=$(KUBECONFIG="${kubeconfig}" oc -n "${DEMO_NAMESPACE}" get route "${route_name}" \
+            -o jsonpath='{.spec.host}' 2>/dev/null || true)
+        admitted=$(KUBECONFIG="${kubeconfig}" oc -n "${DEMO_NAMESPACE}" get route "${route_name}" \
+            -o jsonpath='{.status.ingress[0].conditions[?(@.type=="Admitted")].status}' 2>/dev/null || true)
+        if [ -n "${host}" ] && [ "${admitted}" = "True" ]; then
+            printf 'https://%s\n' "${host}"
+            return 0
+        fi
+        sleep 2
+    done
+    log "ERROR" "Route ${DEMO_NAMESPACE}/${route_name} did not receive a host"
+    return 1
+}
+
+function agent_infra_server_egress_rule() {
+    if [ "${DEMO_KUBECONFIG}" = "${WORKLOAD_KUBECONFIG}" ]; then
+        return 0
+    fi
+
+    local host ip blocks="" attempt
+    host="${DEMO_SERVER_URL#https://}"
+    host="${host%%/*}"
+    for attempt in $(seq 1 30); do
+        blocks=""
+        while read -r ip; do
+            [ -z "${ip}" ] && continue
+            [[ "${ip}" == *:* ]] && continue
+            blocks+="            - ${ip}/32"$'\n'
+        done < <(getent ahostsv4 "${host}" | awk '{print $1}' | sort -u)
+        [ -n "${blocks}" ] && break
+        sleep 2
+    done
+    if [ -z "${blocks}" ]; then
+        log "ERROR" "Could not resolve infra UI route ${host}; cannot safely allow the tenant agent callback"
+        exit 1
+    fi
+
+    cat <<EOF
+    - name: allow-agent-to-infra-demo
+      action: Allow
+      to:
+        - networks:
+$(printf '%s' "${blocks}")
+      ports:
+        - portNumber:
+            protocol: TCP
+            port: 443
+EOF
+}
+
 function render_demo_manifests() {
-    local worker_role ingest_token ingest_token_hash server_url agent_token agent_token_hash model_key_hash agent_model_name canary_egress hosted_kubeconfig_hash management_kubeconfig_hash
+    local worker_role ingest_token ingest_token_hash server_url agent_url agent_token agent_token_hash model_key_hash agent_model_name canary_egress infra_server_egress hosted_kubeconfig_hash management_kubeconfig_hash tenant_kubeconfig_hash
     worker_role=$(kata_worker_role)
     ingest_token="${ARGUS_GTC_INGEST_TOKEN:-$(openssl rand -hex 16)}"
     ingest_token_hash=$(printf '%s' "${ingest_token}" | sha256sum | awk '{print $1}')
@@ -157,8 +213,12 @@ function render_demo_manifests() {
     model_key_hash=$(printf '%s' "${ARGUS_GTC_MODEL_API_KEY:-}" | sha256sum | awk '{print $1}')
     agent_model_name="${ARGUS_GTC_MODEL_NAME:-unconfigured-model}"
     canary_egress=$(agent_canary_egress_to)
+    infra_server_egress=$(agent_infra_server_egress_rule)
     hosted_kubeconfig_hash=$(sha256sum "${GENERATED_DEMO_DIR}/.hosted-kubeconfig" | awk '{print $1}')
     management_kubeconfig_hash=$(sha256sum "${GENERATED_DEMO_DIR}/.management-kubeconfig" | awk '{print $1}')
+    tenant_kubeconfig_hash=$(sha256sum "${GENERATED_DEMO_DIR}/.tenant-kubeconfig" | awk '{print $1}')
+    server_url="${DEMO_SERVER_URL:-http://argus-gtc-demo.${DEMO_NAMESPACE}.svc:8080}"
+    agent_url="${DEMO_AGENT_URL:-http://argus-gtc-agent.${DEMO_NAMESPACE}.svc:8081}"
     mkdir -p "${GENERATED_DEMO_DIR}"
 
     for manifest in "${DEMO_MANIFESTS_DIR}"/*.yaml; do
@@ -181,11 +241,14 @@ function render_demo_manifests() {
             "<ARGUS_GTC_MODEL_API_KEY_SHA256>" "${model_key_hash}" \
             "<ARGUS_GTC_HOSTED_KUBECONFIG_SHA256>" "${hosted_kubeconfig_hash}" \
             "<ARGUS_GTC_MANAGEMENT_KUBECONFIG_SHA256>" "${management_kubeconfig_hash}" \
+            "<ARGUS_GTC_TENANT_KUBECONFIG_SHA256>" "${tenant_kubeconfig_hash}" \
             "<ARGUS_GTC_MODEL_BASE_URL>" "${ARGUS_GTC_MODEL_BASE_URL:-}" \
             "<ARGUS_GTC_MODEL_NAME>" "${ARGUS_GTC_MODEL_NAME:-}" \
             "<ARGUS_GTC_AGENT_MODEL_NAME>" "${agent_model_name}" \
-            "<ARGUS_GTC_SERVER_URL>" "${server_url:-http://argus-gtc-demo.${DEMO_NAMESPACE}.svc:8080}" \
-            "<ARGUS_GTC_CANARY_EGRESS_TO>" "${canary_egress}"
+            "<ARGUS_GTC_SERVER_URL>" "${server_url}" \
+            "<ARGUS_GTC_AGENT_URL>" "${agent_url}" \
+            "<ARGUS_GTC_CANARY_EGRESS_TO>" "${canary_egress}" \
+            "<ARGUS_GTC_INFRA_SERVER_EGRESS_RULE>" "${infra_server_egress}"
         chmod 600 "${out}"
         log "INFO" "Rendered ${out}"
     done
@@ -211,7 +274,7 @@ function write_scoped_kubeconfig() {
 function create_hosted_kubeconfig_secret() {
     local kubeconfig_path="${GENERATED_DEMO_DIR}/.hosted-kubeconfig"
     mkdir -p "${GENERATED_DEMO_DIR}"
-    oc create namespace "${DEMO_NAMESPACE}" --dry-run=client -o yaml | oc apply -f -
+    KUBECONFIG="${DEMO_KUBECONFIG}" oc create namespace "${DEMO_NAMESPACE}" --dry-run=client -o yaml | KUBECONFIG="${DEMO_KUBECONFIG}" oc apply -f -
 
     log "INFO" "Creating scoped DPU HostedCluster access for Argus pod status and logs"
     KUBECONFIG="${HOSTED_KUBECONFIG}" oc apply -f "${DEMO_MANIFESTS_DIR}/11-hosted-rbac.yaml"
@@ -223,23 +286,46 @@ function create_hosted_kubeconfig_secret() {
         --dry-run=client -o yaml | KUBECONFIG="${DEMO_KUBECONFIG}" oc apply -f -
 }
 
+function create_tenant_kubeconfig_secret() {
+    local kubeconfig_path="${GENERATED_DEMO_DIR}/.tenant-kubeconfig"
+    mkdir -p "${GENERATED_DEMO_DIR}"
+
+    KUBECONFIG="${WORKLOAD_KUBECONFIG}" oc create namespace "${DEMO_NAMESPACE}" \
+        --dry-run=client -o yaml | KUBECONFIG="${WORKLOAD_KUBECONFIG}" oc apply -f -
+    log "INFO" "Creating scoped workload-cluster access for the infra-hosted demo server"
+    KUBECONFIG="${WORKLOAD_KUBECONFIG}" oc apply -f "${DEMO_MANIFESTS_DIR}/12-tenant-rbac.yaml"
+    write_scoped_kubeconfig "${WORKLOAD_KUBECONFIG}" "${DEMO_NAMESPACE}" \
+        argus-gtc-tenant-reader "${kubeconfig_path}"
+    KUBECONFIG="${DEMO_KUBECONFIG}" oc -n "${DEMO_NAMESPACE}" create secret generic \
+        argus-gtc-tenant-kubeconfig \
+        --from-file=kubeconfig="${kubeconfig_path}" \
+        --dry-run=client -o yaml | KUBECONFIG="${DEMO_KUBECONFIG}" oc apply -f -
+}
+
 function initialize_demo_kubeconfigs() {
     get_kubeconfig
     MANAGEMENT_KUBECONFIG="$(canonical_path "${KUBECONFIG}")"
     DEMO_KUBECONFIG="$(_strip_surrounding_quotes "${ARGUS_GTC_DEMO_KUBECONFIG:-${MANAGEMENT_KUBECONFIG}}")"
     DEMO_KUBECONFIG="$(canonical_path "${DEMO_KUBECONFIG}")"
+    WORKLOAD_KUBECONFIG="$(_strip_surrounding_quotes "${ARGUS_GTC_WORKLOAD_KUBECONFIG:-${DEMO_KUBECONFIG}}")"
+    WORKLOAD_KUBECONFIG="$(canonical_path "${WORKLOAD_KUBECONFIG}")"
 
     if [ ! -r "${DEMO_KUBECONFIG}" ]; then
-        log "ERROR" "Demo target kubeconfig is missing or unreadable: ${DEMO_KUBECONFIG}"
+        log "ERROR" "Demo UI/server kubeconfig is missing or unreadable: ${DEMO_KUBECONFIG}"
+        return 1
+    fi
+    if [ ! -r "${WORKLOAD_KUBECONFIG}" ]; then
+        log "ERROR" "Demo workload kubeconfig is missing or unreadable: ${WORKLOAD_KUBECONFIG}"
         log "ERROR" "For the tenant target, create the tenant cluster first and check ZT_TENANT_KUBECONFIG=${ZT_TENANT_KUBECONFIG}"
         return 1
     fi
-    if [ "${DEMO_KUBECONFIG}" = "$(canonical_path "${HOSTED_KUBECONFIG}")" ]; then
-        log "ERROR" "Demo target kubeconfig must not be the DPU hosted-cluster kubeconfig"
+    if [ "${DEMO_KUBECONFIG}" = "$(canonical_path "${HOSTED_KUBECONFIG}")" ] ||
+        [ "${WORKLOAD_KUBECONFIG}" = "$(canonical_path "${HOSTED_KUBECONFIG}")" ]; then
+        log "ERROR" "Demo UI/server and workload kubeconfigs must not be the DPU hosted-cluster kubeconfig"
         return 1
     fi
 
-    if [ "${DEMO_KUBECONFIG}" = "${MANAGEMENT_KUBECONFIG}" ]; then
+    if [ "${WORKLOAD_KUBECONFIG}" = "${MANAGEMENT_KUBECONFIG}" ]; then
         DEMO_KATA_RUNTIME_CLASS="${KATA_RUNTIME_CLASS}"
         DEMO_KATA_NAD_NAME="${KATA_NAD_NAME}"
         if [ "${KATA_ENABLED}" = "true" ]; then
@@ -249,12 +335,12 @@ function initialize_demo_kubeconfigs() {
             fi
             DEMO_KATA_VF_PASSTHROUGH="true"
         fi
-        log "INFO" "Demo target is the management cluster (${DEMO_KUBECONFIG})"
+        log "INFO" "Demo UI and workload target are the management cluster (${DEMO_KUBECONFIG})"
     else
         DEMO_KATA_RUNTIME_CLASS="${ARGUS_GTC_KATA_RUNTIME_CLASS:-kata}"
         DEMO_KATA_NAD_NAME=""
         DEMO_KATA_VF_PASSTHROUGH="false"
-        log "INFO" "Demo target is ${DEMO_KUBECONFIG}; management operations remain on ${MANAGEMENT_KUBECONFIG}"
+        log "INFO" "Demo UI/Argus reader is on ${DEMO_KUBECONFIG}; Kata workloads are on ${WORKLOAD_KUBECONFIG}"
         log "INFO" "Using standard Kata RuntimeClass ${DEMO_KATA_RUNTIME_CLASS} without DPU VF passthrough"
     fi
 }
@@ -274,10 +360,10 @@ function create_management_kubeconfig_secret() {
 
 function wait_for_demo_ready() {
     log "INFO" "Waiting for demo server pod..."
-    retry 30 10 oc -n "${DEMO_NAMESPACE}" rollout status deploy/argus-gtc-demo --timeout=120s
-    retry 30 10 oc -n "${DEMO_NAMESPACE}" rollout status deploy/invisible-vm --timeout=300s
-    retry 30 10 oc -n "${DEMO_NAMESPACE}" rollout status deploy/argus-gtc-agent --timeout=300s
-    retry 30 10 oc -n "${DEMO_NAMESPACE}" rollout status deploy/argus-gtc-canary --timeout=120s
+    KUBECONFIG="${DEMO_KUBECONFIG}" retry 30 10 oc -n "${DEMO_NAMESPACE}" rollout status deploy/argus-gtc-demo --timeout=120s
+    KUBECONFIG="${WORKLOAD_KUBECONFIG}" retry 30 10 oc -n "${DEMO_NAMESPACE}" rollout status deploy/invisible-vm --timeout=300s
+    KUBECONFIG="${WORKLOAD_KUBECONFIG}" retry 30 10 oc -n "${DEMO_NAMESPACE}" rollout status deploy/argus-gtc-agent --timeout=300s
+    KUBECONFIG="${WORKLOAD_KUBECONFIG}" retry 30 10 oc -n "${DEMO_NAMESPACE}" rollout status deploy/argus-gtc-canary --timeout=120s
 }
 
 function deploy_argus_gtc_demo() {
@@ -286,7 +372,7 @@ function deploy_argus_gtc_demo() {
         log "ERROR" "Hosted cluster kubeconfig is required for Argus status and log collection"
         exit 1
     fi
-    export KUBECONFIG="${DEMO_KUBECONFIG}"
+    export KUBECONFIG="${WORKLOAD_KUBECONFIG}"
     log "INFO" "Demo target context: $(oc config current-context 2>/dev/null || echo unknown)"
     require_demo_prereqs
     require_agent_network_policy_prereqs
@@ -294,22 +380,33 @@ function deploy_argus_gtc_demo() {
     remove_legacy_hosted_collector
 
     log "INFO" "Using pre-built demo server image ${ARGUS_GTC_SERVER_IMAGE}"
+    KUBECONFIG="${WORKLOAD_KUBECONFIG}" oc create namespace "${DEMO_NAMESPACE}" --dry-run=client -o yaml | KUBECONFIG="${WORKLOAD_KUBECONFIG}" oc apply -f -
     create_hosted_kubeconfig_secret
+    create_tenant_kubeconfig_secret
     create_management_kubeconfig_secret
+
+    KUBECONFIG="${DEMO_KUBECONFIG}" oc apply -f "${DEMO_MANIFESTS_DIR}/13-demo-server-endpoint.yaml"
+    KUBECONFIG="${WORKLOAD_KUBECONFIG}" oc apply -f "${DEMO_MANIFESTS_DIR}/14-agent-endpoint.yaml"
+    if [ "${DEMO_KUBECONFIG}" = "${WORKLOAD_KUBECONFIG}" ]; then
+        DEMO_SERVER_URL="http://argus-gtc-demo.${DEMO_NAMESPACE}.svc:8080"
+        DEMO_AGENT_URL="http://argus-gtc-agent.${DEMO_NAMESPACE}.svc:8081"
+    else
+        DEMO_SERVER_URL="$(route_url "${DEMO_KUBECONFIG}" argus-gtc-demo)" || exit 1
+        DEMO_AGENT_URL="$(route_url "${WORKLOAD_KUBECONFIG}" argus-gtc-agent)" || exit 1
+    fi
     render_demo_manifests
 
-    log "INFO" "Applying demo manifests to ${DEMO_KUBECONFIG}"
+    log "INFO" "Applying Kata workload manifests to ${WORKLOAD_KUBECONFIG}"
     apply_manifest "${GENERATED_DEMO_DIR}/00-namespace.yaml" "true"
-    apply_manifest "${GENERATED_DEMO_DIR}/01-rbac.yaml" "true"
+    apply_manifest "${GENERATED_DEMO_DIR}/12-tenant-rbac.yaml" "true"
     apply_manifest "${GENERATED_DEMO_DIR}/02-networkpolicy.yaml" "true"
     apply_manifest "${GENERATED_DEMO_DIR}/03-sink.yaml" "true"
     apply_manifest "${GENERATED_DEMO_DIR}/04-workload.yaml" "true"
-
-    local ingest_token
-    ingest_token=$(cat "${GENERATED_DEMO_DIR}/.ingest-token")
-    oc -n "${DEMO_NAMESPACE}" create secret generic argus-gtc-ingest-token \
-        --from-literal=token="${ingest_token}" \
-        --dry-run=client -o yaml | oc apply -f -
+    apply_manifest "${GENERATED_DEMO_DIR}/09-canary.yaml" "true"
+    apply_manifest "${GENERATED_DEMO_DIR}/08-agent-host-access-deny.yaml" "true"
+    wait_for_agent_network_policy_ready
+    apply_manifest "${GENERATED_DEMO_DIR}/07-agent-networkpolicy.yaml" "true"
+    apply_manifest "${GENERATED_DEMO_DIR}/06-agent.yaml" "true"
 
     local agent_token
     agent_token=$(<"${GENERATED_DEMO_DIR}/.agent-token")
@@ -319,29 +416,41 @@ function deploy_argus_gtc_demo() {
     oc -n "${DEMO_NAMESPACE}" create secret generic argus-gtc-model-auth \
         --from-literal=api-key="${ARGUS_GTC_MODEL_API_KEY:-}" \
         --dry-run=client -o yaml | oc apply -f -
-
-    apply_manifest "${GENERATED_DEMO_DIR}/05-demo-server.yaml" "true"
-    apply_manifest "${GENERATED_DEMO_DIR}/09-canary.yaml" "true"
-    apply_manifest "${GENERATED_DEMO_DIR}/08-agent-host-access-deny.yaml" "true"
-    wait_for_agent_network_policy_ready
-    apply_manifest "${GENERATED_DEMO_DIR}/07-agent-networkpolicy.yaml" "true"
-    apply_manifest "${GENERATED_DEMO_DIR}/06-agent.yaml" "true"
-    oc -n "${DEMO_NAMESPACE}" set image deployment/argus-gtc-demo \
-        server="${ARGUS_GTC_SERVER_IMAGE}"
     oc -n "${DEMO_NAMESPACE}" set image deployment/argus-gtc-canary \
         canary="${ARGUS_GTC_SERVER_IMAGE}"
+
+    export KUBECONFIG="${DEMO_KUBECONFIG}"
+    log "INFO" "Applying demo UI and reader manifests to ${DEMO_KUBECONFIG}"
+    apply_manifest "${GENERATED_DEMO_DIR}/00-namespace.yaml" "true"
+    apply_manifest "${GENERATED_DEMO_DIR}/01-rbac.yaml" "true"
+    local ingest_token
+    ingest_token=$(cat "${GENERATED_DEMO_DIR}/.ingest-token")
+    oc -n "${DEMO_NAMESPACE}" create secret generic argus-gtc-ingest-token \
+        --from-literal=token="${ingest_token}" \
+        --dry-run=client -o yaml | oc apply -f -
+
+    oc -n "${DEMO_NAMESPACE}" create secret generic argus-gtc-agent-auth \
+        --from-literal=token="${agent_token}" \
+        --dry-run=client -o yaml | oc apply -f -
+    oc -n "${DEMO_NAMESPACE}" create secret generic argus-gtc-model-auth \
+        --from-literal=api-key="${ARGUS_GTC_MODEL_API_KEY:-}" \
+        --dry-run=client -o yaml | oc apply -f -
+
+    apply_manifest "${GENERATED_DEMO_DIR}/05-demo-server.yaml" "true"
+    oc -n "${DEMO_NAMESPACE}" set image deployment/argus-gtc-demo \
+        server="${ARGUS_GTC_SERVER_IMAGE}"
 
     wait_for_demo_ready
 
     local route
-    route=$(oc -n "${DEMO_NAMESPACE}" get route argus-gtc-demo -o jsonpath='{.spec.host}' 2>/dev/null || true)
+    route=$(KUBECONFIG="${DEMO_KUBECONFIG}" oc -n "${DEMO_NAMESPACE}" get route argus-gtc-demo -o jsonpath='{.spec.host}' 2>/dev/null || true)
     if [ -n "${route}" ]; then
         log "INFO" "Demo UI: https://${route}"
     else
         log "INFO" "Demo UI service: http://argus-gtc-demo.${DEMO_NAMESPACE}.svc:8080"
     fi
 
-    log "INFO" "Argus GTC demo deployed to ${DEMO_KUBECONFIG}. Argus reports are read through the DPU hosted kubeconfig. See docs/argus-gtc-demo-runbook.md"
+    log "INFO" "Argus GTC UI/reader deployed to ${DEMO_KUBECONFIG}; Kata workloads deployed to ${WORKLOAD_KUBECONFIG}. Argus reports are read through the DPU hosted kubeconfig. See docs/argus-gtc-demo-runbook.md"
 }
 
 function cleanup_argus_gtc_demo() {
@@ -351,10 +460,12 @@ function cleanup_argus_gtc_demo() {
     fi
 
     export KUBECONFIG="${DEMO_KUBECONFIG}"
-    log "INFO" "Removing Argus GTC demo resources from ${DEMO_KUBECONFIG}"
+    log "INFO" "Removing Argus GTC UI and reader resources from ${DEMO_KUBECONFIG}"
     oc delete clusterrolebinding argus-gtc-demo-monitoring-view --ignore-not-found
-    oc delete adminnetworkpolicy argus-gtc-agent-host-access --ignore-not-found
     oc delete namespace "${DEMO_NAMESPACE}" --ignore-not-found --wait=false
+
+    KUBECONFIG="${WORKLOAD_KUBECONFIG}" oc delete adminnetworkpolicy argus-gtc-agent-host-access --ignore-not-found
+    KUBECONFIG="${WORKLOAD_KUBECONFIG}" oc delete namespace "${DEMO_NAMESPACE}" --ignore-not-found --wait=false
 
     KUBECONFIG="${MANAGEMENT_KUBECONFIG}" oc delete rolebinding argus-gtc-demo-dpu-read \
         -n dpf-operator-system --ignore-not-found
