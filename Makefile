@@ -334,6 +334,14 @@ enable-ovn-injector:
 enable-kata:
 	@scripts/enable-kata.sh enable
 
+.PHONY: enable-kata-tenant
+enable-kata-tenant:
+	@scripts/enable-kata-tenant.sh enable
+
+.PHONY: verify-kata-tenant
+verify-kata-tenant:
+	@scripts/enable-kata-tenant.sh verify
+
 .PHONY: enable-argus
 enable-argus:
 	@scripts/enable-argus.sh enable
@@ -723,6 +731,8 @@ help:
 	@echo "  scale-out-zt-dpus - Create DPUNodes for hosts added to WORKER_<N>_DPU_BMC_IPS and refresh per-DPU services"
 	@echo "  scale-in-zt-dpus - Remove one host's Zero Trust DPUNode and DPUs (usage: make scale-in-zt-dpus DPU_NODE=dpu-node-worker-<N>)"
 	@echo "  enable-kata       - OSC (inert KataConfig) + kata-coldplug on worker-dpu (also last make all step when KATA_ENABLED=true)"
+	@echo "  enable-kata-tenant - kata-deploy DaemonSet + SELinux relabel on the tenant HostedCluster (no MCP there)"
+	@echo "  verify-kata-tenant - Check tenant RuntimeClasses, node labels, and SELinux labels"
 	@echo "  enable-argus      - Install the DOCA Argus DPU service (Kata VF introspection requires PF0 and ARGUS_REPRESENTOR_ID)"
 	@echo "  deploy-argus-gtc-demo - Deploy Argus GTC demo UI and workload"
 	@echo "  cleanup-argus-gtc-demo - Remove Argus GTC demo resources only"
